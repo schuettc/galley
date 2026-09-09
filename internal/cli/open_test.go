@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,7 +112,7 @@ func TestOpenReportsADocumentADeadSessionStillHolds(t *testing.T) {
 	if err == nil {
 		t.Fatal("opened a document whose editor is still shutting down")
 	}
-	want := "opened by session session-gone, which has stopped; its editor is shutting down, retry in a few seconds"
+	want := fmt.Sprintf("opened by session session-gone, which has stopped; its editor is shutting down, retry in a few seconds — if it is still there, stop it (pid %d)", os.Getpid())
 	if got := err.Error(); got != want {
 		t.Fatalf("error = %q, want %q", got, want)
 	}
@@ -140,14 +141,7 @@ func TestOpenResolvesARelativePath(t *testing.T) {
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n")
 	e := plantAdvert(t, doc, "session-me")
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(wd) })
+	t.Chdir(dir)
 
 	c := newChannel(dir, "session-me")
 	r, err := openDoc(t, c, "doc.md")

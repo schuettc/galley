@@ -122,7 +122,7 @@ func (c *channel) findOpen(adv string) (openResult, bool, error) {
 			return openResult{}, false, fmt.Errorf("open in session %s; its wakes go there", e.Owner)
 		default:
 			return openResult{}, false, fmt.Errorf("opened by session %s, which has stopped; "+
-				"its editor is shutting down, retry in a few seconds", e.Owner)
+				"its editor is shutting down, retry in a few seconds — if it is still there, stop it (pid %d)", e.Owner, e.PID)
 		}
 	}
 	return openResult{}, false, nil

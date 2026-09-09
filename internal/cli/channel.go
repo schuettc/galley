@@ -394,7 +394,8 @@ func (c *channel) claim(e registry.Entry) (bool, string) {
 			"its wakes go to that session, not this one", e.Owner)
 	default:
 		return false, fmt.Sprintf("opened by session %s, which is no longer running — "+
-			"its editor is shutting down; open it again with galley_open to review it in this session", e.Owner)
+			"its editor is shutting down; open it again with galley_open to review it in this session — "+
+			"if it is still there, stop it (pid %d)", e.Owner, e.PID)
 	}
 }
 
