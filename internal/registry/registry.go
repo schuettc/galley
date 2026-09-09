@@ -496,6 +496,24 @@ func sessionToken(id string) string {
 	return "h-" + hex.EncodeToString(sum[:16])
 }
 
+// Token is sessionToken, exported for the one caller outside this package
+// that needs a filename derived from an id: the channel's galley_open names an
+// editor's log after the page it serves, and a page path is not a filename.
+func Token(id string) string { return sessionToken(id) }
+
+// LogDir is where galley_open sends an editor's stdout and stderr — a
+// SUBDIRECTORY of Dir, like sessionsDir and for the same reason: Inspect globs
+// "*.json" in Dir itself and never recurses, so a log can never be mistaken
+// for an advert. 0o700 like everything else here; the registry is per-user.
+func LogDir() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	sub := filepath.Join(dir, "logs")
+	return sub, os.MkdirAll(sub, 0o700)
+}
+
 // AnnounceSession records that this process is listening for `id`. Called by
 // `galley channel` at startup; safe to call more than once.
 func AnnounceSession(id string) error {
