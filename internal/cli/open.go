@@ -13,7 +13,12 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/schuettc/galley/internal/registry"
 )
@@ -113,7 +118,101 @@ func (c *channel) findOpen(abs string) (openResult, bool, error) {
 	return openResult{}, false, nil
 }
 
-// spawnEditor is implemented in the next task.
+// spawnEditor starts `galley edit <abs> --no-open --owner <self>` and waits
+// for its advert.
+//
+// DETACHED, AND ON PURPOSE IN EVERY PARTICULAR. Setsid puts the editor in its
+// own session and process group, so a channel that restarts (the MCP server
+// re-spawns within a living session) does not take the review down with it —
+// the editor's own owner watch decides when to stop, on the session's
+// presence, with a six-second debounce that rides out exactly that restart.
+// Stdin is /dev/null: nothing will ever write to it, and an inherited pipe is
+// how a detached process ends up blocked or killed on its parent's fd. Stdout
+// and stderr go to a log named after the page, truncated on each open, so a
+// startup failure has somewhere to be read from.
+//
+// This process does NOT hold the child. cmd.Wait runs on its own goroutine so
+// the zombie is reaped when the editor eventually exits; the tool returns as
+// soon as the advert appears.
 func (c *channel) spawnEditor(abs string) (openResult, error) {
-	return openResult{}, fmt.Errorf("galley_open: spawning %s is not implemented yet", abs)
+	if c.exe == "" {
+		return openResult{}, fmt.Errorf("cannot locate the galley binary to start an editor with")
+	}
+	logDir, err := registry.LogDir()
+	if err != nil {
+		return openResult{}, fmt.Errorf("cannot create the editor log directory: %w", err)
+	}
+	logPath := filepath.Join(logDir, registry.Token(abs)+".log")
+	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return openResult{}, fmt.Errorf("cannot open the editor log %s: %w", logPath, err)
+	}
+	args := []string{"edit", abs, "--no-open"}
+	if c.self != "" {
+		args = append(args, "--owner", c.self)
+	}
+	cmd := exec.Command(c.exe, args...)
+	cmd.Stdin = nil // /dev/null
+	cmd.Stdout, cmd.Stderr = logf, logf
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		_ = logf.Close()
+		return openResult{}, fmt.Errorf("cannot start galley edit: %w", err)
+	}
+	_ = logf.Close() // the child holds its own descriptor
+	fmt.Fprintf(os.Stderr, "[galley channel] started editor pid=%d for %s (log %s)\n", cmd.Process.Pid, abs, logPath)
+
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	deadline := time.After(c.openTimeout)
+	tick := time.NewTicker(c.openPoll)
+	defer tick.Stop()
+	for {
+		select {
+		case waitErr := <-exited:
+			status := "exited"
+			if waitErr != nil {
+				status = waitErr.Error() // "exit status N"
+			}
+			return openResult{}, fmt.Errorf("galley edit %s before advertising (%s):\n%s", status, logPath, tailLines(logPath, 20))
+		case <-deadline:
+			return openResult{}, fmt.Errorf("galley edit started (pid %d) but advertised nothing within %s; see %s",
+				cmd.Process.Pid, c.openTimeout, logPath)
+		case <-tick.C:
+			if r, ok := c.ownAdvert(abs); ok {
+				return r, nil
+			}
+		}
+	}
+}
+
+// ownAdvert reports the advert for abs that belongs to this session — the one
+// the editor just spawned writes once it is listening. A channel with no
+// session id spawned an unowned editor and looks for an unowned advert.
+func (c *channel) ownAdvert(abs string) (openResult, bool) {
+	entries, _, err := registry.Inspect()
+	if err != nil {
+		return openResult{}, false
+	}
+	for _, e := range entries {
+		if samePage(e.Page, abs) && e.Owner == c.self {
+			return openResult{URL: e.URL, Room: e.Room, Page: e.Page}, true
+		}
+	}
+	return openResult{}, false
+}
+
+// tailLines is the last n lines of a file, or "" when it cannot be read — the
+// editor's log is best-effort context on an error, never the error itself.
+func tailLines(path string, n int) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
