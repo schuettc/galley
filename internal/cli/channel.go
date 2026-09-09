@@ -62,7 +62,7 @@ Whenever you write to answer a round, on any event: make targeted, in-place edit
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
 On "approve", the reviewer approved the document as it stands and the review is over. On "changed", re-read the document before acting. On "closed", the editor is gone and nobody is waiting for more review work.
 If you expect a review and hear nothing, call galley_channel_status. It reports which open documents this session is attached to and why any others are not.
-The channel carries rounds from editors that are already open; it cannot open one, and no tool here does. If you are asked to put a document under review, start the editor yourself, in the background because it is a server that does not return: galley edit <doc> --no-open. It prints a URL — give that to the reviewer, and their rounds arrive here.`
+To put a document under review, call galley_open with its path: it starts the editor for this session and returns the URL — give that to the reviewer, and their rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
 
 // reviseGuidance is the rule set that governs answering a "revise" or
 // "settle" event — see reasonGuidance below.

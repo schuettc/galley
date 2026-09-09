@@ -9,19 +9,13 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 ## Starting a review
 
-**A review does not exist until an editor is running, and you can start one yourself.** The channel only delivers rounds from editors that are already open; it has no tool that opens a document. Run the CLI **in the background** — it is a server and does not return:
+**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and returns the URL. **Give that URL to the human** — they open it, and from then on their Revise rounds arrive here as channel events. Calling it again for the same document returns the same URL.
 
-```
-galley edit path/to/doc.md --no-open
-```
+`galley_open` accepts HTML files too. For `page.html` it extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
 
-`galley edit` also accepts HTML files. `galley edit page.html` extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
+**Never run `galley edit` from a shell while the channel is present.** An editor opened that way belongs to no session, so any channel whose scope covers it may claim it, and the rounds can land in a different conversation. `galley edit` is the human's command, for a review with no agent attached.
 
-It prints a URL. **Give that URL to the human** — they open it, and from then on their Revise rounds arrive here as channel events.
-
-Use `--no-open` when you start it, so a browser does not open on a machine nobody is watching. Drop it if the human is at that machine and wants the tab.
-
-Do **not** poll `galley wait` to find out whether a review started. If no editor is running for the file, `galley wait` exits immediately — that means "nothing to wait for", not "try again". Start the editor instead.
+Do **not** poll `galley wait` to find out whether a review started. If no editor is running for the file, `galley wait` exits immediately — that means "nothing to wait for", not "try again". Call `galley_open` instead.
 
 ## What the reviewer does, so you can tell them
 

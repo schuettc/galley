@@ -315,7 +315,8 @@ func newApp() *tools.App {
 		Summary:  "MCP channel server — pushes review wakes into the session",
 		Synopsis: "channel [--scope <dir>]",
 		Help: "An MCP channel server on stdio. Registered in .mcp.json and named in\n" +
-			"--channels, it attaches to every `galley edit` this session starts, plus\n" +
+			"--channels, it opens editors for this session through its galley_open tool,\n" +
+			"attaches to every editor this session owns, plus\n" +
 			"any editor under --scope that no LIVE session owns, and pushes each\n" +
 			"Revise, settle, Approve — and the editor going away —\n" +
 			"into the session as a channel event. Every editor it does NOT attach to\n" +
