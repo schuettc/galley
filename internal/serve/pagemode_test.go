@@ -1563,3 +1563,43 @@ func TestConcurrentProjectIsRaceFree(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// THE ADVERT NAMES THE PROSE, NOT THE PAGE. An editor started on page.html
+// serves .galley/pages/page/content.md and advertises that, so anything
+// resolving an advert has to ask for the same transformation rather than
+// rebuilding it — which is how galley_open came to search for a path no
+// editor ever publishes. Case-insensitive, and .md (and everything else)
+// passes through untouched.
+func TestAdvertisedPathNamesTheProseAnEditorServes(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"/w/doc.md", "/w/doc.md"},
+		{"/w/notes.txt", "/w/notes.txt"},
+		{"/w/page.html", "/w/.galley/pages/page/content.md"},
+		{"/w/page.htm", "/w/.galley/pages/page/content.md"},
+		{"/w/PAGE.HTML", "/w/.galley/pages/PAGE/content.md"},
+		{"/w/sub/index.html", "/w/sub/.galley/pages/index/content.md"},
+	} {
+		if got := AdvertisedPath(tc.in); got != tc.want {
+			t.Errorf("AdvertisedPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// And the constructor derives its working directory from that same function:
+// a real page-mode editor's MdPath is exactly what AdvertisedPath predicted,
+// so the two can never drift.
+func TestPageModeServesTheAdvertisedPath(t *testing.T) {
+	dir := t.TempDir()
+	page := filepath.Join(dir, "post.html")
+	if err := os.WriteFile(page, []byte("<html><head><title>T</title></head><body><p>Hello.</p></body></html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := NewEditPage(page)
+	if err != nil {
+		t.Fatalf("NewEditPage: %v", err)
+	}
+	defer func() { _ = srv.Close() }()
+	if got, want := srv.MdPath, AdvertisedPath(page); got != want {
+		t.Errorf("MdPath = %q, want the advertised path %q", got, want)
+	}
+}

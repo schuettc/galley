@@ -62,7 +62,7 @@ Whenever you write to answer a round, on any event: make targeted, in-place edit
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
 On "approve", the reviewer approved the document as it stands and the review is over. On "changed", re-read the document before acting. On "closed", the editor is gone and nobody is waiting for more review work.
 If you expect a review and hear nothing, call galley_channel_status. It reports which open documents this session is attached to and why any others are not.
-The channel carries rounds from editors that are already open; it cannot open one, and no tool here does. If you are asked to put a document under review, start the editor yourself, in the background because it is a server that does not return: galley edit <doc> --no-open. It prints a URL — give that to the reviewer, and their rounds arrive here.`
+To put a document under review, call galley_open with its path: it starts the editor for this session and returns the URL — give that to the reviewer, and their rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
 
 // reviseGuidance is the rule set that governs answering a "revise" or
 // "settle" event — see reasonGuidance below.
@@ -147,6 +147,17 @@ var ackSchema = json.RawMessage(`{
 // always the same one, and a filter would only let the model ask it wrongly.
 var statusSchema = json.RawMessage(`{"type": "object", "properties": {}}`)
 
+// openSchema takes the document and nothing else: which session owns the
+// editor is this channel's to know, and a caller-supplied owner would be the
+// environment-derived owner in different clothes.
+var openSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "doc": {"type": "string", "description": "path to the .md or .html document, absolute or relative to the session's working directory"}
+  },
+  "required": ["doc"]
+}`)
+
 // channelPoll is how long one attach poll is held open — the channel's whole
 // life is re-arming, so minutes-long polls cost nothing and a short one would
 // turn a quiet review into a stream of requests. The server bounds every poll
@@ -169,9 +180,16 @@ type channel struct {
 	scopeReal string
 	self      string // this session's id; "" matches only unowned entries
 	scanEvery time.Duration
-	srv       *mcp.Server
-	mu        sync.Mutex
-	attached  map[string]bool
+	// galley_open's knobs. exe is the binary the tool spawns `edit` from —
+	// this process's own, so the editor is always the channel's version.
+	// openPoll and openTimeout bound the wait for the new editor's advert;
+	// fields, like scanEvery, so a test runs them at millisecond speed.
+	exe         string
+	openPoll    time.Duration
+	openTimeout time.Duration
+	srv         *mcp.Server
+	mu          sync.Mutex
+	attached    map[string]bool
 	// The diagnostic's state — the answer to "why am I not attached?", which
 	// until now no surface in this process could give. Rebuilt on every scan,
 	// except `gone`, which is a short history: an advert that was reaped or an
@@ -210,17 +228,23 @@ func newChannel(scope, self string) *channel {
 		abs = scope
 	}
 	c := &channel{
-		scope:      abs,
-		scopeReal:  resolveSymlinks(abs),
-		self:       self,
-		scanEvery:  100 * time.Millisecond,
-		attached:   map[string]bool{},
-		ended:      map[string]bool{},
-		pages:      map[string]string{},
-		unattached: map[string]string{},
-		stopped:    map[string]bool{},
-		announced:  map[string]bool{},
+		scope:       abs,
+		scopeReal:   resolveSymlinks(abs),
+		self:        self,
+		scanEvery:   100 * time.Millisecond,
+		openPoll:    200 * time.Millisecond,
+		openTimeout: 10 * time.Second,
+		attached:    map[string]bool{},
+		ended:       map[string]bool{},
+		pages:       map[string]string{},
+		unattached:  map[string]string{},
+		stopped:     map[string]bool{},
+		announced:   map[string]bool{},
 	}
+	// os.Executable can fail only in exotic setups; an empty exe makes
+	// galley_open report "cannot locate the galley binary" rather than spawn
+	// something else that happens to be on PATH.
+	c.exe, _ = os.Executable()
 	c.srv = mcp.New(mcp.Handler{
 		Name:         "galley",
 		Version:      version.String(),
@@ -235,6 +259,12 @@ func newChannel(scope, self string) *channel {
 				"which ones this session receives wakes from, and the reason for each one it does not. " +
 				"Call it when a reviewer says they pressed Revise and nothing arrived.",
 			InputSchema: statusSchema,
+		}, {
+			Name: "galley_open",
+			Description: "Put a document under review: start its editor for THIS session and return the URL to give the reviewer. " +
+				"Idempotent — a document this session already has open returns the same URL. " +
+				"This is the only way to open a document; do not run `galley edit` from a shell.",
+			InputSchema: openSchema,
 		}},
 		Call: c.callTool,
 	})
@@ -246,6 +276,14 @@ func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
 	case "galley_ack":
 	case "galley_channel_status":
 		return c.status(), nil
+	case "galley_open":
+		var p struct {
+			Doc string `json:"doc"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil {
+			return "", err
+		}
+		return c.open(p.Doc)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -344,8 +382,9 @@ func (c *channel) inScope(page string) bool {
 // editor is bound to its session's life (see runEdit's session watcher) and
 // shuts itself down when that session ends, so a live advert owned by a dead
 // session is a transient the channel reports and leaves alone. If a restart
-// stranded a review, the fix is to reopen it — `galley edit <doc>` stamps the
-// new session as owner — never to have a bystander answer for it.
+// stranded a review, the fix is to reopen it — galley_open starts the editor
+// from inside the channel and stamps this session as owner — never to have a
+// bystander answer for it.
 func (c *channel) claim(e registry.Entry) (bool, string) {
 	switch {
 	case e.Owner == "" || e.Owner == c.self:
@@ -355,7 +394,8 @@ func (c *channel) claim(e registry.Entry) (bool, string) {
 			"its wakes go to that session, not this one", e.Owner)
 	default:
 		return false, fmt.Sprintf("opened by session %s, which is no longer running — "+
-			"reopen it with `galley edit` to review it in this session", e.Owner)
+			"its editor is shutting down; open it again with galley_open to review it in this session — "+
+			"if it is still there, stop it (pid %d)", e.Owner, e.PID)
 	}
 }
 
@@ -583,7 +623,7 @@ func (c *channel) status() string {
 	}
 	if len(attached) == 0 && len(unattached) == 0 && len(problems) == 0 {
 		b.WriteString("no live editor is advertising itself: nothing on this machine is running `galley edit`, " +
-			"so there is no review to hear from. Run `galley edit <doc.md>` to open one.\n")
+			"so there is no review to hear from. Call galley_open with a document to start one.\n")
 	}
 	if len(problems) > 0 {
 		fmt.Fprintf(&b, "adverts this channel refused (%d):\n%s\n", len(problems), strings.Join(problems, "\n"))

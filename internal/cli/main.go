@@ -207,6 +207,9 @@ func newApp() *tools.App {
 			"The hook is told a round arrived, NOT to go read `galley pending` — a sent\n" +
 			"round is no longer pending, so the woken agent runs `galley wait <doc>`,\n" +
 			"which prints the captured round it was woken by.\n\n" +
+			"--owner <session-id> binds the editor to a session whose channel is live: the\n" +
+			"channel's galley_open tool passes it, and the editor stops when that session\n" +
+			"ends. Without --owner the editor belongs to no session.\n\n" +
 			"--on-revise example:\n" +
 			"  galley edit doc.md --on-revise 'muster send <alias> " +
 			"\"galley: revision requested — run: galley wait <doc>\" " +
@@ -312,8 +315,9 @@ func newApp() *tools.App {
 		Summary:  "MCP channel server — pushes review wakes into the session",
 		Synopsis: "channel [--scope <dir>]",
 		Help: "An MCP channel server on stdio. Registered in .mcp.json and named in\n" +
-			"--channels, it attaches to every `galley edit` this session starts, plus\n" +
-			"any editor under --scope that no LIVE session owns, and pushes each\n" +
+			"--channels, it opens editors for this session through its galley_open tool,\n" +
+			"attaches to every editor this session owns, plus\n" +
+			"any editor under --scope that no session owns at all, and pushes each\n" +
 			"Revise, settle, Approve — and the editor going away —\n" +
 			"into the session as a channel event. Every editor it does NOT attach to\n" +
 			"is reported with its reason, on stderr and through the\n" +

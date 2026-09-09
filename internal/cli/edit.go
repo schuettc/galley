@@ -71,6 +71,7 @@ type editFlags struct {
 	onSettle *string
 	quiet    *time.Duration
 	root     *string
+	owner    *string
 }
 
 func newEditFlags() (*flag.FlagSet, *editFlags) {
@@ -86,6 +87,9 @@ func newEditFlags() (*flag.FlagSet, *editFlags) {
 		root: fs.String("root", "", "site root to serve preview assets from, for an HTML page (default: the page's own "+
 			"directory). Set it to the site root so a subpage's ../shared assets resolve in the preview "+
 			"as they do when the whole site is served from that root."),
+		owner: fs.String("owner", "", "session id that owns this editor — set by the channel's galley_open tool, "+
+			"never by hand. That session's channel must be live; the editor stops when it stops. "+
+			"Omit it for an editor that belongs to no session (a plain terminal)."),
 	}
 	return fs, v
 }
@@ -96,7 +100,11 @@ func runEdit(args []string, out, errw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	port, noOpen, onRevise, onSettle, quiet, root := v.port, v.noOpen, v.onRevise, v.onSettle, v.quiet, v.root
+	port, noOpen, onRevise, onSettle, quiet, root, owner := v.port, v.noOpen, v.onRevise, v.onSettle, v.quiet, v.root, v.owner
+
+	if err := requireLiveOwner(*owner); err != nil {
+		return err
+	}
 
 	srv, err := routeEdit(pos[0], *root)
 	if err != nil {
@@ -155,7 +163,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
 		registry.SaveLastPort(srv.MdPath, addr.Port)
 	}
-	if err := announceEdit(srv, url); err != nil {
+	if err := announceEdit(srv, url, *owner); err != nil {
 		return fmt.Errorf("announce: %w", err)
 	}
 	defer withdrawEdit(srv)
@@ -206,21 +214,18 @@ func runEdit(args []string, out, errw io.Writer) error {
 	})
 
 	// BIND THE EDITOR TO THE SESSION THAT OPENED IT. An editor is launched
-	// detached, so it outlives the bash call that started it — and, left alone,
-	// the SESSION too: an advert owned by a session that is gone is exactly the
-	// orphan the channel used to adopt and misroute. It no longer adopts (see
-	// channel.claim); instead the editor takes itself down when its session ends,
-	// so no orphan is left for anyone to answer. The reviewer's tab gets the
-	// ordinary "editor stopped" close, and a restarted session reopens the doc,
-	// which re-stamps it as owner.
+	// detached, so it outlives the call that started it — and, left alone,
+	// the SESSION too: an advert owned by a session that is gone is exactly
+	// the orphan the channel used to adopt and misroute. It no longer adopts
+	// (see channel.claim); instead the editor takes itself down when its
+	// session ends, so no orphan is left for anyone to answer.
 	//
 	// The session's liveness is its channel's presence (registry.AnnounceSession
-	// / SessionLive), the one process whose life IS the session's. Only bind when
-	// a channel is actually listening for this owner at startup: an editor opened
-	// from a plain terminal — no session id, or `galley wait` with no channel up —
-	// has no session to die with and must serve until Ctrl-C, as it always has.
-	if owner := sessionID(); owner != "" && registry.SessionLive(owner) {
-		go watchOwnerSession(ctx, owner, srv.OnStop)
+	// / SessionLive). requireLiveOwner already proved it at startup, so an
+	// --owner here always binds; an editor with no owner has no session to die
+	// with and serves until Ctrl-C, as it always has.
+	if *owner != "" {
+		go watchOwnerSession(ctx, *owner, srv.OnStop)
 	}
 
 	errCh := make(chan error, 1)
@@ -391,7 +396,7 @@ const reviseShutdownGrace = 5 * time.Second
 // serve.DefaultRuntimePath (via EditServer.RuntimePath, computed the same way)
 // are shared with Server, so a plain `galley pending`/`suggest`/etc. finds an
 // edit-mode server exactly the way `galley reply`/`resolve` find a review one.
-func announceEdit(srv *serve.EditServer, url string) error {
+func announceEdit(srv *serve.EditServer, url, owner string) error {
 	raw, err := json.MarshalIndent(serve.Runtime{
 		URL:  url,
 		Room: srv.Room,
@@ -404,24 +409,22 @@ func announceEdit(srv *serve.EditServer, url string) error {
 	if err := writeFileAtomic(srv.RuntimePath, append(raw, '\n')); err != nil {
 		return err
 	}
-	advertiseEdit(srv, url)
+	advertiseEdit(srv, url, owner)
 	return nil
 }
 
-// advertiseEdit writes THE registry entry, and it is factored out of
-// announceEdit because it has two callers now and they must write the same
-// bytes. Startup announces; a REOPEN re-advertises — the verdict withdrew the
-// entry (OnApprove/OnDiscard), and putting it back is the whole mechanism by
-// which a channel that detached on the verdict discovers the document again.
-// Two spellings of one entry format would drift, and the drift would present
+// advertiseEdit writes THE registry entry. It is factored out of announceEdit
+// so a reopen, if one ever re-advertises, writes the same bytes startup does —
+// two spellings of one entry format would drift, and the drift would present
 // as a channel that silently never re-attaches.
 //
-// The live registry is the channel's discovery surface — see
-// internal/registry. Owner is the session that ran this command; empty means a
-// plain terminal, and the entry is claimable by any channel whose root covers
-// it. Best-effort: an editor that cannot advertise is still an editor, so a
-// registry failure is reported but does not refuse to serve.
-func advertiseEdit(srv *serve.EditServer, url string) {
+// The live registry is the channel's discovery surface — see internal/registry.
+// Owner is --owner's value: the session whose channel asked for this editor,
+// or "" for an editor that belongs to no session and is claimable by any
+// channel whose root covers it. It is NEVER read from the environment here;
+// see requireLiveOwner. Best-effort: an editor that cannot advertise is still
+// an editor, so a registry failure is reported but does not refuse to serve.
+func advertiseEdit(srv *serve.EditServer, url, owner string) {
 	abs, err := filepath.Abs(srv.MdPath)
 	if err != nil {
 		abs = srv.MdPath
@@ -431,7 +434,7 @@ func advertiseEdit(srv *serve.EditServer, url string) {
 		Room:  srv.Room,
 		Page:  abs,
 		PID:   os.Getpid(),
-		Owner: sessionID(),
+		Owner: owner,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "galley: live registry: %v\n", err)
 	}
@@ -440,6 +443,28 @@ func advertiseEdit(srv *serve.EditServer, url string) {
 func withdrawEdit(srv *serve.EditServer) {
 	_ = os.Remove(srv.RuntimePath)
 	_ = registry.Remove(srv.Room)
+}
+
+// requireLiveOwner is the whole of the ownership check: --owner names a
+// session, and that session must have a channel listening right now.
+//
+// THE OWNER IS AN ARGUMENT, NEVER THE ENVIRONMENT. This command used to read
+// CLAUDE_CODE_SESSION_ID / AGENT_SESSION_ID and stamp whatever it found. Under
+// pi, in-process subagents rewrite the shared AGENT_SESSION_ID, so an editor
+// launched from the parent's shell after a dispatch was stamped with a child's
+// id and the parent's channel — correctly — refused it (2026-09-08). The
+// channel now opens editors for its own session and passes the id here;
+// nothing else is trusted to know it. An owner with no live presence is
+// refused outright rather than served unbound: an editor that claims a
+// session nothing is listening for is the misroute this flag exists to end.
+func requireLiveOwner(owner string) error {
+	if owner == "" {
+		return nil
+	}
+	if !registry.SessionLive(owner) {
+		return fmt.Errorf("owner session %s has no live channel", owner)
+	}
+	return nil
 }
 
 // watchOwnerSession stops the editor once the session that opened it is gone,

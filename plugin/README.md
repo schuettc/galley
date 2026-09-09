@@ -52,9 +52,9 @@ The plugin does not track the binary. It ships protocol text, not code, and most
 
 The floor is the one that catches people. **v0.4.0 is the first build with the verification key embedded**, so anything older runs trial-only whatever key it is given. Raising that sentence to the current version would tell a 0.4.0 user their licence is no good, which is false. It is a statement about the past and it stays put.
 
-## What the channel cannot do
+## Opening a document
 
-The channel delivers rounds from editors that are already open. **It cannot open a document** — there is no tool for it, and there deliberately isn't one: opening a document is the reviewer's act, and the editor is a server the agent starts on their behalf rather than a call that returns. An agent asked to put a document under review runs `galley edit <doc> --no-open` in the background and hands over the URL. The skill says so, and so do the channel instructions.
+The channel opens documents for its own session through the `galley_open` tool. It starts `galley edit <doc> --no-open --owner <session>` detached, waits for the editor's advert, and returns the URL for the reviewer. The editor is bound to the session's channel presence and stops itself a few seconds after the session ends. An agent must not run `galley edit` from a shell while the channel is present: an editor opened that way carries no owner, and the first channel whose scope covers it claims it. `galley edit` without `--owner` is the human's command. The skill says so, and so do the channel instructions.
 
 ## Where the channel is not available
 
