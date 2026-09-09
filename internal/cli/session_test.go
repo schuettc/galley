@@ -2,11 +2,11 @@ package cli
 
 import "testing"
 
-// The owner identity is read from the environment by `galley edit` (stamping)
-// and `galley channel` (attach routing). Claude Code sets
-// CLAUDE_CODE_SESSION_ID; pi sets AGENT_SESSION_ID and deliberately does not
-// set the Claude one. Precedence favours the Claude variable so that every
-// existing Claude Code session behaves exactly as it did before.
+// The channel reads its session id from the variable its spawner set: Claude
+// Code sets CLAUDE_CODE_SESSION_ID, channels.tools sets AGENT_SESSION_ID. Each
+// harness sets exactly one; the Claude variable wins if both are ever present
+// so a Claude Code session never changes identity because something else was
+// also in its environment. `galley edit` no longer reads either.
 func TestSessionID(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

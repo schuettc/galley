@@ -300,3 +300,35 @@ func TestSessionPresenceSurvivesAHostileID(t *testing.T) {
 		t.Errorf("the presence filename carries a path separator: %q", entries[0].Name())
 	}
 }
+
+// Token is sessionToken exported, because the channel needs a filename for an
+// editor's log and a page path is exactly the kind of id that is not a
+// filename. Same rule both ways: plain ids pass through, anything else is
+// hashed rather than refused.
+func TestTokenPassesPlainIDsAndHashesTheRest(t *testing.T) {
+	if got := Token("01a08409-2c9b-773e-a688-3eafc9464bba"); got != "01a08409-2c9b-773e-a688-3eafc9464bba" {
+		t.Fatalf("a plain id was rewritten: %q", got)
+	}
+	got := Token("/Users/court/docs/plan.md")
+	if !strings.HasPrefix(got, "h-") || len(got) != len("h-")+32 {
+		t.Fatalf("a path was not hashed to h-<32 hex>: %q", got)
+	}
+	if Token("/a/b.md") == Token("/a/c.md") {
+		t.Fatal("two different paths hashed to one token")
+	}
+}
+
+func TestLogDirLivesUnderTheRegistryDir(t *testing.T) {
+	dir := tempLiveDir(t)
+	got, err := LogDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "logs"); got != want {
+		t.Fatalf("LogDir = %q, want %q", got, want)
+	}
+	info, err := os.Stat(got)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("LogDir did not create %s: %v", got, err)
+	}
+}

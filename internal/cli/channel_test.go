@@ -402,3 +402,29 @@ func TestTheHandshakeCoreIsSmall(t *testing.T) {
 		t.Errorf("handshake core is %d bytes; the answering rules belong on the event", n)
 	}
 }
+
+// THE HANDSHAKE TEACHES galley_open AND WARNS OFF THE SHELL. The old paragraph
+// told the agent to run `galley edit` itself, which is how an editor came to be
+// stamped with whatever session id the shell happened to carry. Both halves
+// are pinned: the tool by name, and the prohibition, because an agent that
+// knows the tool and is not told the shell is wrong will still reach for the
+// command it remembers.
+func TestTheHandshakeCoreTeachesGalleyOpen(t *testing.T) {
+	lower := strings.ToLower(channelInstructions)
+	if !strings.Contains(lower, "galley_open") {
+		t.Error("channelInstructions never names galley_open")
+	}
+	if !strings.Contains(lower, "never run galley edit") {
+		t.Error("channelInstructions does not warn the agent off `galley edit` from a shell")
+	}
+	if strings.Contains(lower, "cannot open one") || strings.Contains(lower, "start the editor yourself") {
+		t.Error("channelInstructions still carries the pre-galley_open paragraph")
+	}
+	skill := strings.ToLower(pluginSkill(t))
+	if !strings.Contains(skill, "galley_open") {
+		t.Error("the plugin skill never names galley_open")
+	}
+	if strings.Contains(skill, "has no tool that opens a document") {
+		t.Error("the plugin skill still says the channel cannot open a document")
+	}
+}
