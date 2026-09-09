@@ -222,6 +222,18 @@ async function waitForDisk(re, ms = 6000) {
   }
 }
 
+// POLLED, NOT `page.waitForFunction(async () => …)`: an async page function
+// returns a PROMISE, a promise is truthy, and such a wait resolves on its first
+// poll whatever the fetch said. See the note in the sweep check below.
+async function waitForWire(page, fn, arg, ms = 15000) {
+  const until = Date.now() + ms;
+  for (;;) {
+    if (await page.evaluate(fn, arg)) return;
+    if (Date.now() > until) throw new Error('waitForWire timed out');
+    await page.waitForTimeout(50);
+  }
+}
+
 async function ack(page, state, note = '') {
   return page.evaluate(
     async ({ ackState, ackNote }) => {
@@ -1405,6 +1417,10 @@ try {
   // owns the .md, and the watcher imports what it saves. That is the real path,
   // so it is the one driven here.
   async function agentReturns(next, manifest) {
+    const roundsBefore = await page.evaluate(
+      async () =>
+        (await (await fetch('/_galley/versions')).json()).rounds.length,
+    );
     writeFileSync(doc, next);
     await page.waitForFunction(
       (t) => document.querySelector('.ProseMirror').innerText.includes(t),
@@ -1438,11 +1454,12 @@ try {
       },
     );
     if (status !== 204) throw new Error(`ack answered ${status}`);
-    await page.waitForFunction(
+    await waitForWire(
+      page,
       async (n) =>
-        (await (await fetch('/_galley/versions')).json()).rounds.length >= n,
-      undefined,
-      { timeout: 10000 },
+        (await (await fetch('/_galley/versions')).json()).rounds.length > n,
+      roundsBefore,
+      10000,
     );
     await page.waitForTimeout(900);
   }
@@ -1465,10 +1482,15 @@ try {
     if (!(await page.locator('.gly-verdict-menu').isVisible()))
       await page.click('#gly-revise');
     await page.click('.gly-verdict-revise');
-    await page.waitForFunction(
-      async () =>
-        (await (await fetch('/_galley/pending')).json()).instructions.length ===
-        0,
+    // THE WINDOW, NOT THE CLEARED PENDING SET. The press clears the
+    // instructions in its FIRST mutation and opens the response window several
+    // steps later (a synchronous projection and a version commit in between),
+    // so `instructions.length === 0` goes true while `s.watch` is still nil —
+    // and the ack the agent sends next is refused 409 "nothing has been asked
+    // of you". `handoff` is the flag openResponseWindow sets LAST.
+    await waitForWire(
+      page,
+      async () => (await (await fetch('/_galley/revise')).json()).handoff,
     );
     return asked;
   }
