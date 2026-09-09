@@ -171,3 +171,48 @@ func TestTailLinesReturnsTheLastN(t *testing.T) {
 		t.Fatalf("tailLines on a missing file = %q, want empty", got)
 	}
 }
+
+// AN HTML PAGE IS OPENED BY THE PATH THE EDITOR ADVERTISES, NOT THE PATH IT
+// WAS GIVEN. `galley edit page.html` serves the prose it extracts, so the
+// advert names .galley/pages/<base>/content.md; matching adverts on the input
+// path meant galley_open never recognised the editor it had just spawned and
+// timed out on every HTML page. This drives the real binary end to end.
+func TestOpenAnHTMLPageResolvesTheAdvertisedContentFile(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	page := filepath.Join(dir, "post.html")
+	if err := os.WriteFile(page, []byte(minimalHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.AnnounceSession("session-me"); err != nil {
+		t.Fatal(err)
+	}
+	c := newChannel(dir, "session-me")
+	c.exe = buildGalley(t)
+	c.openPoll = 20 * time.Millisecond
+
+	r, err := openDoc(t, c, page)
+	if err != nil {
+		t.Fatalf("galley_open on an HTML page: %v", err)
+	}
+	t.Cleanup(func() { killEditor(t, r.Room) })
+
+	if r.URL == "" || r.Room == "" {
+		t.Fatalf("incomplete result %+v", r)
+	}
+	if !strings.HasSuffix(r.Page, string(filepath.Separator)+"content.md") {
+		t.Fatalf("Page = %q, want the advertised content.md the editor serves", r.Page)
+	}
+	if got := advertOwner(t, r.Room); got != "session-me" {
+		t.Fatalf("spawned editor's owner = %q, want session-me", got)
+	}
+
+	// And it resolves rather than spawning a second editor next time.
+	again, err := openDoc(t, c, page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Room != r.Room {
+		t.Fatalf("second open started a second editor: %s then %s", r.Room, again.Room)
+	}
+}

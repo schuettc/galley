@@ -105,7 +105,11 @@ func newEditPage(htmlPath, siteRoot string) (*EditServer, error) {
 		return nil, err
 	}
 
-	dir := filepath.Join(filepath.Dir(abs), ".galley", "pages", pageBase(abs))
+	// One source of truth for where a page's prose lives: AdvertisedPath is
+	// what the editor will advertise for this input, and the working directory
+	// is that file's own. A caller resolving an advert (galley_open) asks the
+	// same function rather than rebuilding the path beside it.
+	dir := filepath.Dir(AdvertisedPath(abs))
 	contentPath, original, err := writePageWorkdir(dir, src, ex)
 	if err != nil {
 		return nil, err
@@ -199,6 +203,25 @@ func (s *EditServer) pageBoundary() {
 	}
 	if err := s.Project(); err != nil && s.Log != nil {
 		s.Log("could not re-extract the restructured page at the round boundary: " + err.Error())
+	}
+}
+
+// AdvertisedPath is the path an editor started on abs will ADVERTISE — which
+// is not the path it was started with whenever abs is an HTML page: page mode
+// opens the markdown editor on the prose it extracts, so the advert (and the
+// registry entry, and every wake) names .galley/pages/<base>/content.md.
+//
+// It exists because a caller that resolves adverts (galley_open) matched on
+// the path it was GIVEN and so could never find the editor it had just
+// spawned for a page. The extension switch is routeEdit's, deliberately: the
+// two must agree about what "an HTML page" is, and one of them has to say so.
+// Pure — it touches no disk and creates nothing.
+func AdvertisedPath(abs string) string {
+	switch strings.ToLower(filepath.Ext(abs)) {
+	case ".html", ".htm":
+		return filepath.Join(filepath.Dir(abs), ".galley", "pages", pageBase(abs), "content.md")
+	default:
+		return abs
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/registry"
+	"github.com/schuettc/galley/internal/serve"
 )
 
 // openResult is what galley_open returns, as JSON text: enough for the agent
@@ -66,13 +67,21 @@ func (c *channel) open(doc string) (string, error) {
 	if !c.inScope(abs) {
 		return "", fmt.Errorf("%s is outside this channel's scope %s", abs, c.scope)
 	}
-	if r, found, err := c.findOpen(abs); err != nil || found {
+	// WHAT THE EDITOR ADVERTISES IS NOT WHAT IT IS STARTED WITH. `galley edit
+	// page.html` opens the markdown editor on the prose it extracts, so its
+	// advert — and the registry entry every wake is matched against — names
+	// .galley/pages/<base>/content.md. Resolution therefore matches on adv
+	// while the spawn argument and the log token stay keyed on the input: the
+	// child is still told to open the page, and the log is still named after
+	// what the agent asked for.
+	adv := serve.AdvertisedPath(abs)
+	if r, found, err := c.findOpen(adv); err != nil || found {
 		if err != nil {
 			return "", err
 		}
 		return r.text()
 	}
-	r, err := c.spawnEditor(abs)
+	r, err := c.spawnEditor(abs, adv)
 	if err != nil {
 		return "", err
 	}
@@ -81,13 +90,14 @@ func (c *channel) open(doc string) (string, error) {
 
 // findOpen answers "is this document already being served, and by whom".
 // found=false with a nil error means nothing is open and the caller spawns.
-func (c *channel) findOpen(abs string) (openResult, bool, error) {
+// It takes the ADVERTISED path (see open), never the path the tool was given.
+func (c *channel) findOpen(adv string) (openResult, bool, error) {
 	entries, _, err := registry.Inspect()
 	if err != nil {
 		return openResult{}, false, fmt.Errorf("cannot read the live registry: %w", err)
 	}
 	for _, e := range entries {
-		if !samePage(e.Page, abs) {
+		if !samePage(e.Page, adv) {
 			continue
 		}
 		r := openResult{URL: e.URL, Room: e.Room, Page: e.Page}
@@ -134,7 +144,7 @@ func (c *channel) findOpen(abs string) (openResult, bool, error) {
 // This process does NOT hold the child. cmd.Wait runs on its own goroutine so
 // the zombie is reaped when the editor eventually exits; the tool returns as
 // soon as the advert appears.
-func (c *channel) spawnEditor(abs string) (openResult, error) {
+func (c *channel) spawnEditor(abs, adv string) (openResult, error) {
 	if c.exe == "" {
 		return openResult{}, fmt.Errorf("cannot locate the galley binary to start an editor with")
 	}
@@ -180,23 +190,24 @@ func (c *channel) spawnEditor(abs string) (openResult, error) {
 			return openResult{}, fmt.Errorf("galley edit started (pid %d) but advertised nothing within %s; see %s",
 				cmd.Process.Pid, c.openTimeout, logPath)
 		case <-tick.C:
-			if r, ok := c.ownAdvert(abs); ok {
+			if r, ok := c.ownAdvert(adv); ok {
 				return r, nil
 			}
 		}
 	}
 }
 
-// ownAdvert reports the advert for abs that belongs to this session — the one
-// the editor just spawned writes once it is listening. A channel with no
-// session id spawned an unowned editor and looks for an unowned advert.
-func (c *channel) ownAdvert(abs string) (openResult, bool) {
+// ownAdvert reports the advert for the ADVERTISED path that belongs to this
+// session — the one the editor just spawned writes once it is listening. A
+// channel with no session id spawned an unowned editor and looks for an
+// unowned advert.
+func (c *channel) ownAdvert(adv string) (openResult, bool) {
 	entries, _, err := registry.Inspect()
 	if err != nil {
 		return openResult{}, false
 	}
 	for _, e := range entries {
-		if samePage(e.Page, abs) && e.Owner == c.self {
+		if samePage(e.Page, adv) && e.Owner == c.self {
 			return openResult{URL: e.URL, Room: e.Room, Page: e.Page}, true
 		}
 	}

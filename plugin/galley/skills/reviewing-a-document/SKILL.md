@@ -9,7 +9,7 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 ## Starting a review
 
-**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and returns the URL. **Give that URL to the human** — they open it, and from then on their Revise rounds arrive here as channel events. Calling it again for the same document returns the same URL.
+**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and returns the URL. **Give that URL to the human** — they open it, and from then on their Revise rounds arrive here as channel events. Calling it again for the same document returns the same URL unless another session owns it.
 
 `galley_open` accepts HTML files too. For `page.html` it extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
 
