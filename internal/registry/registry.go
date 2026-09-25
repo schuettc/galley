@@ -29,6 +29,8 @@ import (
 	"syscall"
 	"time"
 
+	tools "github.com/schuettc/tools-common"
+
 	"github.com/schuettc/galley/internal/ondisk"
 )
 
@@ -193,25 +195,7 @@ func Write(e Entry) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "."+e.Room+"-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	if _, err := tmp.Write(append(raw, '\n')); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, filepath.Join(dir, e.Room+".json")); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
+	return tools.WriteFileAtomic(filepath.Join(dir, e.Room+".json"), append(raw, '\n'), 0o600)
 }
 
 func Remove(room string) error {
@@ -525,25 +509,7 @@ func AnnounceSession(id string) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(name)
-	tmp, err := os.CreateTemp(dir, ".session-*")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(raw, '\n')); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Rename(tmp.Name(), name); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	return tools.WriteFileAtomic(name, append(raw, '\n'), 0o600)
 }
 
 // WithdrawSession removes this session's presence record. Best-effort by
@@ -614,14 +580,9 @@ func SessionLive(id string) bool {
 // kernel this way, and it is accepted here for the same reason it always was:
 // the alternative is a liveness probe, which answers a different question and
 // can hang.
+//
+// The rule itself now lives in tools-common (tools.PIDAlive) so the whole
+// family shares it; this name stays as galley's single entry point to it.
 func Alive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = p.Signal(syscall.Signal(0))
-	return err == nil || errors.Is(err, syscall.EPERM)
+	return tools.PIDAlive(pid)
 }

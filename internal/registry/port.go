@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	tools "github.com/schuettc/tools-common"
 )
 
 // Port reuse — galley-edits friction #5. `galley edit` binds a fresh random
@@ -103,21 +105,5 @@ func SaveLastPort(docAbsPath string, port int) {
 	if err != nil {
 		return
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(name), ".port-*")
-	if err != nil {
-		return
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return
-	}
-	if err := os.Rename(tmpName, name); err != nil {
-		_ = os.Remove(tmpName)
-	}
+	_ = tools.WriteFileAtomic(name, raw, 0o600)
 }

@@ -44,6 +44,7 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 	ws "github.com/reearth/ygo/provider/websocket"
+	tools "github.com/schuettc/tools-common"
 
 	"github.com/schuettc/galley/internal/ledger"
 	"github.com/schuettc/galley/internal/registry"
@@ -418,32 +419,9 @@ func WriteFileAtomic(path string, raw []byte) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".galley-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	// Cleanup errors on an already-failing path have nowhere useful to go; the
-	// error that matters is the one being returned.
-	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(name)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	if err := os.Rename(name, target); err != nil {
-		_ = os.Remove(name)
-		return err
-	}
-	return nil
+	// The temp/fsync/rename itself is the family's (tools.WriteFileAtomic);
+	// what stays here is galley's policy about WHICH path and WHICH mode.
+	return tools.WriteFileAtomic(target, raw, perm)
 }
 
 // defaultFileMode is what a file this package CREATES gets. 0644 before umask
