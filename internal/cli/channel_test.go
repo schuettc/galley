@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/mcp"
 	"github.com/schuettc/galley/internal/registry"
 	"github.com/schuettc/galley/internal/serve"
 	"github.com/schuettc/galley/internal/suggest"
+	"github.com/schuettc/tools-common/channelmcp"
 )
 
 // The whole loop, in one process: an editor advertises, the channel attaches,
@@ -234,7 +234,7 @@ func TestApproveContentIsTerminal(t *testing.T) {
 	}
 }
 
-var _ = mcp.Handler{} // keep the import while the test file grows
+var _ = channelmcp.Handler{} // keep the import while the test file grows
 
 // A COUNT THAT COULD NOT BE READ IS NOT A ZERO.
 //

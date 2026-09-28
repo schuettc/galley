@@ -2,26 +2,31 @@ package cli
 
 import "testing"
 
-// The channel reads its session id from the variable its spawner set: Claude
-// Code sets CLAUDE_CODE_SESSION_ID, channels.tools sets AGENT_SESSION_ID. Each
-// harness sets exactly one; the Claude variable wins if both are ever present
-// so a Claude Code session never changes identity because something else was
-// also in its environment. `galley edit` no longer reads either.
+// The channel serves the session tools-common/harness resolves: a process its
+// parent marked as its own (AGENT_SESSION_CHILD=1, pi-claude-bridge's Claude
+// children) serves the parent's AGENT_SESSION_ID; otherwise the Claude id
+// wins, so a Claude session started from inside pi keeps its own identity.
+// All three variables are pinned per case so the test never reads the
+// environment it happens to run in. `galley edit` reads none of them.
 func TestSessionID(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		claude string
 		agent  string
+		child  string
 		want   string
 	}{
-		{"neither set", "", "", ""},
-		{"claude only", "claude-abc", "", "claude-abc"},
-		{"agent only", "", "agent-xyz", "agent-xyz"},
-		{"both set, claude wins", "claude-abc", "agent-xyz", "claude-abc"},
+		{"neither set", "", "", "", ""},
+		{"claude only", "claude-abc", "", "", "claude-abc"},
+		{"agent only", "", "agent-xyz", "", "agent-xyz"},
+		{"claude launched from pi: both ids, no marker, claude wins", "claude-abc", "agent-xyz", "", "claude-abc"},
+		{"bridge child: both ids and the marker, agent wins", "claude-abc", "agent-xyz", "1", "agent-xyz"},
+		{"marker without an agent id is ignored", "claude-abc", "", "1", "claude-abc"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("CLAUDE_CODE_SESSION_ID", tc.claude)
 			t.Setenv("AGENT_SESSION_ID", tc.agent)
+			t.Setenv("AGENT_SESSION_CHILD", tc.child)
 			if got := sessionID(); got != tc.want {
 				t.Errorf("sessionID() = %q, want %q", got, tc.want)
 			}
