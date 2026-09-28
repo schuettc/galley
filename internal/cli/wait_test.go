@@ -265,12 +265,12 @@ func TestTeardownSurvivesAStillBlockedWaiter(t *testing.T) {
 func TestWaitWithNoServerRefusesRatherThanDegrading(t *testing.T) {
 	doc := writeDoc(t, t.TempDir(), "doc.md", "# Title\n\nHello.\n")
 
-	err := run([]string{"wait", doc})
-	if err == nil {
+	_, stderr, code := galleyCLI(t, "wait", doc)
+	if code == 0 {
 		t.Fatal("want a non-zero exit with no server running")
 	}
-	if !strings.Contains(err.Error(), "no server running") {
-		t.Fatalf("error %q should say no server is running", err.Error())
+	if !strings.Contains(stderr, "no server running") {
+		t.Fatalf("stderr %q should say no server is running", stderr)
 	}
 }
 

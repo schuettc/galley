@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,8 +14,7 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/ondisk"
-
-	_ "modernc.org/sqlite" // registers the CGO-free "sqlite" database/sql driver
+	"github.com/schuettc/tools-common/sqlitedb"
 )
 
 // THE INDEX IS DERIVED, AND `galley ledger rebuild` IS THE PROOF.
@@ -46,9 +46,9 @@ const schemaVersion = 3
 // works, but it makes "what version is this database" unanswerable, so a
 // migration that is NOT an additive column has nowhere to go. user_version is
 // a counter SQLite already maintains for exactly this, and it costs one pragma.
-var migrations = []func(*sql.Tx) error{
+var migrations = []sqlitedb.Step{
 	// 0 -> 1: the initial schema.
-	func(tx *sql.Tx) error {
+	func(_ context.Context, tx *sql.Tx) error {
 		_, err := tx.Exec(`
 CREATE TABLE decisions (
 	id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +92,7 @@ CREATE TABLE sources (
 	// migration path nobody knows works. TestMigrateV1AddsTheDigestAndDrops
 	// Duplicates builds a v1 database WITH a duplicate in it by hand and takes
 	// it through this step.
-	func(tx *sql.Tx) error {
+	func(_ context.Context, tx *sql.Tx) error {
 		if _, err := tx.Exec(`ALTER TABLE decisions ADD COLUMN digest TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
@@ -146,7 +146,7 @@ CREATE TABLE sources (
 	// 2 -> 3: instructions are ledger rows in the rounds model. Their text and
 	// the round they belong to are first-class columns so the derived index can
 	// answer history queries without decoding every raw line.
-	func(tx *sql.Tx) error {
+	func(_ context.Context, tx *sql.Tx) error {
 		if _, err := tx.Exec(`ALTER TABLE decisions ADD COLUMN round INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
@@ -157,7 +157,7 @@ CREATE TABLE sources (
 
 // Index is the per-user SQLite store.
 type Index struct {
-	db   *sql.DB
+	db   *sqlitedb.DB
 	path string
 }
 
@@ -203,27 +203,22 @@ func OpenIndex() (*Index, error) {
 //
 // Fails soft like everything else here: a home directory that cannot be
 // written returns an error, and the caller's decision still reached the log.
+//
+// tools-common/sqlitedb owns the conventions: WAL so a reader (`stats`) is
+// not blocked by a writer (`sync`), a busy timeout because two galley
+// processes may sync at once, one connection (the index is tiny and the work
+// bursty; a pool buys nothing and costs SQLITE_BUSY), files 0600, and the
+// migrations below as user_version steps, one transaction each.
 func OpenIndexAt(path string) (*Index, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	// busy_timeout because two galley processes may sync at once; WAL so a
-	// reader (`stats`) is not blocked by a writer (`sync`).
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)",
-		filepath.ToSlash(path))
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sqlitedb.Open(context.Background(), path, sqlitedb.Options{Migrations: migrations})
 	if err != nil {
-		return nil, err
+		var newer *sqlitedb.NewerError
+		if errors.As(err, &newer) {
+			return nil, fmt.Errorf("%w — upgrade galley, or delete %s and rebuild", err, path)
+		}
+		return nil, fmt.Errorf("open index %s: %w", path, err)
 	}
-	// One writer. The index is tiny and the work is bursty; a connection pool
-	// buys nothing here and costs SQLITE_BUSY.
-	db.SetMaxOpenConns(1)
-	x := &Index{db: db, path: path}
-	if err := x.migrate(); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("migrate %s: %w", path, err)
-	}
-	return x, nil
+	return &Index{db: db, path: path}, nil
 }
 
 // Path is where this index lives on disk.
@@ -232,46 +227,9 @@ func (x *Index) Path() string { return x.path }
 // Close releases the database.
 func (x *Index) Close() error { return x.db.Close() }
 
-// migrate brings the database up to schemaVersion, one step at a time, each
-// step in its own transaction with the version bump inside it — so an
-// interrupted upgrade is at a version that exists rather than half of one.
-func (x *Index) migrate() error {
-	var have int
-	if err := x.db.QueryRow(`PRAGMA user_version`).Scan(&have); err != nil {
-		return err
-	}
-	if have > schemaVersion {
-		return fmt.Errorf("index at schema v%d, this galley knows v%d — upgrade galley, or delete %s and rebuild",
-			have, schemaVersion, x.path)
-	}
-	for have < schemaVersion {
-		tx, err := x.db.Begin()
-		if err != nil {
-			return err
-		}
-		if err := migrations[have](tx); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		// Pragmas do not take bound parameters; have is an int from our own
-		// loop bound, never user input.
-		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, have+1)); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-		have++
-	}
-	return nil
-}
-
 // SchemaVersion reports the version the open database is at.
 func (x *Index) SchemaVersion() (int, error) {
-	var v int
-	err := x.db.QueryRow(`PRAGMA user_version`).Scan(&v)
-	return v, err
+	return x.db.Version(context.Background())
 }
 
 // Source is one known log and how far into it the index has read.

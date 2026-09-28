@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,39 +67,33 @@ func TestThePluginSkillNamesOnlyRealVerbs(t *testing.T) {
 	}
 }
 
-// realCommands reads the command list out of run's own switch, rather than
-// keeping a second copy of it here. A hand-maintained list would agree with
-// the binary right up until somebody adds or removes a verb, which is the one
-// moment this check exists for.
+// realCommands reads the command list from the registry galley actually
+// dispatches (`commands --json`, names and aliases), rather than keeping a
+// second copy of it here. A hand-maintained list would agree with the binary
+// right up until somebody adds or removes a verb, which is the one moment this
+// check exists for.
 func realCommands(t *testing.T) map[string]bool {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("main.go"))
-	if err != nil {
-		t.Fatalf("reading main.go: %v", err)
+	var out, errw strings.Builder
+	if code := newApp().Dispatch([]string{"commands", "--json"}, &out, &errw); code != 0 {
+		t.Fatalf("commands --json exited %d: %s", code, errw.String())
 	}
-	src := string(b)
-	head := strings.Index(src, "switch args[0] {")
-	if head < 0 {
-		t.Fatal("run's command switch has moved; this check reads it by shape")
+	var cmds []struct {
+		Name    string   `json:"name"`
+		Aliases []string `json:"aliases"`
 	}
-	body := src[head:]
-	if end := strings.Index(body, "\n\tdefault:"); end > 0 {
-		body = body[:end]
+	if err := json.Unmarshal([]byte(out.String()), &cmds); err != nil {
+		t.Fatal(err)
 	}
-	cmds := map[string]bool{}
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "case \"") {
-			continue
-		}
-		for _, part := range strings.Split(strings.TrimSuffix(line[len("case "):], ":"), ",") {
-			if v := strings.Trim(strings.TrimSpace(part), "\""); v != "" {
-				cmds[v] = true
-			}
+	real := map[string]bool{}
+	for _, c := range cmds {
+		real[c.Name] = true
+		for _, a := range c.Aliases {
+			real[a] = true
 		}
 	}
-	if len(cmds) < 5 {
-		t.Fatalf("read only %d commands from main.go; the shape assumption is wrong", len(cmds))
+	if len(real) < 10 {
+		t.Fatalf("only %d commands in the registry; the index is broken", len(real))
 	}
-	return cmds
+	return real
 }

@@ -9,45 +9,32 @@ import (
 	tools "github.com/schuettc/tools-common"
 )
 
-// Task 2 stood main() up on tools.App while keeping run() as the tested
-// single-command entry. These pin the special routes main() still handles
-// itself (bare galley, version) and the sentinel→exit mapping wait feeds into
-// Dispatch, so the migration stays behaviour-for-behaviour.
+// galley's help, version and unknown-command handling are tools.App's (the
+// family behaviour); galley supplies its commands, groups and About text.
 
-// Bare `galley` prints the usage const to stdout and is not an error.
-func TestBareGalleyPrintsUsage(t *testing.T) {
-	var err error
-	stdout, _ := captureOutput(t, func() { err = run(nil) })
-	if err != nil {
-		t.Fatalf("run(nil) = %v, want nil", err)
-	}
-	if !strings.Contains(stdout, "galley — review before the one-way door.") {
-		t.Fatalf("bare galley did not print the usage const:\n%s", stdout)
+// Bare `galley` is a usage error: the short grouped usage on stderr, exit 2.
+func TestBareGalleyIsUsageError(t *testing.T) {
+	stdout, stderr, code := galleyCLI(t)
+	if code != 2 || stdout != "" || !strings.HasPrefix(stderr, "usage: galley") {
+		t.Fatalf("bare galley: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
 
-// `galley version` prints the build stamp verbatim — version.String(), not the
-// family default "galley <stamp>".
-func TestVersionPrintsTheStamp(t *testing.T) {
-	var err error
-	stdout, _ := captureOutput(t, func() { err = run([]string{"version"}) })
-	if err != nil {
-		t.Fatalf("run(version) = %v, want nil", err)
-	}
-	if got := strings.TrimSpace(stdout); got != version.String() {
-		t.Fatalf("version printed %q, want %q", got, version.String())
+// `galley version`, `-v` and `--version` print the family format.
+func TestVersionIsFamilyFormat(t *testing.T) {
+	for _, arg := range []string{"version", "-v", "--version"} {
+		stdout, _, code := galleyCLI(t, arg)
+		if code != 0 || strings.TrimSpace(stdout) != "galley "+version.String() {
+			t.Fatalf("%s: exit %d, printed %q, want %q", arg, code, stdout, "galley "+version.String())
+		}
 	}
 }
 
-// An unknown command is an error that names the command and reprints usage.
+// An unknown command is a usage error that names the command.
 func TestUnknownCommandIsAnError(t *testing.T) {
-	var err error
-	_, _ = captureOutput(t, func() { err = run([]string{"bogus"}) })
-	if err == nil {
-		t.Fatal("run(bogus) = nil, want an unknown-command error")
-	}
-	if !strings.Contains(err.Error(), "unknown command") {
-		t.Fatalf("error %q should say the command is unknown", err.Error())
+	_, stderr, code := galleyCLI(t, "bogus")
+	if code != 2 || !strings.Contains(stderr, `unknown command "bogus"`) {
+		t.Fatalf("bogus: exit %d, stderr %q", code, stderr)
 	}
 }
 
