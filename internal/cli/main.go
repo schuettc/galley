@@ -11,10 +11,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +21,7 @@ import (
 	"github.com/schuettc/galley/internal/serve"
 	"github.com/schuettc/galley/internal/version"
 	tools "github.com/schuettc/tools-common"
+	"github.com/schuettc/tools-common/localweb"
 )
 
 const usage = `^ galley — review before the one-way door.
@@ -606,16 +605,7 @@ func loadReview(page, file string) (review.File, bool, error) {
 }
 
 func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		cmd = exec.Command("xdg-open", url)
-	default:
-		return
-	}
 	// Opening a browser is a convenience; failing to is not an error worth
 	// stopping the server for.
-	_ = cmd.Start()
+	_ = localweb.OpenBrowser(url)
 }

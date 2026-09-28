@@ -44,11 +44,11 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/debug"
-	"github.com/schuettc/galley/internal/mcp"
 	"github.com/schuettc/galley/internal/registry"
 	"github.com/schuettc/galley/internal/serve"
 	"github.com/schuettc/galley/internal/version"
 	tools "github.com/schuettc/tools-common"
+	"github.com/schuettc/tools-common/channelmcp"
 )
 
 // channelInstructions reaches the session's system prompt through the MCP
@@ -187,7 +187,7 @@ type channel struct {
 	exe         string
 	openPoll    time.Duration
 	openTimeout time.Duration
-	srv         *mcp.Server
+	srv         *channelmcp.Server
 	mu          sync.Mutex
 	attached    map[string]bool
 	// The diagnostic's state — the answer to "why am I not attached?", which
@@ -245,11 +245,11 @@ func newChannel(scope, self string) *channel {
 	// galley_open report "cannot locate the galley binary" rather than spawn
 	// something else that happens to be on PATH.
 	c.exe, _ = os.Executable()
-	c.srv = mcp.New(mcp.Handler{
+	c.srv = channelmcp.New(channelmcp.Handler{
 		Name:         "galley",
 		Version:      version.String(),
 		Instructions: channelInstructions,
-		Tools: []mcp.Tool{{
+		Tools: []channelmcp.Tool{{
 			Name:        "galley_ack",
 			Description: "Acknowledge a galley review: tell the reviewer where their ask stands.",
 			InputSchema: ackSchema,

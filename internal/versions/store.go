@@ -86,6 +86,8 @@ import (
 	"strings"
 	"time"
 
+	tools "github.com/schuettc/tools-common"
+
 	"github.com/schuettc/galley/internal/ondisk"
 )
 
@@ -476,24 +478,7 @@ func ensureMergeUnion(dir string) error {
 // writeFileAtomic writes through a temporary file in the same directory, so a
 // crash mid-write leaves the previous bytes rather than half of the new ones.
 func writeFileAtomic(path string, b []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".galley-version-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }()
-	if _, err := tmp.Write(b); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(name, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return tools.WriteFileAtomic(path, b, 0o644)
 }
 
 // Authors renders a round's authors the way the history says them: `court`,

@@ -3,6 +3,8 @@
 // build report the same thing.
 package version
 
+import tools "github.com/schuettc/tools-common"
+
 var (
 	version = "dev"
 	commit  = "none"
@@ -21,10 +23,7 @@ func Commit() string { return commit }
 // enforces.
 func Date() string { return date }
 
-// String renders the full build stamp.
+// String renders the full build stamp in the family format.
 func String() string {
-	if date == "" {
-		return version + " (" + commit + ")"
-	}
-	return version + " (" + commit + ", " + date + ")"
+	return tools.Version{Number: version, Commit: commit, Date: date}.String()
 }
