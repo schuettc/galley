@@ -122,3 +122,15 @@ func TestManRendersARoffPage(t *testing.T) {
 		t.Errorf("man output does not mention the channel command:\n%s", out.String())
 	}
 }
+
+// ledger owns its sub-verbs: `ledger -h` is ledger's help, `ledger stats -h`
+// reaches stats, and a mistyped sub-verb is an error even with -h, never a
+// silent exit 0 with the parent's help.
+func TestLedgerSubverbHelp(t *testing.T) {
+	if out, _, code := galleyCLI(t, "ledger", "-h"); code != 0 || !strings.Contains(out, "subcommands: sync, rebuild, stats") {
+		t.Fatalf("ledger -h: exit %d, %q", code, out)
+	}
+	if _, stderr, code := galleyCLI(t, "ledger", "bogus", "-h"); code == 0 || !strings.Contains(stderr, `unknown ledger command "bogus"`) {
+		t.Fatalf("ledger bogus -h: exit %d, stderr %q; want the unknown-sub-verb error", code, stderr)
+	}
+}
