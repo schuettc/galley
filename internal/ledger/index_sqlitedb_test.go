@@ -67,8 +67,26 @@ func TestOpenExistingV3IndexKeepsRows(t *testing.T) {
 	if v, err := x.SchemaVersion(); err != nil || v != 3 {
 		t.Fatalf("schema v%d (%v), want v3", v, err)
 	}
-	if n, err := x.Count(); err != nil || n != 3 {
-		t.Fatalf("%d rows (%v), want the 3 written by the old build", n, err)
+	rows, err := x.db.Query(`SELECT line, kind, author, quote, digest, round, text FROM decisions ORDER BY line`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []string
+	for rows.Next() {
+		var line, round int
+		var kind, author, quote, digest, text string
+		if err := rows.Scan(&line, &kind, &author, &quote, &digest, &round, &text); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, fmt.Sprintf("%d|%s|%s|%s|%s|%d|%s", line, kind, author, quote, digest, round, text))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"1|approved|agent|q|d1|1|t", "2|approved|agent|q|d2|1|t", "3|approved|agent|q|d3|1|t"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("rows after open:\n%s\nwant the old build's:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
@@ -120,11 +138,13 @@ func TestNewerIndexNamesRebuild(t *testing.T) {
 func TestConcurrentFirstOpenIndex(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
 	var wg sync.WaitGroup
+	start := make(chan struct{})
 	errs := make(chan error, 4)
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start // release together, so the opens actually race
 			x, err := OpenIndexAt(path)
 			if err != nil {
 				errs <- err
@@ -133,6 +153,7 @@ func TestConcurrentFirstOpenIndex(t *testing.T) {
 			errs <- x.Close()
 		}()
 	}
+	close(start)
 	wg.Wait()
 	close(errs)
 	for err := range errs {
