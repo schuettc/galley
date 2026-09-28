@@ -31,8 +31,8 @@ func runAgentPrompt(args []string, out, errw io.Writer) error {
 	if _, err := os.Stat(doc); err != nil {
 		return fmt.Errorf("cannot read %s: %w", doc, err)
 	}
-	fmt.Print(agentPrompt(doc))
-	return nil
+	_, err = fmt.Fprint(out, agentPrompt(doc))
+	return err
 }
 
 func agentPrompt(doc string) string {

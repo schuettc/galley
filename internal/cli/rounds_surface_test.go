@@ -11,12 +11,12 @@ func TestRemovedWorkflowCommandsAreGone(t *testing.T) {
 		"approve", "decline", "reply", "resolve", "delete", "blocks",
 		"suggest", "accept", "reject", "reopen", "discard",
 	} {
-		err := run([]string{command})
-		if err == nil || !strings.Contains(err.Error(), "unknown command") {
-			t.Errorf("galley %s returned %v, want unknown command", command, err)
+		_, stderr, code := galleyCLI(t, command)
+		if code != 2 || !strings.Contains(stderr, "unknown command") {
+			t.Errorf("galley %s: exit %d, stderr %q, want unknown command", command, code, stderr)
 		}
-		if strings.Contains(usage, "galley "+command+" ") {
-			t.Errorf("usage still advertises removed command %q", command)
+		if help, _, _ := galleyCLI(t, "help"); strings.Contains(help, "\n  "+command+" ") {
+			t.Errorf("help still lists removed command %q", command)
 		}
 	}
 }

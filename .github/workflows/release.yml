@@ -185,12 +185,12 @@ jobs:
           echo "built: $stamped"
           # EXACT equality, and deliberately not a search for an empty field.
           # Measured: a binary built without the date ldflag prints
-          # "0.5.0 (914053d)" — version.String() OMITS the date rather than
+          # "galley 0.5.0 (914053d)" — tools.Version.String() OMITS the date rather than
           # leaving "0.5.0 (914053d, )", so every pattern looking for an empty
           # slot matches nothing and the guard passes the exact build it
           # exists to stop. Only "is it the string we asked for" survives that.
-          if [ "$stamped" != "$version ($commit, $date)" ]; then
-            echo "::error::the built binary reports '$stamped', expected '$version ($commit, $date)'. The build date must be stamped so 'galley version' reports it. Refusing to ship it."
+          if [ "$stamped" != "galley $version ($commit, $date)" ]; then
+            echo "::error::the built binary reports '$stamped', expected 'galley $version ($commit, $date)'. The build date must be stamped so 'galley version' reports it. Refusing to ship it."
             exit 1
           fi
           echo "version stamp: ok"
