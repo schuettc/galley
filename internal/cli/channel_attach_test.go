@@ -360,9 +360,11 @@ func TestChannelReapsAnAdvertNothingAnswers(t *testing.T) {
 		entries, err := registry.List()
 		return err == nil && len(entries) == 0
 	})
-	if s := r.status(); !strings.Contains(s, "unreachable") {
-		t.Errorf("the status does not report the unreachable advert:\n%s", s)
-	}
+	// The reap and the status's reason are two steps in the channel; on a
+	// slow runner a single read could land between them (galley #13).
+	until(t, "the status to report the unreachable advert", func() bool {
+		return strings.Contains(r.status(), "unreachable")
+	})
 	// AND IT IS NOT AN EDITOR GOING AWAY. Nothing was ever attached, so the
 	// "the review is gone" wake would be a review that never existed.
 	r.silence(300 * time.Millisecond)
