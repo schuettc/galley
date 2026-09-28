@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,4 +79,13 @@ func writeDoc(t *testing.T, dir, name, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// galleyCLI runs galley exactly as the binary does (dispatch, the tools.App
+// path) and returns what it printed and its exit code.
+func galleyCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	var out, errw strings.Builder
+	code = dispatch(args, &out, &errw)
+	return out.String(), errw.String(), code
 }

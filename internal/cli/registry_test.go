@@ -4,38 +4,53 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/schuettc/galley/internal/version"
 )
 
-// `galley help` is the second spelling of the bare-invocation route dispatch_test.go
-// already pins for no args — both print galley's hand-maintained usage const to
-// stdout and exit 0, never tools.App's own grouped usage.
-func TestHelpPrintsUsage(t *testing.T) {
-	var err error
-	stdout, _ := captureOutput(t, func() { err = run([]string{"help"}) })
-	if err != nil {
-		t.Fatalf("run(help) = %v, want nil", err)
+// `galley help` prints galley's guidance (tools.Config.About) and then the
+// commands under galley's three groups, on stdout, exit 0.
+func TestHelpShowsGuidanceAndGroups(t *testing.T) {
+	stdout, _, code := galleyCLI(t, "help")
+	if code != 0 {
+		t.Fatalf("help exited %d", code)
 	}
-	if !strings.Contains(stdout, "galley — review before the one-way door.") {
-		t.Fatalf("galley help did not print the usage const:\n%s", stdout)
+	for _, want := range []string{
+		"galley — review before the one-way door.",
+		"Pull is the better loop",
+		"Review\n", "Agent\n", "Record\n",
+		"usage: galley",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("help lacks %q:\n%s", want, stdout)
+		}
+	}
+	for _, spelling := range []string{"-h", "--help"} {
+		if out, _, code := galleyCLI(t, spelling); code != 0 || out != stdout {
+			t.Fatalf("%s differs from help (exit %d)", spelling, code)
+		}
 	}
 }
 
-// `galley -v` and `galley --version` are the two short spellings dispatch_test.go's
-// TestVersionPrintsTheStamp does not cover — all three must agree.
-func TestVersionShortFlagsPrintTheStamp(t *testing.T) {
-	for _, flagName := range []string{"-v", "--version"} {
-		t.Run(flagName, func(t *testing.T) {
-			var err error
-			stdout, _ := captureOutput(t, func() { err = run([]string{flagName}) })
-			if err != nil {
-				t.Fatalf("run(%s) = %v, want nil", flagName, err)
-			}
-			if got := strings.TrimSpace(stdout); got != version.String() {
-				t.Fatalf("run(%s) printed %q, want %q", flagName, got, version.String())
-			}
-		})
+// Every galley command carries a synopsis and help text for `help <cmd>`,
+// `-h` and `man`; the built-ins are tools.App's.
+func TestEveryCommandHasHelp(t *testing.T) {
+	var out, errw strings.Builder
+	if code := newApp().Dispatch([]string{"commands", "--json"}, &out, &errw); code != 0 {
+		t.Fatalf("commands --json exited %d", code)
+	}
+	var cmds []struct {
+		Name, Synopsis, Help string
+	}
+	if err := json.Unmarshal([]byte(out.String()), &cmds); err != nil {
+		t.Fatal(err)
+	}
+	builtin := map[string]bool{"help": true, "version": true, "update": true, "man": true, "commands": true}
+	for _, c := range cmds {
+		if builtin[c.Name] {
+			continue
+		}
+		if c.Synopsis == "" || c.Help == "" {
+			t.Errorf("%s: synopsis %q, help %d chars; both are required", c.Name, c.Synopsis, len(c.Help))
+		}
 	}
 }
 

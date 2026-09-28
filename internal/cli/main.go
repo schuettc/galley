@@ -24,24 +24,11 @@ import (
 	"github.com/schuettc/tools-common/localweb"
 )
 
-const usage = `^ galley — review before the one-way door.
-
-Usage:
-  galley serve <page.html> [flags]           serve a review page as a live document
-  galley comments <page.html> [flags]        print the review conversation
-  galley edit <doc.md|page.html> [flags]     serve a markdown document as a live, TipTap editor
-  galley pending <doc.md> [flags]            list the reviewer's instructions for the open round
-  galley cannot <doc.md> --why "…"           report the one case you could not do it
-  galley revise <doc.md>                     wake whoever is listening — a waiter, or --on-revise
-  galley ack <doc.md> --state <s> [--note]     tell the reviewer where their ask stands
-  galley wait <doc.md> [flags]               block until the reviewer asks, then print what is pending
-  galley round <doc.md> [--n N] [--json]     re-read a round already sent — for a session that restarted
-  galley agent-prompt <doc.md>               print instructions for an agent about to answer the review
-  galley channel [flags]                     MCP channel server — pushes review wakes into the session (see docs)
-  galley ledger <sync|rebuild|stats>         galley's memory — decisions are logged as they are made;
-                                               sync brings the per-user index up to date, stats reads it
-
-  galley version                             print the build stamp
+// about is galley's overview, shown by `galley help` above the generated
+// command list and used as the man page DESCRIPTION (tools.Config.About).
+// The per-command lines it used to carry are generated from the registry now,
+// so they can no longer drift from what galley actually dispatches.
+const about = `^ galley — review before the one-way door.
 
 The READING commands speak --json — comments, pending, wait, round and
 ledger — and that is where the machine-readable surface is; this
@@ -123,30 +110,11 @@ func Dispatch(args []string, out, errw io.Writer) int {
 	return code
 }
 
-// dispatch handles galley's special top-level routes and otherwise routes
-// through the shared tools.App. It returns the process exit code rather than
-// exiting, so Dispatch can drain the decision log exactly once before exit.
-//
-// The three special routes are handled BEFORE app.Dispatch because tools.App's
-// own conventions differ from galley's here: a no-args or `help` invocation
-// prints the App's grouped usage to STDERR and exits 2, where galley prints its
-// own `usage` const to STDOUT and exits 0; and the built-in `version` prints
-// "galley <stamp>" where galley prints version.String() bare. (The registered
-// version command below is overridden to match too, so `galley version` is
-// correct whichever path reaches it.)
+// dispatch routes every invocation through the shared tools.App: help,
+// version, man, commands and unknown-command handling are the family's; galley
+// supplies its commands, groups and About text. It returns the exit code
+// rather than exiting, so Dispatch can drain the decision log exactly once.
 func dispatch(args []string, out, errw io.Writer) int {
-	if len(args) == 0 {
-		_, _ = fmt.Fprint(out, usage)
-		return 0
-	}
-	switch args[0] {
-	case "help", "-h", "--help":
-		_, _ = fmt.Fprint(out, usage)
-		return 0
-	case "version", "-v", "--version":
-		_, _ = fmt.Fprintln(out, version.String())
-		return 0
-	}
 	return newApp().Dispatch(args, out, errw)
 }
 
@@ -158,24 +126,21 @@ func newApp() *tools.App {
 	app := tools.New(tools.Config{
 		Name:   "galley",
 		Domain: "galley.tools",
+		About:  about,
+		Groups: []tools.Group{
+			{Key: "review", Heading: "Review"},
+			{Key: "agent", Heading: "Agent"},
+			{Key: "record", Heading: "Record"},
+		},
 		Version: tools.Version{
 			Number: version.Version(),
 			Commit: version.Commit(),
 			Date:   version.Date(),
 		},
 	})
-	// Override the built-in version command: galley's output is version.String()
-	// verbatim, not the family default "galley <stamp>".
-	app.Register(tools.Command{
-		Name:    "version",
-		Summary: "print the build stamp",
-		Run: func(_ []string, out, _ io.Writer) error {
-			_, _ = fmt.Fprintln(out, version.String())
-			return nil
-		},
-	})
 	app.Register(tools.Command{
 		Name:     "serve",
+		Group:    "review",
 		Summary:  "serve a review page as a live document",
 		Synopsis: "serve <page.html> [flags]",
 		Help: "Serves a review page as a live document: the reviewer reads it in the\n" +
@@ -187,6 +152,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "comments",
+		Group:    "review",
 		Summary:  "print the review conversation",
 		Synopsis: "comments <page.html> [flags]",
 		Help: "Prints the conversation a served page has collected, read from its\n" +
@@ -196,6 +162,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "edit",
+		Group:    "review",
 		Summary:  "serve a markdown document as a live, TipTap editor",
 		Synopsis: "edit <doc.md|page.html> [flags]",
 		Help: "Revise wakes whoever is listening: a session blocked on `galley wait <doc>`\n" +
@@ -218,6 +185,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "pending",
+		Group:    "review",
 		Summary:  "list the reviewer's instructions for the open round",
 		Synopsis: "pending <doc.md> [flags]",
 		Help: "List the reviewer's instructions for the OPEN round — the ones they have\n" +
@@ -231,6 +199,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "cannot",
+		Group:    "review",
 		Summary:  "report the one case you could not do it",
 		Synopsis: "cannot <doc.md> --why \"what stopped you\"",
 		Help: "For the one case a revision has no answer for: you genuinely could\n" +
@@ -244,6 +213,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "revise",
+		Group:    "review",
 		Summary:  "wake whoever is listening",
 		Synopsis: "revise <doc.md>",
 		Help: "Sends the round and wakes whoever is listening for its instructions: a\n" +
@@ -256,6 +226,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "ack",
+		Group:    "review",
 		Summary:  "tell the reviewer where their ask stands",
 		Synopsis: "ack <doc.md> --state <state> [--note \"…\"]",
 		Help: "Tell the reviewer where their ask stands. received and working keep the\n" +
@@ -271,6 +242,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "round",
+		Group:    "review",
 		Summary:  "re-read a round already sent",
 		Synopsis: "round <doc.md> [--n N] [--json]",
 		Help: "Re-read a round that was already sent — the instructions, with their keys,\n" +
@@ -283,6 +255,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "wait",
+		Group:    "review",
 		Summary:  "block until the reviewer asks, then print what is pending",
 		Synopsis: "wait <doc.md> [flags]",
 		Help: "Blocks until the reviewer presses Revise, presses Approve, or — in ● live\n" +
@@ -302,6 +275,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "agent-prompt",
+		Group:    "agent",
 		Summary:  "print instructions for an agent about to answer the review",
 		Synopsis: "agent-prompt <doc.md>",
 		Help: "Print instructions for an agent answering this document review.\n" +
@@ -311,6 +285,7 @@ func newApp() *tools.App {
 	})
 	app.Register(tools.Command{
 		Name:     "channel",
+		Group:    "agent",
 		Summary:  "MCP channel server — pushes review wakes into the session",
 		Synopsis: "channel [--scope <dir>]",
 		Help: "An MCP channel server on stdio. Registered in .mcp.json and named in\n" +
@@ -324,65 +299,19 @@ func newApp() *tools.App {
 		NewFlags: func() *flag.FlagSet { fs, _ := newChannelFlags(); return fs },
 		Run:      runChannel,
 	})
-	// Summary-only, deliberately: tools.App intercepts -h anywhere in args for
-	// any command carrying Synopsis/Help/NewFlags, so `galley ledger sync -h`
-	// (and rebuild/stats) would render THIS command's top-level help and never
-	// reach the sub-verb's own flag set. ledger owns a switch that already
-	// handles -h/--help/help and hands off to a sub-verb's own flags — leaving
-	// Synopsis/Help off here is what lets -h flow through to them instead of
-	// being caught at the door.
+	// ledger dispatches its own sub-verbs; declaring them as Subcommands lets
+	// `galley ledger -h` show this help while `galley ledger sync -h` reaches
+	// the sub-verb's own flag set.
 	app.Register(tools.Command{
-		Name:    "ledger",
-		Summary: "galley's memory — sync, rebuild, stats",
-		Run:     runLedger,
+		Name:        "ledger",
+		Group:       "record",
+		Summary:     "galley's memory — sync, rebuild, stats",
+		Synopsis:    "ledger <sync|rebuild|stats> [flags]",
+		Help:        strings.TrimPrefix(ledgerUsage, "Usage: galley ledger <sync|rebuild|stats> [flags]\n\n"),
+		Subcommands: []string{"sync", "rebuild", "stats"},
+		Run:         runLedger,
 	})
 	return app
-}
-
-// run is the single-command entry point the tests drive. It mirrors dispatch's
-// special routes and otherwise calls the command's Run directly, so a caller
-// gets the command's error back verbatim — flag.ErrHelp for `edit --help`, the
-// unknown-command error for a removed verb. main() routes through app.Dispatch
-// instead; run() is not on the process's exit path (flushing lives in main).
-func run(args []string) error {
-	if len(args) == 0 {
-		fmt.Print(usage)
-		return nil
-	}
-	switch args[0] {
-	case "serve":
-		return runServe(args[1:], os.Stdout, os.Stderr)
-	case "comments":
-		return runComments(args[1:], os.Stdout, os.Stderr)
-	case "edit":
-		return runEdit(args[1:], os.Stdout, os.Stderr)
-	case "pending":
-		return runPending(args[1:], os.Stdout, os.Stderr)
-	case "cannot":
-		return runCannot(args[1:], os.Stdout, os.Stderr)
-	case "revise":
-		return runRevise(args[1:], os.Stdout, os.Stderr)
-	case "ack":
-		return runAck(args[1:], os.Stdout, os.Stderr)
-	case "round":
-		return runRound(args[1:], os.Stdout, os.Stderr)
-	case "wait":
-		return runWait(args[1:], os.Stdout, os.Stderr)
-	case "agent-prompt":
-		return runAgentPrompt(args[1:], os.Stdout, os.Stderr)
-	case "channel":
-		return runChannel(args[1:], os.Stdout, os.Stderr)
-	case "ledger":
-		return runLedger(args[1:], os.Stdout, os.Stderr)
-	case "version", "--version", "-v":
-		fmt.Println(version.String())
-		return nil
-	case "help", "-h", "--help":
-		fmt.Print(usage)
-		return nil
-	default:
-		return fmt.Errorf("unknown command %q\n\n%s", args[0], usage)
-	}
 }
 
 // serveFlags is galley serve's flag set, built by newServeFlags so the app

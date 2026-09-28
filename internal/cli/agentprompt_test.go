@@ -75,11 +75,10 @@ func TestAgentPromptIsFreeAndDoesNotStartTheTrial(t *testing.T) {
 	if err := os.WriteFile(doc, []byte("# T\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	stdout, _ := captureOutput(t, func() {
-		if err := run([]string{"agent-prompt", doc}); err != nil {
-			t.Fatal(err)
-		}
-	})
+	stdout, stderr, code := galleyCLI(t, "agent-prompt", doc)
+	if code != 0 {
+		t.Fatalf("agent-prompt exited %d: %s", code, stderr)
+	}
 	if !strings.Contains(stdout, "galley ack "+doc) {
 		t.Fatalf("no prompt on stdout: %q", stdout)
 	}
