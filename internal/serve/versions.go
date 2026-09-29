@@ -94,8 +94,8 @@ func (s *EditServer) Versions() *versions.Store {
 // the intent is dropped here and the failure is logged: A VERSION THAT COULD
 // NOT BE WRITTEN MAY NOT FAIL A ROUND, and it may not silently attach itself to
 // a later one either.
-func (s *EditServer) requestCut(reason, instruction string, answers int) int {
-	return s.requestCutIntent(&cutIntent{reason: reason, instruction: instruction, answers: answers})
+func (s *EditServer) requestCut(reason, instruction string, answers int) {
+	s.requestCutIntent(&cutIntent{reason: reason, instruction: instruction, answers: answers})
 }
 
 // requestCutIntent is requestCut for a send that carries more than the three
@@ -210,8 +210,8 @@ func (s *EditServer) answering() int {
 	return s.lastCutN
 }
 
-// cutApplied commits the agent's round. Callers must NOT hold mu.
-func (s *EditServer) cutApplied(reason string) int {
+// cutApplied commits the agent's round (a landed one). Callers must NOT hold mu.
+func (s *EditServer) cutApplied() int {
 	s.mu.Lock()
 	a := s.applied
 	s.applied = nil
@@ -219,7 +219,7 @@ func (s *EditServer) cutApplied(reason string) int {
 	if a == nil {
 		return 0
 	}
-	return s.requestCutIntent(a.intent(reason))
+	return s.requestCutIntent(a.intent(versions.ReasonLanded))
 }
 
 // recordCannot is the exception: the agent could not do what was asked, so the
@@ -229,7 +229,7 @@ func (s *EditServer) cutApplied(reason string) int {
 // the ask has an answer now, and the answer is no — and it names the reason on
 // the readout, because a round nobody opens is not where a reviewer finds out
 // that nothing happened.
-func (s *EditServer) recordCannot(why string) int {
+func (s *EditServer) recordCannot(why string) {
 	s.reviseMu.Lock()
 	s.cannotWhy, s.cannotAt = why, time.Now()
 	s.watch = nil
@@ -242,11 +242,11 @@ func (s *EditServer) recordCannot(why string) int {
 	// Whatever the agent HAD applied before it gave up is its own round and is
 	// cut first: partial work is still work, and rolling it into the exception
 	// would say the document did not move when it did.
-	s.cutApplied(versions.ReasonLanded)
+	s.cutApplied()
 	s.mu.Lock()
 	answers := s.answering()
 	s.mu.Unlock()
-	return s.requestCut(versions.ReasonCouldNot, clip("could not: "+why, instructionLimit), answers)
+	s.requestCut(versions.ReasonCouldNot, clip("could not: "+why, instructionLimit), answers)
 }
 
 // cutIfSending is project's own half, called with mu held and with the exact
@@ -337,7 +337,7 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 		// flag so the page can tell one arrival from the next without the server
 		// holding any per-reader state: the browser remembers what it has seen.
 		if r.Reason == versions.ReasonLanded || r.Reason == versions.ReasonCouldNot {
-			s.lastLanded.Store(int32(r.N))
+			s.lastLanded.Store(int32(r.N)) //nolint:gosec // a round number; a document never reaches 2^31 rounds
 		}
 		s.debugVersionCut(r)
 		authors = nil

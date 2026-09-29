@@ -21,7 +21,6 @@ func TestSerialize_RoundTripsFixtures(t *testing.T) {
 		t.Fatal("no fixtures found")
 	}
 	for _, f := range files {
-		f := f
 		t.Run(f, func(t *testing.T) {
 			src := mustRead(t, f)
 			doc, _, err := markdown.Parse(src)
@@ -188,7 +187,6 @@ func TestSerialize_EscapeCorpus(t *testing.T) {
 		`back\slash`,
 	}
 	for _, src := range corpus {
-		src := src
 		t.Run(src, func(t *testing.T) {
 			source := []byte(src + "\n")
 			doc1, _, err := markdown.Parse(source)
@@ -640,7 +638,6 @@ func TestSerialize_EscapesLineLeadingBlockMarkers(t *testing.T) {
 		{"a heading's content is not a list marker", "# 1. x\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -696,7 +693,6 @@ func TestSerialize_AdjacentSameKindLists_StayDistinct(t *testing.T) {
 		{"sibling lists inside a blockquote", "> - a\n>\n> * b\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -786,7 +782,6 @@ func TestSerialize_AdjacentEmphasisDelimiters_FuseAndLoseTheEmphasis(t *testing.
 // fuzz target's budget can go back to being a constant.
 func TestSerialize_FusedEmphasis_CostsARoundEach(t *testing.T) {
 	for repeats, want := range []int{3, 4, 5, 6, 7} {
-		repeats, want := repeats, want
 		t.Run(strconv.Itoa(repeats), func(t *testing.T) {
 			src := "*a **b***" + strings.Repeat(" ***c** **d***", repeats)
 			cur, got := src, 0
@@ -850,7 +845,6 @@ func TestSerialize_ListItemBlocks_SeparatedWhereMarkdownNeedsIt(t *testing.T) {
 		{"every item split, and the list stays one list", "- a\n\n  b\n- c\n\n  d\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -971,7 +965,6 @@ func TestSerialize_CodeBlockFence(t *testing.T) {
 		{"an empty block is untouched", "```\n```\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1048,7 +1041,6 @@ func TestSerialize_EscapesHeadingClosingSequence(t *testing.T) {
 		{"a hash before a vertical tab does not", "#\vx\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1120,7 +1112,6 @@ func TestSerialize_EscapesAngleMarkup(t *testing.T) {
 		{"less-than at the end of a line", "a <\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1178,7 +1169,6 @@ func TestSerialize_LinkAndImageAttributes(t *testing.T) {
 		{"an empty destination stays empty", "[a]()\n"},
 	}
 	for _, tc := range roundTrips {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1216,7 +1206,6 @@ func TestSerialize_LinkAndImageAttributes(t *testing.T) {
 		{"the crasher, with its destination too", "\\", "]()", "![\\\\](<]()>)\n"},
 	}
 	for _, tc := range built {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc := docmodel.Doc{Blocks: []docmodel.Block{{
 				Kind:  docmodel.Image,
@@ -1382,7 +1371,6 @@ func TestSerialize_EscapesLinkReferenceDefinition(t *testing.T) {
 		{"an inline link is untouched", "[a](b)\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1439,7 +1427,6 @@ func TestSerialize_LinkSpanningEmphasis_BecomesSeveralLinks(t *testing.T) {
 		{"two links with one destination become one", "[a](x)[b](x)\n", "[ab](x)\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1534,7 +1521,6 @@ func TestSerialize_EscapesNestedLinkLabelBrackets(t *testing.T) {
 		{"an unbalanced bracket is not a label", "[a] (b)\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1592,7 +1578,6 @@ func TestSerialize_CodeSpanPaddingCountsSpacesOnly(t *testing.T) {
 		{"one edge space alone is stripped by nobody", " a", "` a`\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc := docmodel.Doc{Blocks: []docmodel.Block{para(
 				marked(tc.content, mark(docmodel.Code)),
@@ -1641,7 +1626,6 @@ func TestSerialize_EscapesTableDelimiterRow(t *testing.T) {
 		{"the block's first line has no header above it", "-|\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -1706,7 +1690,6 @@ func TestSerialize_EmptyNestedListItems(t *testing.T) {
 		{4, "- * - -\n"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(strconv.Itoa(tc.depth), func(t *testing.T) {
 			doc := docmodel.Doc{Blocks: []docmodel.Block{nest(tc.depth)}}
 			got := markdown.Serialize(doc)
@@ -1799,7 +1782,6 @@ func TestSerialize_EmptyListAfterAParagraph(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := markdown.Serialize(tc.doc)
 			if string(got) != tc.want {
@@ -1870,7 +1852,6 @@ func TestSerialize_AdjacentBlockquotes_StayDistinct(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := markdown.Serialize(tc.doc)
 			if string(got) != tc.want {
@@ -1951,7 +1932,6 @@ func TestSerialize_EmptyListBetweenSiblingLists(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := markdown.Serialize(tc.doc)
 			if string(got) != tc.want {
@@ -2013,7 +1993,6 @@ func TestSerialize_DestinationWithANewline(t *testing.T) {
 	// form. If goldmark ever stops accepting one of these, the round-trip
 	// assertion here is what says so.
 	for _, src := range []string{"a b", "a\tb", "a\rb", "a\x00b", "a(b)c", "a<b"} {
-		src := src
 		t.Run(strconv.Quote(src), func(t *testing.T) {
 			doc := image(src)
 			got := markdown.Serialize(doc)

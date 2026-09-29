@@ -98,7 +98,6 @@ var spellings = []struct {
 // against the bug.
 func TestEveryListItemOpensWithAParagraph(t *testing.T) {
 	for _, tc := range spellings {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -126,7 +125,6 @@ func TestEveryListItemOpensWithAParagraph(t *testing.T) {
 // deleted at every position.
 func TestEveryBlockquoteHoldsABlock(t *testing.T) {
 	for _, tc := range spellings {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {
@@ -159,7 +157,6 @@ func TestEveryBlockquoteHoldsABlock(t *testing.T) {
 // TestEveryListItemCrossesWithAParagraphFirst.
 func TestMakingTheShapeLegalMovesNoBytes(t *testing.T) {
 	for _, tc := range spellings {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {

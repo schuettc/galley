@@ -408,7 +408,7 @@ func Append(logPath string, rec Record) error {
 	if err != nil {
 		return err
 	}
-	line := append(raw, '\n')
+	line := append(raw, '\n') //nolint:gocritic // raw is not used again
 
 	dir := filepath.Dir(logPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

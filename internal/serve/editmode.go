@@ -2420,7 +2420,7 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 		// write that puts the canonical document back on disk — ownership
 		// returns to the live document in the same act that records the round.
 		s.closeHandoff()
-		s.cutApplied(versions.ReasonLanded)
+		s.cutApplied()
 		// And a page review's round can close with the whole answer on the OTHER
 		// file, which no projection would carry: see pageBoundary. No-op in
 		// markdown mode.
@@ -2505,8 +2505,7 @@ const (
 // what it entrusted rides the pending view, exactly as it does on the live
 // wake.
 func endingReason(verdict string) (string, bool) {
-	switch verdict {
-	case VerdictApproved:
+	if verdict == VerdictApproved {
 		return waitApprove, true
 	}
 	return "", false
