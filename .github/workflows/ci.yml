@@ -74,7 +74,10 @@ jobs:
   # it is `just verify-slow` (or `just verify-all` for everything). Failing
   # here is a red PR; that is the point.
   gates:
-    runs-on: ubuntu-26.04
+    # 24.04, not 26.04: playwright-core 1.56.1 cannot install chromium on
+    # ubuntu 26.04 ("does not support chromium on ubuntu26.04-x64"). Move up
+    # with the playwright-core that supports it.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
