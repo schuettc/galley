@@ -22,7 +22,6 @@ import (
 	"github.com/schuettc/galley/internal/ondisk"
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/versions"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.
@@ -184,7 +183,7 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	// Whatever WAS imported is the agent's round; a cancel with nothing
 	// imported cuts nothing (cutApplied no-ops on a nil accumulator), so the
 	// explicit projection below is what restores the canonical document.
-	s.cutApplied(versions.ReasonLanded)
+	s.cutApplied()
 	if err := s.Project(); err != nil && s.Log != nil {
 		s.Log("could not restore the canonical document after the cancel: " + err.Error())
 	}

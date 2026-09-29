@@ -138,9 +138,13 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 	// The first press opened the agent's handoff window and nobody answered
 	// it, so the document is read-only to the reviewer. Taking it back is the
 	// new workflow's own gesture before a fresh instruction.
-	if resp, err := http.Post(ts.URL+"/_galley/handoff/cancel", "application/json",
-		strings.NewReader("{}")); err != nil || resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("cancel handoff before the second instruction: resp=%v err=%v", resp, err)
+	resp, err := http.Post(ts.URL+"/_galley/handoff/cancel", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("cancel handoff before the second instruction: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("cancel handoff before the second instruction: resp=%v", resp)
 	}
 	instructAs(t, ts.URL, "Hello.", "Make the greeting shorter.")
 	press()

@@ -654,7 +654,7 @@ func formatInstructions(instructions []instructionPayload) string {
 // through, a real rejection does not" convention loadReview/runReply use.
 func loadPending(docPath string) (pendingPayload, bool, error) {
 	if rt, ok := serve.FindRuntime(docPath); ok {
-		resp, err := getPendingHTTP(rt.URL)
+		resp, err := getPendingHTTP(rt.URL) //nolint:bodyclose // decodeOK closes it
 		if err == nil {
 			var view pendingPayload
 			if decErr := decodeOK(resp, &view); decErr != nil {

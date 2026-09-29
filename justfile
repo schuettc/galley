@@ -1,5 +1,68 @@
-# galley developer tasks — the SAME targets CI runs, so local and CI can't drift.
-set shell := ["bash", "-uc"]
+# ---- .tools family standard: identical in every family repo ----------------
+# `just verify` is exactly what CI runs: this tool's `prepare` (files the build
+# needs, e.g. an embedded asset), the family gate (tools-actions go-ci, at the
+# version .github/workflows/ci.yml pins), then this tool's `verify-extra`.
+# The pre-push hook (lefthook.yml) runs it too, so local and CI never differ.
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+default: verify
+
+verify: prepare gate verify-extra
+
+# Everything: verify plus this tool's slow checks (browser, containers), which
+# CI runs as their own required jobs.
+verify-all: verify verify-slow
+
+# The family Go gate: gofmt, vet, golangci-lint (family config), race tests,
+# cross-build. Fetched once per tools-actions version into ~/.cache.
+gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="$(grep -oE 'go-ci@v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/ci.yml | head -1 | cut -d@ -f2)"
+    f="${XDG_CACHE_HOME:-$HOME/.cache}/tools-actions/$v/go-ci/local.sh"
+    [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; curl -fsSL "https://raw.githubusercontent.com/schuettc/tools-actions/$v/go-ci/local.sh" -o "$f"; }
+    bash "$f"
+
+fmt:
+    gofmt -w $(git ls-files '*.go')
+
+# Install the lefthook hooks into this clone's own .git/hooks (once per
+# clone). A global core.hooksPath (casebook's recorder) forwards to them;
+# plain `lefthook install` refuses to run under one.
+hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    d="$(cd "$(git rev-parse --git-common-dir)" && pwd)/hooks"
+    git config --local core.hooksPath "$d"
+    trap 'git config --local --unset core.hooksPath' EXIT
+    lefthook install --force >/dev/null
+    echo "lefthook hooks installed in $d"
+
+# ---- galley -----------------------------------------------------------------
+# The wasm client is embedded in the binary and built rather than committed,
+# and a serve test asserts it is served, so it is built before the gate.
+prepare: wasm
+
+# Tool-specific checks beyond the gate (CI runs this too): the TypeScript gate
+# and the committed editor bundle matching web/.
+verify-extra: verify-web bundle-fresh
+
+# The editor bundle is COMMITTED (unlike galley.wasm), so nothing else notices
+# when web/ changes and the bundle does not: the Go tests pass, the binary
+# builds, and the browser silently runs last week's editor. mermaid.js is
+# checked with the other two; it is the output a page only fetches when it
+# holds a diagram, so nobody would find a stale one by opening a document.
+bundle-fresh: assets
+    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/mermaid.js \
+      || { echo "the committed editor bundle does not match web/: run 'just assets' and commit the result"; exit 1; }
+
+# The browser gates (below): a real chromium, minutes, one at a time. Not in
+# `verify` (the push gate); CI runs them as the required `gates` job, and
+# `just verify-all` runs everything. The umbrella used to be `verify` itself,
+# and the gap cost a red dev: `verify` passed, two PRs merged on it, and
+# loop.mjs, which nothing in it ran, had been failing the whole time. The honest
+# name for everything is now verify-all, and CI requires the gates either way.
+verify-slow: gates
 
 # Version stamp: cmd/galley, this justfile, and the release workflow all target
 # the SAME internal/version vars via -ldflags -X, so a local `just build`, `just
@@ -21,72 +84,6 @@ ldflags := "-X github.com/schuettc/galley/internal/version.version=" + version +
 # build, local and CI alike. So there is nothing to lose by turning it off,
 # and a build that works from a worktree to gain.
 buildflags := "-buildvcs=false"
-
-# AND THE SAME WORKTREE LAYOUT POISONS golangci-lint's CACHE ACROSS BRANCHES.
-# Every worktree is the SAME Go module with the SAME import paths, so results
-# cached from one are reused in another — carrying the FIRST worktree's file
-# paths with them. That is not a stale-data curiosity: it BLOCKS PUSHES. It
-# happened twice while this line was being written, `just lint` failing in one
-# worktree on a `nilerr` in `../gates2/internal/serve/serve.go` and a `unparam`
-# in `../bugs/internal/facts/facts.go` — files deleted, in trees that were not
-# being linted, reported as findings against the branch at hand. The tell is a
-# path with `../` in it, and a warning that golangci-lint could not open the
-# file it is citing. `golangci-lint cache clean` clears it; a cache that cannot
-# be shared in the first place is better, so each worktree gets its own.
-export GOLANGCI_LINT_CACHE := justfile_directory() / ".golangci-cache"
-
-# Format code.
-fmt:
-    gofmt -w .
-
-# Verify formatting is clean (used by verify/CI).
-#
-# web/node_modules IS EXCLUDED, AND THAT IS NOT HOUSEKEEPING. `flatted` — a
-# transitive dependency of eslint — SHIPS A GO PACKAGE, so from the day the
-# browser linter landed there has been a .go file under web/ that this recipe
-# walks and that `go test ./...` reports as a package. It happens to be
-# gofmt-clean today; the next npm dependency carrying Go source need not be,
-# and `just verify` going red over somebody else's vendored file is a failure
-# nobody could diagnose from its message. The grep is inside a command
-# substitution and NOT piped into the test — a pipeline reports its LAST
-# command's status, which is how a failing check becomes a passing one, and
-# this repo has paid for that twice.
-fmt-check:
-    unformatted="$(gofmt -l . | grep -v '^web/node_modules/' || true)"; \
-      test -z "$unformatted" || { echo "gofmt needed:"; echo "$unformatted"; exit 1; }
-
-# Static analysis.
-lint:
-    # `config verify` FIRST, and it is not belt-and-braces. A .golangci.yml
-    # with a duplicate key or a v1 spelling of a v2 option does not fail the
-    # run — golangci-lint falls back and reports 0 issues, so the gate goes
-    # GREEN while linting nothing. Measured while writing this file: a
-    # duplicated `rules:` key silently disabled every linter, and a planted
-    # md5 import went unreported. A check that passes because it stopped
-    # looking is this repository's most-repeated defect.
-    golangci-lint config verify
-    golangci-lint run ./...
-
-# Tests (race detector on).
-#
-# web/node_modules IS EXCLUDED here for the SAME reason `fmt-check` excludes it
-# above: `web/node_modules/flatted/golang/pkg/flatted` is a Go package shipped
-# by an npm transitive dependency (flatted, a dependency of eslint), sits
-# inside this module's own file tree with no go.mod of its own, and so
-# `go test ./...` reports it as one of ours. It happens to carry no test files
-# today; the next npm dependency carrying Go source need not be as quiet, and
-# `just verify` going red — or, worse, racy — over somebody else's vendored
-# file is a failure nobody could diagnose from its message. `.golangci.yml`
-# carries the matching exclusion for `lint`, for the identical risk.
-#
-# The package list is built in a command substitution and NOT piped into
-# `go test` — a pipeline reports its LAST command's status, which is how a
-# failing check becomes a passing one, and this repo has paid for that twice
-# (see CLAUDE.md). `go test` here is the last command in the recipe and its
-# exit code is the recipe's own.
-test:
-    packages="$(go list {{ buildflags }} ./... | grep -v '/web/node_modules/' || true)"; \
-      go test -race {{ buildflags }} $packages
 
 # Build the browser client. Go all the way down: no node, no npm, no bundler.
 wasm:
@@ -300,15 +297,18 @@ dead-code: check-entries _web-deps
 # Dead code and duplication, as no-regression ceilings. Both `just dead-code`
 # and `just dupes` print fallow's own verdict and exit non-zero whenever there
 # is anything at all, so neither can be a gate. These count instead, against
-# bounds whose standing findings are named in the scripts themselves.
+# bounds whose standing findings are named in the scripts themselves. fallow's
+# exit status is therefore ignored (`|| true`, since recipes run with pipefail)
+# and the script is the verdict: a fallow that crashed hands it no JSON, and
+# json.load fails the recipe.
 dead-code-ratchet: check-entries _web-deps
-    cd web && npx fallow dead-code --format json | python3 dead-code-ratchet.py
+    cd web && { npx fallow dead-code --format json || true; } | python3 dead-code-ratchet.py
 
 dupes-ratchet: check-entries _web-deps
-    cd web && npx fallow dupes --format json | python3 dupes-ratchet.py
+    cd web && { npx fallow dupes --format json || true; } | python3 dupes-ratchet.py
 
 complexity-ratchet: check-entries _web-deps
-    cd web && npx fallow health --format json | python3 complexity-ratchet.py
+    cd web && { npx fallow health --format json || true; } | python3 complexity-ratchet.py
 
 # Code duplication / clones across web/.
 dupes: check-entries _web-deps
@@ -490,25 +490,6 @@ wasm-exec:
 build: wasm
     CGO_ENABLED=0 go build {{ buildflags }} -ldflags "{{ ldflags }}" -o bin/galley ./cmd/galley
 
-# Cross-compile all release targets (no output, fail fast).
-cross:
-    set -e; \
-    for goos in darwin linux; do \
-      for goarch in arm64 amd64; do \
-        CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build {{ buildflags }} -ldflags "{{ ldflags }}" -o /dev/null ./cmd/galley; \
-      done; \
-    done
-
-# THE GO GATE. `wasm` precedes `test` because the serve package embeds the
-# compiled client and a test asserts it is served; on a clean checkout it does
-# not exist until it is built.
-#
-# NODE-FREE ON PURPOSE, and that is why it is named for its language rather
-# than for its scope. A release machine may have no node, so this is the recipe
-# `release.yml` and the Go half of CI run — and nothing in it may grow a
-# dependency on the browser toolchain.
-verify-go: fmt-check lint wasm test build cross
-
 # THE TYPESCRIPT GATE, in TypeScript's own tools: tsc for types, prettier for
 # format, eslint for lint, fallow for the three ratchets. Go tooling has no
 # business here and none of these is reachable from `go test`.
@@ -545,17 +526,6 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/align.mjs
     GALLEY="$PWD/bin/galley" node web/livestructure.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
-
-# EVERYTHING. This is the name a person reaches for, so it is the one that must
-# not lie.
-#
-# It used to BE the Go gate, and the gap cost a red `dev`: `just verify` passed,
-# two PRs merged on it, and `loop.mjs` — which nothing in that recipe runs — had
-# been failing the whole time. A half-check under a whole-check's name is worse
-# than no umbrella at all, because it is believed.
-#
-# Each half runs its OWN language's tooling. This recipe only sequences them.
-verify: verify-go verify-web gates
 
 # Unwrap markdown prose. NOT part of `verify` — that gate is the Go binary,
 # and reformatting prose is not something a push should do.

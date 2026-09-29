@@ -313,7 +313,6 @@ func TestParse_CodeSpanLineEndingsBecomeSpaces(t *testing.T) {
 		{"no line ending, no change", "`a b`\n", "a b"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, _, err := markdown.Parse([]byte(tc.src))
 			if err != nil {

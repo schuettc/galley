@@ -1,85 +1,12 @@
-# lefthook.yml — git hooks. Install once per clone:  lefthook install
-#   brew install lefthook
-#
-# Division of labor:
-#   pre-commit → fast auto-fixers on staged files, plus the static-analysis
-#                scan. Kept fast so nobody reaches for --no-verify.
-#   pre-push   → `just verify` (the Go gate) plus the web/ checks below, which
-#                is the CI `ci` job's step list. CI adds two things this hook
-#                does not run: the committed editor-bundle staleness diff, and
-#                the separate `gates` job (chromium — rounds-ux, typing, loop).
-#
-# The check commands live in the justfile (single source of truth), so local ==
-# CI for everything the hook does run. lefthook only decides *when*.
-#
-# This repo is Go, so golangci-lint is the load-bearing static-analysis gate —
-# the role skylos/fallow play in the Python and TypeScript repos. Do not reduce
-# pre-commit to gofmt alone: a hook that only formats catches nothing.
-
+# .tools family standard: identical in every family repo. Run `just hooks`
+# once per clone to install them.
 pre-commit:
-  parallel: true
   commands:
-    go-fmt:
+    gofmt:
       glob: "*.go"
-      run: gofmt -w {staged_files}
-      stage_fixed: true
-    go-vet:
-      glob: "*.go"
-      run: go vet ./...
-    go-lint:
-      glob: "*.go"
-      # `just lint`, NOT a bare `golangci-lint run`. The recipe carries two
-      # things this hook needs and a direct call silently loses: the
-      # `config verify` that stops a malformed .golangci.yml from passing by
-      # linting nothing, and the per-worktree GOLANGCI_LINT_CACHE. Without the
-      # latter this hook reports findings from OTHER worktrees — files that do
-      # not exist on this branch — and refuses the commit. Measured twice.
-      run: just lint
-
+      run: |
+        test -z "$(gofmt -l {staged_files})" || { gofmt -l {staged_files}; echo "gofmt needed; run just fmt"; exit 1; }
 pre-push:
   commands:
-    verify-go:
-      # verify-go, NOT verify. The umbrella `just verify` also runs the browser
-      # gates, which need a chromium and take minutes — too slow for a push
-      # hook. The web checks below are this hook's half of `verify-web`, kept
-      # as separate entries so a failure names which one.
-      run: just verify-go   # fmt-check + lint + test -race + wasm + build + cross
-    # `just types` is NOT part of `verify` and joins the hook separately, for
-    # the reason stated in the justfile: `verify` is the Go-only recipe a
-    # release runs and a machine with no node must still be able to run it.
-    # The wire's own drift check IS in `verify` — it is a Go test — so a
-    # checkout without node still cannot rename a json tag out from under the
-    # browser unnoticed.
-    types:
-      run: just types    # tsc --noEmit over web/*.ts — all 28 modules, always
-    # And the other two thirds of what Go has had since the first commit.
-    # pre-commit above runs gofmt, go vet and golangci-lint on every staged
-    # .go file; web/ had no format check and no linter at all. Both join HERE
-    # rather than pre-commit for the reason `types` is here: they need
-    # web/node_modules, so they cost an `npm install` on a cold clone, and
-    # pre-commit is the hook that has to stay fast enough that nobody reaches
-    # for --no-verify. Measured warm: prettier 2.5s, eslint 0.8s.
-    fmt-web:
-      run: just fmt-web-check   # prettier --check over web/**/*.{js,mjs,ts}
-    lint-web:
-      run: just lint-web        # eslint over web/*.mjs and web/*.ts, bound 0
-    # A config naming an entry point that no longer exists degrades silently
-    # (fallow drops it from its own count and never mentions it) — see the
-    # comment above `check-entries` in the justfile. Cheap, no backlog, no
-    # ratchet needed: the file is there or it isn't.
-    check-entries:
-      run: just check-entries   # web/.fallowrc.json's entry list names real files
-    # Fourteen genuinely complex functions, and a fifteenth is a red build.
-    # (Sixteen until #143 broke up the five accreted ones; the bound followed.)
-    # NOT fallow's own 181 — 167 of those exceed on CRAP alone, which at this
-    # repo's zero coverage means "has five or more branches". See
-    # web/complexity-ratchet.py, which exists to explain that.
-    complexity-ratchet:
-      run: just complexity-ratchet
-    # Ceilings on the two analyses that could otherwise grow in silence. Their
-    # standing findings are named in web/dead-code-ratchet.py and
-    # web/dupes-ratchet.py rather than only counted.
-    dead-code-ratchet:
-      run: just dead-code-ratchet
-    dupes-ratchet:
-      run: just dupes-ratchet
+    verify:
+      run: just verify
