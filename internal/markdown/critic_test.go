@@ -450,7 +450,6 @@ func TestSerialize_SuggestionWithNoSafeSpelling(t *testing.T) {
 			want: "==}\n",
 		},
 	} {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got := markdown.Serialize(tc.doc)
 			if string(got) != tc.want {
@@ -540,7 +539,6 @@ func TestSerialize_CriticFixedPointCorpus(t *testing.T) {
 		"a {>>n<<} b", "{>>n<<} a", "a {>>n<<}", "a\\\n{>>n<<}",
 	}
 	for _, src := range corpus {
-		src := src
 		t.Run(src, func(t *testing.T) {
 			doc1, _, err := markdown.Parse([]byte(src + "\n"))
 			if err != nil {
@@ -642,7 +640,6 @@ func TestSerialize_UnspellableSuggestion_CoalescesWithNeighbour(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc := docmodel.Doc{Blocks: []docmodel.Block{para(tc.inlines...)}}
 			normalized := docmodel.Doc{Blocks: []docmodel.Block{para(tc.normalized...)}}
@@ -726,7 +723,6 @@ func TestSerialize_LiteralMarkerText_Convergence(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			cur := tc.src
 			for i, want := range tc.rounds {
@@ -910,7 +906,6 @@ func TestParse_Comment_SeamWhitespaceCollapses(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			doc, comments, err := markdown.Parse([]byte(tc.src))
 			if err != nil {

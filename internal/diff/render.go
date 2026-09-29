@@ -322,15 +322,16 @@ func renderFlow(ops []*Op, view View) string {
 		switch o.Op {
 		case OpChange:
 			var body string
-			if o.Inner {
+			switch {
+			case o.Inner:
 				s := "new"
 				if view == ViewReverse {
 					s = "old"
 				}
 				body = innerHTML(o.Old.Text, o.New.Text, s)
-			} else if view == ViewReverse {
+			case view == ViewReverse:
 				body = insHTML(o.New.Text) + " " + delHTML(o.Old.Text)
-			} else {
+			default:
 				body = delHTML(o.Old.Text) + " " + insHTML(o.New.Text)
 			}
 			cur = append(cur, mark(`<span class="gly-chg">`+body+`</span>`, k))

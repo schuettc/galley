@@ -154,7 +154,7 @@ func TestARestartMidWindowResumesInsteadOfLaundering(t *testing.T) {
 	}
 	// …and the agent's eventual return still cuts an agent-authored round.
 	s2.closeHandoff()
-	if n := s2.cutApplied(versions.ReasonLanded); n == 0 {
+	if n := s2.cutApplied(); n == 0 {
 		t.Fatal("no round cut after resume")
 	}
 	rounds := mustList(t, s2)

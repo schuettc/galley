@@ -297,7 +297,7 @@ func Walk(d Doc, fn func(path []int, b *Block)) {
 
 func walkBlocks(blocks []Block, path []int, fn func(path []int, b *Block)) {
 	for i := range blocks {
-		p := append(path, i)
+		p := append(path, i) //nolint:gocritic // reused on purpose; Walk documents that callers who keep a path copy it
 		fn(p, &blocks[i])
 		walkBlocks(blocks[i].Children, p, fn)
 	}

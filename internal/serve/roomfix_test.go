@@ -27,10 +27,11 @@ const wsOuterSync = uint64(0)
 func dialRoom(t *testing.T, ts *httptest.Server, room string) *gws.Conn {
 	t.Helper()
 	u := "ws" + strings.TrimPrefix(ts.URL, "http") + "/yjs/" + room
-	conn, _, err := gws.DefaultDialer.Dial(u, nil)
+	conn, resp, err := gws.DefaultDialer.Dial(u, nil)
 	if err != nil {
 		t.Fatalf("dial %s: %v", u, err)
 	}
+	_ = resp.Body.Close()
 	return conn
 }
 

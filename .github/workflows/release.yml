@@ -1,34 +1,23 @@
 name: release
 
-# Merge to main = release. Muster's process, adopted wholesale — the VERSION
-# file is the knob: when a merge lands on main and no tag v<VERSION> exists
-# yet, this workflow tags it, creates the GitHub release (auto-generated
-# notes), and attaches cross-compiled binaries (cgo-free: darwin/linux ×
-# arm64/amd64) with sha256 checksums. Every binary is stamped with this
-# release's version/commit/date via -ldflags -X into internal/version — the
-# same vars the justfile stamps, so a release build and a `just build` report
-# the same thing. A merge that doesn't bump VERSION releases nothing;
-# version-guard.yml makes that impossible to do by accident.
+# Merge to main = release, through the family release actions
+# (schuettc/tools-actions: release-version + go-release). The VERSION file is
+# the knob: when a merge lands on main and no tag v<VERSION> exists yet, the
+# release is cut, signed, notarized, stamp-checked, published to GitHub and
+# to galley.tools/dl (moving /dl/galley/latest). A merge that doesn't bump
+# VERSION releases nothing; version-guard.yml makes that impossible to do by
+# accident.
 #
 # GALLEY-SPECIFIC, and load-bearing: the browser client is Go compiled to
-# js/wasm and EMBEDDED in the binary, so galley.wasm must be built BEFORE the
-# target loop — once, not per target, because js/wasm is its own GOOS and the
-# same artifact is embedded into all four platform binaries. A binary built
-# without it serves an error page instead of a review surface.
-#
-# macOS binaries are signed and notarized IN THIS JOB, which is why it runs on
-# a macOS runner: codesign and notarytool exist nowhere else. Go cross-compiles
-# the linux targets from here with CGO_ENABLED=0, so every published artifact
-# still comes from one build.
+# js/wasm and EMBEDDED in the binary, so galley.wasm is built BEFORE
+# go-release, once, with the same stamp. A binary built without it serves an
+# error page instead of a review surface.
 #
 # workflow_dispatch does two things, chosen by whether `tag` is given:
 #   - tag set    -> rebuild assets for that EXISTING release (backfill/repair).
 #   - tag empty  -> cut a PRE-RELEASE from the branch you dispatch on, tagged
-#                   v<VERSION>-rc.<run>. This is the dev channel: a real,
-#                   pinnable tag with the same assets as a release, marked
-#                   pre-release so it never becomes "Latest" and never collides
-#                   with the v<VERSION> that main will publish later. Use it to
-#                   put a build on a machine before promoting.
+#                   v<VERSION>-rc.<run>: the dev channel. It publishes its
+#                   versioned /dl paths but never becomes "Latest".
 on:
   push:
     branches: [main]
@@ -41,245 +30,66 @@ on:
 
 permissions:
   contents: write
-  # OIDC: the Publish step assumes the tools-ops Release role to write signed
-  # binaries to the galley.tools Downloads bucket. Trust is this repo's `release`
-  # environment (already declared for the signing secrets), not a ref.
+  # OIDC: go-release assumes the tools-ops Release role to write signed
+  # binaries to the galley.tools Downloads bucket. Trust is this repo's
+  # `release` environment, not a ref.
   id-token: write
 
 jobs:
   release:
-    runs-on: macos-latest
-    # The signing secrets live in a protected environment rather than plain
-    # repository secrets, so a workflow run has to be for this environment to
-    # see the Developer ID certificate at all.
+    runs-on: macos-26
+    # The signing secrets live in this protected environment, so only a run
+    # for it can see the Developer ID certificate.
     environment: release
     steps:
-      - uses: actions/checkout@v7
-      - name: Resolve tag and mode
-        id: rel
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            if [ -n "${{ inputs.tag }}" ]; then
-              # Rebuild an existing release's assets. Nothing is created.
-              {
-                echo "tag=${{ inputs.tag }}"
-                echo "create=false"
-                echo "prerelease=false"
-                echo "skip=false"
-              } >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            # Pre-release from whatever branch this was dispatched on. The
-            # -rc.<run> suffix is what keeps this off main's namespace: the run
-            # number is monotonic per workflow, so repeated dispatches at the
-            # same VERSION never collide with each other OR with the eventual
-            # v<VERSION>.
-            {
-              echo "tag=v$(tr -d ' \n' < VERSION)-rc.${{ github.run_number }}"
-              echo "create=true"
-              echo "prerelease=true"
-              echo "skip=false"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          tag="v$(tr -d ' \n' < VERSION)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "VERSION $tag already released — nothing to do."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "create=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "create=true" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/setup-go@v7
-        if: steps.rel.outputs.skip == 'false'
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+      - id: rel
+        uses: schuettc/tools-actions/release-version@v0.6.0
+        with:
+          mode: version-file
+          dispatch-tag: ${{ inputs.tag }}
+      - if: steps.rel.outputs.skip != 'true'
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
-      - name: Checkout the tag (asset-rebuild mode only)
-        if: steps.rel.outputs.skip == 'false' && steps.rel.outputs.create == 'false'
-        run: git fetch --tags && git checkout "${{ steps.rel.outputs.tag }}"
-      - name: Import the Developer ID certificate
-        if: steps.rel.outputs.skip == 'false'
+      - name: Build the embedded wasm client
+        if: steps.rel.outputs.skip != 'true'
         env:
-          P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
-          P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          V: ${{ steps.rel.outputs.version }}
+          C: ${{ steps.rel.outputs.commit }}
+          D: ${{ steps.rel.outputs.date }}
         run: |
           set -euo pipefail
-          # Fail rather than publish unsigned macOS binaries. An unsigned
-          # binary is quarantined by Gatekeeper on download and refuses to run,
-          # which reads to whoever downloads it as a broken build; no release
-          # is better than that.
-          [ -n "$P12" ] || { echo "::error::APPLE_DEVELOPER_ID_P12 is unset — refusing to publish unsigned macOS binaries."; exit 1; }
-          kc="$RUNNER_TEMP/build.keychain-db"
-          kcpw="$(uuidgen)"
-          security create-keychain -p "$kcpw" "$kc"
-          security set-keychain-settings -lut 21600 "$kc"
-          security unlock-keychain -p "$kcpw" "$kc"
-          printf %s "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$P12_PASSWORD" \
-            -T /usr/bin/codesign -T /usr/bin/security
-          rm -f "$RUNNER_TEMP/cert.p12"
-          # Without this, codesign blocks on a GUI keychain prompt that never
-          # comes and the job hangs until it times out.
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpw" "$kc" >/dev/null
-          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
-          identity="$(security find-identity -v -p codesigning "$kc" \
-            | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1)"
-          [ -n "$identity" ] || { echo "::error::no Developer ID Application identity in the imported certificate."; exit 1; }
-          echo "GALLEY_KEYCHAIN=$kc" >> "$GITHUB_ENV"
-          echo "GALLEY_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
-          echo "signing as: $identity"
-
-      - name: Build and package all targets
-        if: steps.rel.outputs.skip == 'false'
-        env:
-          NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
-          NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-        run: |
-          set -euo pipefail
-          [ -n "$NOTARY_KEY" ] || { echo "::error::APPLE_NOTARY_KEY is unset — cannot notarize."; exit 1; }
-          printf %s "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
-          tag="${{ steps.rel.outputs.tag }}"
-          version="${tag#v}"
-          commit="$(git rev-parse --short HEAD)"
-          date="$(date -u +%Y-%m-%d)"
-          ldflags="-s -w -X github.com/schuettc/galley/internal/version.version=${version} -X github.com/schuettc/galley/internal/version.commit=${commit} -X github.com/schuettc/galley/internal/version.date=${date}"
-          # The embedded browser client, built ONCE before the target loop:
-          # js/wasm is its own GOOS, and the same artifact is embedded into
-          # every platform binary below. See the header comment.
-          GOOS=js GOARCH=wasm go build -trimpath -ldflags "$ldflags" \
+          pkg=github.com/schuettc/galley/internal/version
+          GOOS=js GOARCH=wasm go build -trimpath \
+            -ldflags "-s -w -X $pkg.version=$V -X $pkg.commit=$C -X $pkg.date=$D" \
             -o internal/serve/assets/galley.wasm ./cmd/galley-wasm
-          # Sign every darwin binary as it is built. --options runtime is the
-          # hardened runtime, which notarization requires; without it the
-          # submission is rejected rather than merely unsigned.
-          sign() {
-            case "$1" in
-              *_darwin_*) codesign --sign "$GALLEY_SIGN_IDENTITY" --options runtime \
-                            --timestamp --force "$1" ;;
-            esac
-          }
-          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
-            goos="${target%/*}"; goarch="${target#*/}"
-            out="galley_${goos}_${goarch}"
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath -ldflags "$ldflags" -o "dist/${out}/galley" ./cmd/galley
-            sign "dist/${out}/galley"
-          done
-
-          # THE STAMP GUARD, against the ARTIFACT rather than the ldflags we
-          # meant to pass. An unstamped version.date makes `galley version`
-          # omit the build date. Checking the string we just built would only
-          # prove we can concatenate; running the binary proves the linker did
-          # it. The native target is the only one this runner can execute.
-          case "$(uname -m)" in
-            arm64|aarch64) native=dist/galley_darwin_arm64/galley ;;
-            *)             native=dist/galley_darwin_amd64/galley ;;
-          esac
-          stamped="$("$native" version)"
-          echo "built: $stamped"
-          # EXACT equality, and deliberately not a search for an empty field.
-          # Measured: a binary built without the date ldflag prints
-          # "galley 0.5.0 (914053d)" — tools.Version.String() OMITS the date rather than
-          # leaving "0.5.0 (914053d, )", so every pattern looking for an empty
-          # slot matches nothing and the guard passes the exact build it
-          # exists to stop. Only "is it the string we asked for" survives that.
-          if [ "$stamped" != "galley $version ($commit, $date)" ]; then
-            echo "::error::the built binary reports '$stamped', expected 'galley $version ($commit, $date)'. The build date must be stamped so 'galley version' reports it. Refusing to ship it."
-            exit 1
-          fi
-          echo "version stamp: ok"
-
-          # Notarize both signed darwin binaries in ONE submission. Apple
-          # takes minutes per submission, and sequential round trips would
-          # dominate the job. Bare executables cannot be stapled — stapler only
-          # works on bundles, dmgs and pkgs — so Gatekeeper verifies these
-          # online.
-          ditto -c -k --keepParent dist "$RUNNER_TEMP/notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
-            --key "$RUNNER_TEMP/notary.p8" \
-            --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" \
-            --wait --timeout 30m | tee "$RUNNER_TEMP/notary.log"
-          grep -q "status: Accepted" "$RUNNER_TEMP/notary.log" || {
-            echo "::error::notarization did not return Accepted"
-            xcrun notarytool log "$(awk '/id:/{print $2; exit}' "$RUNNER_TEMP/notary.log")" \
-              --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" || true
-            exit 1
-          }
-
-          # Tar only after signing and notarization, so the archives contain
-          # the signed binaries rather than the originals.
-          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
-            goos="${target%/*}"; goarch="${target#*/}"
-            tar -C "dist/galley_${goos}_${goarch}" -czf "dist/galley_${goos}_${goarch}.tar.gz" galley
-          done
-          (cd dist && shasum -a 256 *.tar.gz > checksums.txt)
-      - name: Create the release
-        if: steps.rel.outputs.create == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ steps.rel.outputs.tag }}" \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "galley ${{ steps.rel.outputs.tag }}" --generate-notes \
-            ${{ steps.rel.outputs.prerelease == 'true' && '--prerelease' || '' }}
-      - name: Upload assets
-        if: steps.rel.outputs.skip == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ steps.rel.outputs.tag }}" dist/*.tar.gz dist/checksums.txt --clobber --repo "$GITHUB_REPOSITORY"
-
-      # Family download standard: also publish the signed binaries to
-      # galley.tools/dl so the installer serves from the domain (GitHub stays the
-      # invisible durable backing store; the repo is private). Versioned paths are
-      # immutable + long-TTL; the latest pointer is short-TTL and invalidated on
-      # write. The Release role can ONLY PutObject to Downloads + CreateInvalidation
-      # on the galley.tools distribution — no other access.
-      - name: Configure AWS credentials (downloads)
-        if: steps.rel.outputs.skip == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
+      - if: steps.rel.outputs.skip != 'true'
+        uses: schuettc/tools-actions/go-release@v0.6.0
         with:
-          role-to-assume: ${{ secrets.GALLEY_RELEASE_ROLE_ARN }}
-          aws-region: us-east-1
-      - name: Publish binaries to galley.tools/dl
-        if: steps.rel.outputs.skip == 'false'
-        env:
-          BUCKET: ${{ secrets.GALLEY_DOWNLOADS_BUCKET }}
-          TAG: ${{ steps.rel.outputs.tag }}
-        run: |
-          set -euo pipefail
-          version="${TAG#v}"   # bare semver; the family download contract keys paths on it
-          for f in dist/galley_*.tar.gz; do
-            base="$(basename "$f")"
-            # per-asset shasum sidecar (`<hex>  <name>`), naming the bare asset.
-            shasum -a 256 "$f" | awk -v n="$base" '{print $1"  "n}' > "$f.sha256"
-            aws s3 cp "$f"        "s3://$BUCKET/dl/galley/$version/$base"        --cache-control 'public,max-age=31536000,immutable'
-            aws s3 cp "$f.sha256" "s3://$BUCKET/dl/galley/$version/$base.sha256" --cache-control 'public,max-age=31536000,immutable' --content-type text/plain
-          done
-      - name: Update latest pointer + invalidate
-        # Only a real, non-prerelease release moves `latest`. A dispatch rebuild
-        # (create=false) and an -rc pre-release (prerelease=true) publish their
-        # versioned paths above but never move the pointer.
-        if: steps.rel.outputs.skip == 'false' && steps.rel.outputs.create == 'true' && steps.rel.outputs.prerelease == 'false'
-        env:
-          BUCKET: ${{ secrets.GALLEY_DOWNLOADS_BUCKET }}
-          TAG: ${{ steps.rel.outputs.tag }}
-        run: |
-          set -euo pipefail
-          version="${TAG#v}"
-          printf '%s' "$version" | aws s3 cp - "s3://$BUCKET/dl/galley/latest" \
-            --content-type text/plain --cache-control 'public,max-age=60,must-revalidate'
-          aws cloudfront create-invalidation --distribution-id E1SZ7R2DDWHDSZ --paths '/dl/galley/latest'
-
-      - name: Destroy the signing material
-        # always(), because a failed build must not leave a usable Developer ID
-        # certificate or an App Store Connect key behind on the runner.
-        if: always()
-        run: |
-          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notarize.zip"
-          [ -n "${GALLEY_KEYCHAIN:-}" ] && security delete-keychain "$GALLEY_KEYCHAIN" || true
+          setup-go: "false"
+          binaries: |
+            galley=./cmd/galley
+          ldflags: >-
+            -X github.com/schuettc/galley/internal/version.version={version}
+            -X github.com/schuettc/galley/internal/version.commit={commit}
+            -X github.com/schuettc/galley/internal/version.date={date}
+          stamp-check: galley
+          tag: ${{ steps.rel.outputs.tag }}
+          version: ${{ steps.rel.outputs.version }}
+          commit: ${{ steps.rel.outputs.commit }}
+          date: ${{ steps.rel.outputs.date }}
+          create: ${{ steps.rel.outputs.create }}
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          release-title: galley ${{ steps.rel.outputs.tag }}
+          apple-developer-id-p12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          apple-developer-id-p12-password: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          apple-notary-key: ${{ secrets.APPLE_NOTARY_KEY }}
+          apple-notary-key-id: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          apple-notary-issuer-id: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          dl-tool: galley
+          dl-role-arn: ${{ secrets.GALLEY_RELEASE_ROLE_ARN }}
+          dl-bucket: ${{ secrets.GALLEY_DOWNLOADS_BUCKET }}
+          dl-distribution-id: E1SZ7R2DDWHDSZ

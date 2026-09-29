@@ -1,171 +1,64 @@
-# CI — the UNBYPASSABLE BACKSTOP. Runs on every PR into `dev` or `main`.
-#
-# Parity by construction: this job runs `just verify` — the EXACT recipe the
-# pre-push git hook runs (see lefthook.yml + justfile). Same commands, same
-# tools → if it passed locally on push, it passes here. The local hooks can be
-# skipped (--no-verify, lefthook not installed); a required status check cannot.
-#
-# `just verify` for this repo is: fmt-check · lint · test -race · wasm · build ·
-# cross-compile. The wasm client is embedded in the binary, so it is built
-# before the build step rather than as a separate CI job.
-
-name: CI
-
+# .tools family standard: identical in every family repo except the branch
+# list and the gate's OS list. The same checks `just verify` runs locally (and
+# the pre-push hook runs): `gate` is the family Go gate after `just prepare`
+# (the wasm client), `extra` is `just verify-extra` (the TypeScript gate and the
+# committed editor bundle). Checks too slow for a push follow as their own jobs.
+name: ci
 on:
-  pull_request:
-    branches: [dev, main]
-  # Also run on pushes to dev/main so the base branch always has a fresh status
-  # (required-check enforcement needs a passing run recorded on the base).
   push:
     branches: [dev, main]
-
+  pull_request:
+    branches: [dev, main]
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 permissions:
   contents: read
-
 jobs:
-  ci:
-    runs-on: ubuntu-latest
+  gate:
+    strategy:
+      matrix:
+        os: [ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
-
-      - name: Install just
-        uses: extractions/setup-just@v4
-
-      # Pinned, and pinned to the version developers run locally. `just verify`
-      # is the same recipe here and on a laptop; a different linter MAJOR
-      # version silently breaks that parity in the one place it matters most.
-      # Bump this and the local install together.
-      #
-      # The install SCRIPT fetches the prebuilt binary; `go install` compiled it
-      # from source every run (~95s). Same pinned version, ~10s. `just verify-go`
-      # is still the only thing that RUNS the linter — this step only puts it on
-      # PATH — so the parity the comment above is about is untouched.
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh \
-            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-      # The single source of truth — identical to the pre-push hook.
-      - name: Verify (fmt-check + lint + test -race + wasm + build + cross)
-        run: just verify-go
-
-      # The editor bundle is COMMITTED (unlike galley.wasm, which every build
-      # regenerates), so nothing in `just verify` notices when web/ changes and
-      # the bundle does not. A stale bundle is invisible: the Go tests pass, the
-      # binary builds, and the browser silently runs last week's editor.
-      #
-      # `just assets` rebuilds it from web/ and runs probe.mjs; the diff check
-      # then fails if what it wrote differs from what is committed. Node is only
-      # needed here and locally — never for a `go build` or a release.
-      - name: Set up Node
-        uses: actions/setup-node@v7
+      - uses: extractions/setup-just@v4.0.0
+      - run: just prepare
+      - uses: schuettc/tools-actions/go-ci@v0.6.0
+        with:
+          setup-go: "false"
+  extra:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: extractions/setup-just@v4.0.0
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-
       # setup-node's `cache: npm` caches the DOWNLOAD cache (~/.npm), not
-      # node_modules — so without this every run still extracts the 360-package
-      # tree from scratch. Cache node_modules itself, keyed on the lockfile: a
-      # hit means `_web-deps`'s `[ -d node_modules ]` guard skips `npm ci`
-      # entirely; a lockfile change misses the key, leaves node_modules absent,
-      # and the guard reinstalls. This is what makes the seven web recipes below
-      # share one install instead of paying for it seven times.
+      # node_modules, so without this every run extracts the 360-package tree
+      # from scratch. Keyed on the lockfile: a hit means `_web-deps`'s
+      # `[ -d node_modules ]` guard skips `npm ci`; a lockfile change misses and
+      # the guard reinstalls. The gates job shares it.
       - name: Cache web/node_modules
         uses: actions/cache@v6
         with:
           path: web/node_modules
           key: web-node-modules-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
-
-      # mermaid.js is diffed WITH the other two. `just assets` has always built
-      # it and this step has always ignored it, so a stale mermaid bundle was
-      # the one committed output nothing checked — and it is the output a page
-      # only fetches when it holds a diagram, so nobody would have found it by
-      # opening a document either.
-      - name: Editor bundle is not stale
-        run: |
-          just assets
-          git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css \
-            internal/serve/assets/mermaid.js \
-            || { echo "::error::the committed editor bundle does not match web/ — run 'just assets' and commit the result"; exit 1; }
-
-      # THE TYPECHECK, IN THE ONE JOB THAT ALREADY HAS NODE.
-      #
-      # It is NOT in `just verify` and must not be: that recipe is Go-only by
-      # design, runs where node may not exist, and is what the release path
-      # depends on. The half of the wire contract that belongs in `verify` is
-      # the GENERATOR — internal/serve/wire_test.go, an ordinary Go test — and
-      # it is already running in the step above this one.
-      #
-      # This is the other half: the browser modules that have opted in with
-      # `// @ts-check` read web/wire.d.ts, so a Go struct renamed under them is
-      # a red build here rather than a `TypeError: Cannot read properties of
-      # undefined` in a gate nobody runs. `just types` is a pass-through to
-      # web/package.json's `typecheck` script, whose flags live in
-      # web/tsconfig.json — one spelling of the command, in the place npm
-      # already looks for it.
-      - name: The browser agrees with the wire
-        run: just types
-
-      # THE OTHER TWO THIRDS OF THE STACK, IN THE SAME JOB AND FOR THE SAME
-      # REASON. `just verify` above gives every .go file gofmt, go vet and
-      # golangci-lint; until this commit web/ had a type checker and nothing
-      # else, over 14,500 lines of browser client and 17,000 of harness. These
-      # are the format check and the linter, wired exactly like `just types`:
-      # pass-throughs to web/package.json scripts whose configuration lives in
-      # .prettierrc and web/eslint.config.mjs.
-      #
-      # They are cheap enough to sit beside the typecheck rather than in a job
-      # of their own — measured on the full tree at 2.5s and 0.8s — and both
-      # are already devDependencies of web/package.json, so the `npm install`
-      # this job does for `just assets` has installed them by the time these
-      # run.
-      - name: web/ is formatted
-        run: just fmt-web-check
-
-      - name: web/ passes the linter
-        run: just lint-web
-
-      # web/.fallowrc.json's `entry` list must name real files — a stale entry
-      # (a rename that outran the config) is otherwise a silent no-op: fallow
-      # drops it from its own count and never says so. See the comment above
-      # `check-entries` in the justfile for the defect this replaces.
-      - name: fallow entry points exist
-        run: just check-entries
-
-      # A ceiling on the 14 functions that exceed a cognitive or cyclomatic
-      # threshold — not fallow's headline 181, which is 92% an artifact of
-      # having no coverage data. web/complexity-ratchet.py explains the
-      # difference and why counting the wrong one punished a real refactor.
-      # It was 16 until #143 broke up the five accreted functions; the bound
-      # came down with the measurement.
-      - name: Complexity has not regressed
-        run: just complexity-ratchet
-
-      # Ceilings on the two analyses that could otherwise grow in silence.
-      # Their standing findings are named in the scripts, not just counted.
-      - name: Dead code has not grown
-        run: just dead-code-ratchet
-
-      - name: Duplication has not grown
-        run: just dupes-ratchet
+      - run: just verify-extra
 
   # THE BROWSER GATES, AND THIS JOB IS THE WHOLE REASON THEY ARE TRUSTWORTHY.
   #
-  # `just verify` above opens no browser. It cannot: it is the recipe a release
-  # runs and a `go build` machine must be able to run it. So everything this
+  # `just verify` (the gate and extra jobs above) opens no browser: it is the
+  # push gate, and it has to stay fast enough to run on every push. So everything this
   # product knows about PAINT, about nothing moving that was not clicked, about
   # the reviewer's hand never being tracked, and about two actors agreeing on
   # one file, lived in scripts that only ever ran when a human typed them.
@@ -177,30 +70,34 @@ jobs:
   # structural one, and this job is the fix for it.
   #
   # It is a SEPARATE job on purpose. It needs a chromium and several minutes,
-  # and `verify` must stay the fast, browserless recipe the hook and the release
-  # share. Failing here is a red PR; that is the point.
+  # and `verify` must stay the fast, browserless recipe the hook runs. Locally
+  # it is `just verify-slow` (or `just verify-all` for everything). Failing
+  # here is a red PR; that is the point.
   gates:
-    runs-on: ubuntu-latest
+    # 24.04, not 26.04: playwright-core 1.56.1 cannot install chromium on
+    # ubuntu 26.04 ("does not support chromium on ubuntu26.04-x64"). Move up
+    # with the playwright-core that supports it.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
 
       - name: Set up just
-        uses: extractions/setup-just@v4
+        uses: extractions/setup-just@v4.0.0
 
       - name: Set up Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      # Same node_modules cache as the ci job (see the comment there). A hit
+      # Same node_modules cache as the extra job (see the comment there). A hit
       # skips the npm ci below; a lockfile change misses and reinstalls.
       - name: Cache web/node_modules
         uses: actions/cache@v6
