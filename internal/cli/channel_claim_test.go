@@ -83,3 +83,56 @@ func TestClaimOnAttachGivesOneListener(t *testing.T) {
 		t.Fatal("second channel recorded no reason for declining")
 	}
 }
+
+// A DOCUMENT ANOTHER LIVE SESSION OWNS IS NOT THIS SESSION'S NEWS. The
+// refusal is the ownership rule working, and there is nothing here to act on —
+// but the harness turns channel stderr into a notification, so saying it made
+// every session under an overlapping scope announce its neighbours' reviews,
+// which reads exactly like the misroute the rule prevents. It stays in
+// status(); it stays off stderr. A DEAD owner is different — that review is
+// stranded, the line tells someone to reopen it — so that one is still said.
+func TestChannelKeepsALiveOwnersDocumentOffStderr(t *testing.T) {
+	announced := func(c *channel, room string) bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for k := range c.announced {
+			if len(k) >= len(room) && k[:len(room)] == room {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("live owner: in status, not said", func(t *testing.T) {
+		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+		dir := t.TempDir()
+		doc := writeDoc(t, dir, "doc.md", "# T\n\nHi.\n")
+		srv, _, _ := liveEditor(t, doc, registry.Entry{Owner: "other-session"})
+		if err := registry.AnnounceSession("other-session"); err != nil {
+			t.Fatal(err)
+		}
+		c := newChannel(dir, "me")
+		c.scanOnce(context.Background())
+		c.mu.Lock()
+		reason := c.unattached[srv.Room]
+		c.mu.Unlock()
+		if reason == "" {
+			t.Fatal("status lost the reason the document was not attached")
+		}
+		if announced(c, srv.Room) {
+			t.Errorf("said a live session's document on stderr: %q", reason)
+		}
+	})
+
+	t.Run("dead owner: still said", func(t *testing.T) {
+		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+		dir := t.TempDir()
+		doc := writeDoc(t, dir, "doc.md", "# T\n\nHi.\n")
+		srv, _, _ := liveEditor(t, doc, registry.Entry{Owner: "gone-session"})
+		c := newChannel(dir, "me")
+		c.scanOnce(context.Background())
+		if !announced(c, srv.Room) {
+			t.Error("a stranded review (dead owner) was not said")
+		}
+	})
+}
