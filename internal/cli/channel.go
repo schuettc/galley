@@ -477,9 +477,10 @@ func (c *channel) scanOnce(ctx context.Context) {
 		return
 	}
 	unattached := map[string]string{}
-	// An out-of-scope advert can never wake THIS session, so its unattached
-	// reason is recorded for status() but kept off stderr — the startup line
-	// exists to break in-scope silence, and a cross-repo editor is not that.
+	// An out-of-scope advert, or one another live session owns, can never wake
+	// THIS session, so its unattached reason is recorded for status() but kept
+	// off stderr — the startup line exists to break in-scope silence, and
+	// neither of those is that.
 	quiet := map[string]bool{}
 	live := map[string]bool{}
 	for _, e := range entries {
@@ -500,6 +501,13 @@ func (c *channel) scanOnce(ctx context.Context) {
 		ok, why := c.claim(e)
 		if !ok {
 			unattached[e.Room] = fmt.Sprintf("%s is open, %s", e.Page, why)
+			// Another LIVE session's document is that session's business: the
+			// refusal is the ownership rule working, and the harness turns this
+			// stderr into a notification that reads like the misroute it
+			// prevents. A dead owner's stranded review is still said.
+			if registry.SessionLive(e.Owner) {
+				quiet[e.Room] = true
+			}
 			continue
 		}
 		// CLAIM-ON-ATTACH: take exclusive ownership of an unowned/orphaned advert

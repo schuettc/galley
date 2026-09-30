@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## 0.10.4
+
+- The channel no longer prints a line for a document another live session owns. That refusal is the ownership rule working, but the pi channels harness shows channel stderr as a notification, so sessions under an overlapping scope announced each other's reviews and it read like cross-session bleed. The reason is still in `galley_channel_status`; a review whose owning session has ended is still announced.
+
 ## 0.10.3
 
 - Releases are built through the family release actions (tools-actions); the assets, signing and `/dl` paths are unchanged.
