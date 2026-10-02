@@ -381,9 +381,7 @@ export const figureMethods = {
     // Assigning `value` fires no `input` event, so the box would keep the
     // height the last instruction grew it to. See openComposerForm.
     c.input.dispatchEvent(new Event('input'));
-    c.note.textContent = ref
-      ? ''
-      : 'not in the document yet — it lands on the next sync';
+    c.note.textContent = ref ? '' : NOT_YET;
     c.note.classList.remove('gly-quiet');
     // NEVER A BARE `= false`: `.gly-composer button` is SEAL_ONLY_VERBS (see
     // web/seal.ts), so enabling send without asking the seal would hand back a
@@ -410,6 +408,55 @@ export const figureMethods = {
     }
     this.headBlockComposer(target, label);
     c.input.focus();
+  },
+
+  // adoptGripBlock gives an open grip composer the key it opened without.
+  //
+  // The note says the block lands on the next sync, so the refresh that
+  // brings its key has to land it: the box becomes sendable on that block and
+  // the note goes, with the reviewer's words left where they are. Run after
+  // every pending refresh has replaced `this.blocks`, and a no-op unless a
+  // grip's composer is up with no block.
+  //
+  // THE BLOCK IS FOUND AGAIN, NOT REMEMBERED. Text typed above it since the
+  // press renumbers it, so the target is re-read from today's document by the
+  // grip that opened it — the one paintGrips keeps beside that block node —
+  // and only then looked up in the server's list by index and kind, the
+  // lookup openBlockComposer makes. A block that has gone, or that the list
+  // still does not carry, leaves the box exactly as it was.
+  adoptGripBlock(this: AppShell) {
+    const c = this.composer;
+    const opener = c.opener;
+    if (c.root.hidden || !opener || !c.grip || c.block || c.picking) {
+      return;
+    }
+    const doc = this.editor.state.doc;
+    const targets = gripTargets(doc);
+    const target =
+      targets.find((t) => gripOfNode.get(doc.child(t.index)) === opener) ||
+      targets.find(
+        (t) =>
+          t.index === Number(opener.dataset.index) &&
+          t.kind === opener.dataset.kind,
+      );
+    const ref =
+      target &&
+      this.blocks.find(
+        (b) => b.index === target.index && b.kind === target.kind,
+      );
+    if (!target || !ref) {
+      return;
+    }
+    const label =
+      target.kind === 'heading' ? doc.child(target.index).textContent : '';
+    c.block = { key: ref.key, label: label || ref.label, region: null };
+    c.grip = target;
+    c.mark.hidden = !target.figure;
+    if (c.note.textContent === NOT_YET) {
+      c.note.textContent = '';
+    }
+    // Asking the seal, as openBlockComposer does: send is SEAL_ONLY_VERBS.
+    c.send.disabled = !!this.sealed;
   },
 
   // markRegion is Mark a region: the form is put away, its words kept, and the
@@ -449,6 +496,11 @@ export const figureMethods = {
     c.picking = pickRegion(pair.el, back, () => back(kept));
   },
 };
+
+// What a grip's composer says while the page has no key for its block. The
+// refresh that brings the key clears it (adoptGripBlock), so it is compared
+// as well as written, and spelled once.
+const NOT_YET = 'not in the document yet — it lands on the next sync';
 
 // gripOfNode is the grip last painted for each block node. A node that is
 // gone from the document is unreachable here and goes with it.

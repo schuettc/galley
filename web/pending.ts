@@ -136,6 +136,7 @@ export const pendingMethods = {
         // with the key ABSENT rather than as an empty array.
         this.changes = view.changes || [];
         this.blocks = view.blocks || [];
+        this.adoptGripBlock();
         this.scheduleGrips();
         // NO TRAIL IS ADOPTED FROM THIS PAYLOAD, because the payload has none:
         // `pendingView` is `{instructions, blocks}`. `adoptTrail` and

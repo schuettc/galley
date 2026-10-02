@@ -1031,11 +1031,20 @@ class App implements AppState {
     // change in the document's size (an image loading, a diagram rendering,
     // a line wrapping, the window resizing), which moves the blocks under the
     // grips without changing the document.
+    //
+    // THE LAYER'S PARENT IS OBSERVED AS WELL AS THE COLUMN. In page mode the
+    // column is a fixed width centred in `#editor`, so a window resize moves
+    // every block sideways and leaves `.ProseMirror`'s own size alone: an
+    // observer on the column alone never fires, and every grip stays where
+    // the column used to be. `#editor` is what changes size then.
     this.grips = this.makeGripLayer();
     this.scheduleGrips = coalesce(() => this.paintGrips());
     if (typeof window.ResizeObserver === 'function') {
       this.gripSizes = new window.ResizeObserver(() => this.scheduleGrips());
       this.gripSizes.observe(editor.view.dom);
+      if (this.grips.parentElement) {
+        this.gripSizes.observe(this.grips.parentElement);
+      }
     } else {
       window.addEventListener('resize', () => this.scheduleGrips());
     }

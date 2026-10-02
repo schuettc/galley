@@ -572,6 +572,7 @@ export interface AppMethods {
   paintFigures(): void;
   markRegion(): void;
   openBlockComposer(target: GripTarget, opener: HTMLElement | null): void;
+  adoptGripBlock(): void;
   openSheet(): void;
   paintGrips(): void;
   paintPins(el: HTMLElement, ref: BlockRef | null): void;

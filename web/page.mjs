@@ -421,6 +421,27 @@ const select = (phrase) =>
     content.length > 0 && content.every((g) => g.shown && g.beside),
     content.filter((g) => !g.shown || !g.beside),
   );
+  // A WINDOW RESIZE RE-CENTRES THE COLUMN WITHOUT RESIZING IT. The page's
+  // column is a fixed width centred in a wider pane, so a wider window moves
+  // every block sideways and leaves `.ProseMirror`'s own size alone; a grip
+  // that only re-measures when the column changes size stays where the
+  // column used to be.
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.waitForTimeout(400);
+  const wider = await grips();
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.waitForTimeout(400);
+  const back = await grips();
+  check(
+    'a window resize in Content view keeps every grip in the gutter beside its block',
+    wider.length === content.length &&
+      back.length === content.length &&
+      [...wider, ...back].every((g) => g.shown && g.beside),
+    {
+      wider: wider.filter((g) => !g.beside).map((g) => [g.index, g.gap]),
+      back: back.filter((g) => !g.beside).map((g) => [g.index, g.gap]),
+    },
+  );
   const both = await show('both');
   check(
     'in Both view every grip is inside the content pane and none hangs over the live page',

@@ -881,6 +881,36 @@ const cardBeside = (key, index) =>
       after === before,
     { said, posts, before, after },
   );
+
+  // --- §7b and the box picks the block up when the page hears of it ------
+  //
+  // The note says the block lands on the next sync, so the next sync has to
+  // land it: the refresh that brings the key makes the open box sendable on
+  // that block, clears the note, and keeps every word already typed. It is
+  // read before Esc and nothing is sent, so the instruction count the later
+  // sections read is untouched.
+  const tableKey = ((await pending()).blocks || []).find(
+    (b) => b.kind === 'table',
+  )?.key;
+  await page.evaluate(() => window.galleyEdit.app.refreshPending());
+  await page.waitForTimeout(300);
+  const landed = await page.evaluate(() => ({
+    open: !document.querySelector('.gly-composer-form').hidden,
+    note: document.querySelector('.gly-composer-note').textContent,
+    send: document.querySelector('.gly-composer-send').disabled,
+    words: document.querySelector('.gly-composer-text').value,
+    key: window.galleyEdit.app.composer.block?.key || null,
+  }));
+  check(
+    'when the refresh brings its key, the open box files on that block, the note goes, and the words stay',
+    !!tableKey &&
+      landed.open &&
+      landed.note === '' &&
+      !landed.send &&
+      landed.words === 'nowhere to go' &&
+      landed.key === tableKey,
+    { landed, tableKey },
+  );
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.galleyEdit.app.refreshPending());
 }
