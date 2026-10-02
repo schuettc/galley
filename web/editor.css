@@ -1398,6 +1398,16 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   cursor: pointer;
 }
 .gly-block-grip:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
+/* A block that already carries instructions: the face is their count, and the
+   grip wears the instruction's own violet, edge and ground. PAINT ONLY — the
+   box, its border width and its font are the resting grip's, so the face
+   swaps inside one fixed box and nothing beside it moves. Violet and not
+   amber: amber is ARRIVED (see the token list at the top). */
+.gly-block-grip.is-commented {
+  border-color: var(--gly-hl);
+  background-color: var(--gly-hl-bg);
+  color: var(--gly-hl);
+}
 /* Its focus ring is the card's — see `.gly-card:focus-visible`. */
 
 /* What a block instruction will be about, while its composer is up: the

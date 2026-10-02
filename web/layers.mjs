@@ -1669,6 +1669,19 @@ await page.waitForTimeout(300);
 // is gone is the two-colour edge and the old→new body, because a component with
 // no data to build it from cannot be read off a screen.
 
+// takeBack deletes an instruction a section filed for its own check, and waits
+// for the page to have heard, so the sections after it count what they always
+// counted.
+const takeBack = (key) =>
+  page.evaluate(async (k) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k }),
+    });
+    await window.galleyEdit.app.refreshPending();
+  }, key);
+
 // --- §1e · a block note's words are a widget, painted by ID -----------------
 //
 // A block comment's note carries only its ID; the amber box gets the words from
@@ -1826,14 +1839,7 @@ await page.waitForTimeout(300);
       ),
     { ownGrew, moves },
   );
-  await page.evaluate(async (k) => {
-    await fetch('/_galley/instruction/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: k }),
-    });
-    await window.galleyEdit.app.refreshPending();
-  }, key || '');
+  await takeBack(key || '');
   const gone = key ? await measure(key) : null;
   check(
     'and deleting the comment takes its note and its widget with it',
@@ -1845,6 +1851,108 @@ await page.waitForTimeout(300);
     before,
     { timeout: 10000 },
   );
+}
+
+// --- §1f · a grip with instructions is painted as one ---------------------
+//
+// A block that carries instructions has a grip that says so in paint as well
+// as in its count: the instruction's own violet on its edge and its ground.
+// Read as an INEQUALITY between the same grip at rest and commented, in both
+// schemes, rather than as a token match alone: a commented rule that lost the
+// cascade to the resting one paints both the same, and a token check on a
+// token that is itself wrong passes either way. And the resting grip borrows
+// nothing from the two colours that already mean something in the prose —
+// the removed-text red and the light's amber wash.
+//
+// ONE GRIP, READ TWICE: the title's, before and after an instruction is filed
+// on it. Every grip-bearing block in this fixture but the title already
+// carries one, so there is no second grip at rest to compare against.
+{
+  const title = await page.evaluate(
+    () =>
+      (window.galleyEdit.app.blocks || []).find((b) => b.kind === 'heading') ||
+      null,
+  );
+  const grip = `.gly-block-grip[data-index="${title ? title.index : -1}"]`;
+  const PAINT = ['background-color', 'border-top-color', 'color'];
+  const SCHEMES = ['dark', 'light'];
+  const paint = async () => {
+    await page.mouse.move(0, 0);
+    const out = {};
+    for (const scheme of SCHEMES) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.waitForTimeout(300);
+      out[scheme] = {
+        grip: await style(grip, ...PAINT),
+        hl: await rgb('--gly-hl'),
+        hlBg: await rgb('--gly-hl-bg'),
+        taken: [
+          await rgb('--gly-del'),
+          await rgb('--gly-del-bg'),
+          await rgb('--gly-lit-bg'),
+        ],
+      };
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    return out;
+  };
+  const resting = await paint();
+  const filed = await page.evaluate(
+    async (k) => {
+      const r = await fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 'comment_block',
+          target: k,
+          text: 'paint check',
+          author: 'court',
+        }),
+      });
+      await window.galleyEdit.app.refreshPending();
+      return r.ok
+        ? ((await r.json()).instructions || []).find(
+            (i) => i.text === 'paint check',
+          )?.key || ''
+        : '';
+    },
+    title ? title.key : '',
+  );
+  await page
+    .waitForSelector(`${grip}.is-commented`, { timeout: 10000 })
+    .catch(() => {});
+  const commented = await paint();
+  for (const scheme of SCHEMES) {
+    const rest = resting[scheme].grip;
+    const lit = commented[scheme].grip;
+    const { hl, hlBg, taken } = commented[scheme];
+    check(
+      `a commented grip differs from a resting one in ground AND edge in ${scheme}`,
+      !!lit &&
+        !!rest &&
+        lit['background-color'] !== rest['background-color'] &&
+        lit['border-top-color'] !== rest['border-top-color'],
+      { scheme, lit, rest },
+    );
+    check(
+      `and its paint is the instruction's violet in ${scheme}`,
+      !!lit &&
+        lit['border-top-color'] === hl &&
+        lit['background-color'] === hlBg &&
+        lit.color === hl,
+      { scheme, lit, hl, hlBg },
+    );
+    check(
+      `a resting grip shares no colour with removed text or the light in ${scheme}`,
+      !!rest && PAINT.every((p) => !taken.includes(rest[p])),
+      { scheme, rest, taken },
+    );
+  }
+  await takeBack(filed);
+  check('the paint check filed its instruction and took it back', !!filed, {
+    title,
+    filed,
+  });
 }
 
 // --- §1 · radius is a caste mark --------------------------------------------

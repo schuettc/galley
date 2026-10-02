@@ -35,7 +35,13 @@
 import { flash, motion } from './card.ts';
 import { pickRegion } from './figure.ts';
 import { coerceLevel } from './heading.ts';
-import { gripFace, gripLabel, gripTargets, stackGrips } from './grips.ts';
+import {
+  gripCount,
+  gripFace,
+  gripLabel,
+  gripTargets,
+  stackGrips,
+} from './grips.ts';
 import type { GripTarget } from './grips.ts';
 import { scopeKey } from './scope.ts';
 import type { EditorView } from '@tiptap/pm/view';
@@ -244,8 +250,17 @@ export const figureMethods = {
       if (layer.children[i] !== b) {
         layer.insertBefore(b, layer.children[i] || null);
       }
-      b.textContent = gripFace(0);
-      const label = gripLabel(t, doc.child(t.index).textContent, 0);
+      // THE COUNT IS THE BLOCK'S OWN, by its key from the server's list: a
+      // section's grip counts the instructions on its heading, not those on
+      // the blocks under it. A block the last refresh has not seen has no key
+      // and so no instructions yet. The face swaps inside one fixed box.
+      const ref = this.blocks.find(
+        (r) => r.index === t.index && r.kind === t.kind,
+      );
+      const count = gripCount(this.comments, ref ? ref.key : '');
+      b.textContent = gripFace(count);
+      b.classList.toggle('is-commented', count > 0);
+      const label = gripLabel(t, doc.child(t.index).textContent, count);
       b.setAttribute('aria-label', label);
       b.title = label;
       return b;

@@ -222,8 +222,11 @@ const LITERAL: Record<
 // instruction on the whole block, so the hint ends by saying so. A NESTED one
 // has no grip — the server addresses top-level blocks only — and the clause
 // there would send the reviewer looking for a control that is not on the
-// page, so literalHit adds it by position, never by kind.
-const GRIP_CLAUSE = ' — or press + beside it to leave an instruction on ';
+// page, so literalHit adds it by position, never by kind. The grip is named by
+// where it is and not by its face, which is `+` on a block with no
+// instructions and their count on a block with some.
+const GRIP_CLAUSE =
+  ' — or press the button to its left to leave an instruction on ';
 
 // What the grip's instruction is on, as the clause names it. A mermaid fence
 // is a diagram on the page, and its grip calls it one.

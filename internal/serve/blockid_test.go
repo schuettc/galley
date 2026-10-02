@@ -13,6 +13,7 @@ import (
 
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/unsent"
+	"github.com/schuettc/galley/internal/ydoc"
 )
 
 // BLOCK AND DOCUMENT COMMENTS ARE LINKED TO THEIR PLACE BY ID ALONE. A block
@@ -410,4 +411,49 @@ func TestDeletingOnlyABlocksParagraphMovesItsCommentToTheBlockAbove(t *testing.T
 		return
 	}
 	t.Fatalf("the rail lost the block comment: %+v", pendingView(t, s).Instructions)
+}
+
+// A BLOCK INSTRUCTION IS NEVER LISTED HALF-WRITTEN. /_galley/pending takes no
+// lock (see pending), so it can read the review map between any two of a
+// write's transactions. When a block thread's words and its anchor were two
+// transactions, a read between them listed the instruction with no anchor, no
+// anchorKey and no blockKind, and the rail drew it, for that moment, as an
+// instruction on nothing. This reads the pending view after EVERY committed
+// transaction of one comment_block with a rectangle, the way a poller landing
+// at any instant would.
+func TestABlockInstructionIsNeverListedWithoutItsAnchor(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	fig := figureKey(t, s)
+	const text = "this box is wrong"
+	var seen []InstructionView
+	stop := s.doc.OnUpdate(func(_ []byte, origin any) {
+		if origin == ydoc.LiveReadOrigin {
+			return
+		}
+		view, err := s.pending()
+		if err != nil {
+			t.Errorf("pending mid-write: %v", err)
+			return
+		}
+		for _, in := range view.Instructions {
+			if in.Text == text {
+				seen = append(seen, in)
+			}
+		}
+	})
+	instructOK(t, s, map[string]any{
+		"op": "comment_block", "target": fig, "text": text,
+		"region": map[string]float64{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+	})
+	stop()
+	if len(seen) == 0 {
+		t.Fatal("no transaction of the write listed the instruction")
+	}
+	for i, in := range seen {
+		if in.Anchor != "block" || in.AnchorKey != fig || in.BlockKind != "image" || in.Region == nil {
+			t.Errorf("read %d of %d listed %+v, want anchor block on %s, blockKind image, with its region",
+				i+1, len(seen), in, fig)
+		}
+	}
 }

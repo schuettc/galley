@@ -579,13 +579,10 @@ let filedKey = '';
     await page.keyboard.type('tighten this section');
     await page.keyboard.press('Enter');
   }
-  // Until it is listed WITH its anchor: the server lists a block instruction
-  // a moment before it has resolved the block the mark follows, and a
-  // listing read in that moment has no anchor yet.
   let list = [];
-  for (let wait = 0; wait < 40 && !(list.length && list[0].anchor); wait += 1) {
+  for (let wait = 0; wait < 40 && !list.length; wait += 1) {
     list = (await pending()).instructions || [];
-    if (!(list.length && list[0].anchor)) await page.waitForTimeout(250);
+    if (!list.length) await page.waitForTimeout(250);
   }
   const one = list.length === 1 ? list[0] : null;
   filedKey = one ? one.key : '';
@@ -690,7 +687,7 @@ let filedKey = '';
     !!said.hint &&
       said.hint.startsWith(TABLE_HINT) &&
       said.hint.endsWith(
-        '\u2014 or press + beside it to leave an instruction on the whole table',
+        '\u2014 or press the button to its left to leave an instruction on the whole table',
       ),
     said,
   );
@@ -771,15 +768,16 @@ async function openGrip(ref) {
 }
 
 // sendFor presses Enter in the open composer and returns the instruction the
-// server filed for `text`, once it is listed with its anchor (§5's reason).
+// server filed for `text`, once it is listed. The first listing is the whole
+// one: a block instruction is written with its anchor in one transaction.
 async function sendFor(text) {
   await page.keyboard.press('Enter');
   let one = null;
-  for (let wait = 0; wait < 40 && !one?.anchor; wait += 1) {
+  for (let wait = 0; wait < 40 && !one; wait += 1) {
     one =
       ((await pending()).instructions || []).find((i) => i.text === text) ||
       null;
-    if (!one?.anchor) await page.waitForTimeout(250);
+    if (!one) await page.waitForTimeout(250);
   }
   return one;
 }
@@ -869,6 +867,45 @@ const cardBeside = (key, index) =>
   await page.evaluate(() => window.galleyEdit.app.refreshPending());
 }
 
+// gripsNow reads every grip as the reviewer meets it: its face, its name,
+// whether it is painted as carrying instructions, and its box relative to
+// `#editor`, so a scroll between two reads is not a move.
+const gripsNow = () =>
+  page.evaluate(() => {
+    const host = document.getElementById('editor').getBoundingClientRect();
+    return [...document.querySelectorAll('.gly-block-grip')].map((g) => {
+      const r = g.getBoundingClientRect();
+      return {
+        index: Number(g.dataset.index),
+        kind: g.dataset.kind,
+        face: g.textContent,
+        label: g.getAttribute('aria-label'),
+        title: g.title,
+        commented: g.classList.contains('is-commented'),
+        box: [r.left - host.left, r.top - host.top, r.width, r.height]
+          .map((n) => Math.round(n * 10) / 10)
+          .join(),
+      };
+    });
+  });
+const gripOf = (grips, kind) => grips.find((g) => g.kind === kind) || null;
+
+// gripSays waits until the grip of the block at `index` shows `face`: the
+// face follows the pending refresh after a send or a delete, not the press.
+const gripSays = (index, face) =>
+  page
+    .waitForFunction(
+      ([i, f]) =>
+        document.querySelector(`.gly-block-grip[data-index="${i}"]`)
+          ?.textContent === f,
+      [index, face],
+      { timeout: 10000 },
+    )
+    .catch(() => {});
+
+// The table's grip before anything is filed on it, for §14.
+const unfiled = await gripsNow();
+
 // --- §7 a table instruction, end to end ----------------------------------
 const filed = filedKey ? [filedKey] : [];
 let tableKey = '';
@@ -946,6 +983,83 @@ let tableFiled = '';
     'the instruction\u2019s note is in the document, under the table',
     !!note && note.tag === 'ASIDE' && note.words && note.below,
     note,
+  );
+}
+
+// --- §14 a block with instructions shows how many ------------------------
+//
+// The grip's face is `+` on a block with none and their count on a block with
+// some, and its name says so. The face swaps inside ONE fixed box: a grip that
+// widened with its count would move under the pointer that just filed it.
+{
+  const was = gripOf(unfiled, 'table');
+  await gripSays(was ? was.index : -1, '1');
+  const now = await gripsNow();
+  const is = gripOf(now, 'table');
+  check(
+    'before filing, the table\u2019s grip reads + and its name counts nothing',
+    !!was &&
+      was.face === '+' &&
+      !was.label.includes('already') &&
+      !was.commented,
+    was,
+  );
+  check(
+    'after one instruction it reads 1, its name ends (1 already), and it is painted as commented',
+    !!is &&
+      is.face === '1' &&
+      is.label.endsWith('(1 already)') &&
+      is.title === is.label &&
+      is.commented,
+    is,
+  );
+  // The note the instruction put under the table moves every block after it,
+  // so the grips that must not have moved are the table's and those above it.
+  const moved = unfiled
+    .filter((g) => !!was && g.index <= was.index)
+    .map((g) => ({
+      g,
+      now: now.find((n) => n.index === g.index && n.kind === g.kind),
+    }))
+    .filter(({ g, now: n }) => !n || n.box !== g.box);
+  check(
+    'its box is the same box, and no grip at or above the table moved',
+    !!was && !!is && is.box === was.box && moved.length === 0,
+    { was: was && was.box, is: is && is.box, moved },
+  );
+  // THE SECTION'S GRIP COUNTS THE SECTION'S OWN. The table sits under ## Budget
+  // and carries an instruction of its own; the heading's grip counts §5's
+  // section instruction and not the table's.
+  const section = now.find((g) => g.index === heading2?.index);
+  check(
+    'the section\u2019s grip counts its own instruction, not the table\u2019s inside it',
+    !!section && section.face === '1' && section.label.endsWith('(1 already)'),
+    section,
+  );
+
+  // A second, then taken back from its card.
+  const second = await fileOn('table', 'and a default column');
+  await gripSays(was ? was.index : -1, '2');
+  const two = gripOf(await gripsNow(), 'table');
+  check(
+    'a second instruction on the table makes it 2, in the same box',
+    !!second.one && !!two && two.face === '2' && two.box === is?.box,
+    { two, one: second.one },
+  );
+  const del = page.locator(
+    `.gly-rail-band .gly-thread[data-key="${second.one?.key || 'none'}"] .gly-thread-delete`,
+  );
+  if (second.one) {
+    // Two presses: the first arms it, the second deletes.
+    await del.click();
+    await del.click();
+  }
+  await gripSays(was ? was.index : -1, '1');
+  const back = gripOf(await gripsNow(), 'table');
+  check(
+    'deleting it from its card takes the count back down',
+    !!back && back.face === '1' && back.box === is?.box,
+    back,
   );
 }
 
@@ -1181,6 +1295,55 @@ let regionFiled = '';
       );
   }
   check('and pressing the pin rings its card in the rail', rung);
+}
+
+// --- §14, a region and a delete -------------------------------------------
+//
+// A rectangle on a figure is an instruction on that figure, and its grip
+// counts it. A block whose one instruction is taken back from its card is a
+// block with none again: `+`, a name that counts nothing, the resting paint.
+{
+  const index = diagram ? diagram.index : -1;
+  await gripSays(index, '1');
+  const fig = (await gripsNow()).find((g) => g.index === index);
+  check(
+    'the region on the diagram counts toward the diagram\u2019s grip',
+    !!fig &&
+      fig.face === '1' &&
+      fig.label.endsWith('(1 already)') &&
+      fig.commented,
+    fig,
+  );
+
+  const fence = ((await pending()).blocks || []).find(
+    (b) => b.kind === 'codeBlock' && b.label.includes('galley edit'),
+  );
+  const rest = (await gripsNow()).find((g) => g.index === fence?.index);
+  const { one } = await fileOn('codeBlock', 'quote the path');
+  await gripSays(fence ? fence.index : -1, '1');
+  const lit = (await gripsNow()).find((g) => g.index === fence?.index);
+  const del = page.locator(
+    `.gly-rail-band .gly-thread[data-key="${one?.key || 'none'}"] .gly-thread-delete`,
+  );
+  if (one) {
+    await del.click();
+    await del.click();
+  }
+  await gripSays(fence ? fence.index : -1, '+');
+  const gone = (await gripsNow()).find((g) => g.index === fence?.index);
+  check(
+    'deleting a block\u2019s one instruction from its card returns its grip to +, unpainted, in the same box',
+    !!rest &&
+      !!lit &&
+      !!gone &&
+      lit.face === '1' &&
+      lit.commented &&
+      gone.face === '+' &&
+      !gone.commented &&
+      !gone.label.includes('already') &&
+      gone.box === lit.box,
+    { rest, lit, gone },
+  );
 }
 
 await browser.close();

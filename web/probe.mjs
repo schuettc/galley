@@ -1105,10 +1105,12 @@ check(
 // the refusal's muted second line can say where an instruction on the whole
 // block goes. A NESTED one has no grip, and the clause there would send the
 // reviewer looking for a control that is not on the page: the hint has to be
-// TRUE, so the clause is asked by position and not by kind.
+// TRUE, so the clause is asked by position and not by kind. And it names the
+// grip by where it is, never by its face: the face is `+` on a block with no
+// instructions and their count on one with some.
 {
   const grip = (noun) =>
-    ` — or press + beside it to leave an instruction on ${noun}`;
+    ` — or press the button to its left to leave an instruction on ${noun}`;
   const hintAt = (doc, pos) => {
     const hit = literalHit(doc, pos, pos + 1);
     return hit ? hit.hint : null;
