@@ -1785,6 +1785,15 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   color: var(--gly-muted);
   font-size: 12px;
 }
+/* What the reviewer can do instead, under the refusal: the refused
+   keystroke's note says the same line in the same register (.gly-refusal-hint). */
+.gly-composer-deny-hint {
+  max-width: 21rem;
+  padding: 0 0.35rem 0.15rem;
+  color: var(--gly-muted);
+  font-size: 12px;
+  opacity: 0.8;
+}
 
 /* --- a refused fence edit ---
 
@@ -3635,6 +3644,7 @@ body.gly-history-mode > main {
 .gly-composer[hidden],
 .gly-composer-bar[hidden],
 .gly-composer-deny[hidden],
+.gly-composer-deny-hint[hidden],
 .gly-composer-form[hidden],
 .gly-capture[hidden],
 .gly-menu[hidden],

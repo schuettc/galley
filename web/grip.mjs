@@ -22,7 +22,8 @@
 //     no grip;
 //   - a figure (an SVG served beside the document, as layers.mjs does) low
 //     enough on the page that a composer placed wrongly is visible;
-//   - a closing paragraph.
+//   - closing paragraphs, enough that the last blocks can be scrolled near
+//     the top of the window with room for the form beneath them.
 //
 // The file's name is long on purpose: a short fixture name leaves the bar's
 // title room it never has for a real document, and the bar does not fold.
@@ -44,6 +45,7 @@ import { chromium } from 'playwright-core';
 // The kinds that take a grip, read from the app's own list rather than copied:
 // a copy here would go on certifying the old set the day a kind is added.
 import { GRIP_KINDS } from './grips.ts';
+import { TABLE_HINT, TABLE_INSIDE } from './suggestions.ts';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 // 8272, and 8273 is held for a second server: a claim about the file is a
@@ -94,6 +96,30 @@ $$
 ---
 
 That is the whole of it, and nothing else is required.
+
+Closing note 1: prose after the last block that takes a grip, so the page
+scrolls far enough to put the equation near the top of the window, where
+the form's grown height fits beneath it.
+
+Closing note 2: prose after the last block that takes a grip, so the page
+scrolls far enough to put the equation near the top of the window, where
+the form's grown height fits beneath it.
+
+Closing note 3: prose after the last block that takes a grip, so the page
+scrolls far enough to put the equation near the top of the window, where
+the form's grown height fits beneath it.
+
+Closing note 4: prose after the last block that takes a grip, so the page
+scrolls far enough to put the equation near the top of the window, where
+the form's grown height fits beneath it.
+
+Closing note 5: prose after the last block that takes a grip, so the page
+scrolls far enough to put the equation near the top of the window, where
+the form's grown height fits beneath it.
+
+Closing note 6: prose after the last block that takes a grip, so the page
+scrolls far enough to put the equation near the top of the window, where
+the form's grown height fits beneath it.
 `;
 
 // The figure: an SVG rather than a raster, because it is three lines of text
@@ -189,6 +215,18 @@ page.on('pageerror', (e) => console.log(`      [page] ${e.message}`));
 await page.goto(base, { waitUntil: 'networkidle' });
 await page.locator('.ProseMirror table').first().waitFor({ timeout: 15000 });
 await page.waitForTimeout(1200);
+// blockBox is the box of the top-level block at `index`, read the way the grip
+// reads it: the element ProseMirror drew for that child. Put on the page once,
+// so every section asks it the same way.
+await page.evaluate(() => {
+  window.blockBox = (index) => {
+    const view = window.galleyEdit.editor.view;
+    const doc = view.state.doc;
+    let pos = 0;
+    for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
+    return view.nodeDOM(pos).getBoundingClientRect();
+  };
+});
 
 {
   const kinds = ((await pending()).blocks || []).map((b) => b.kind);
@@ -540,10 +578,13 @@ let filedKey = '';
     await page.keyboard.type('tighten this section');
     await page.keyboard.press('Enter');
   }
+  // Until it is listed WITH its anchor: the server lists a block instruction
+  // a moment before it has resolved the block the mark follows, and a
+  // listing read in that moment has no anchor yet.
   let list = [];
-  for (let wait = 0; wait < 40 && list.length === 0; wait += 1) {
+  for (let wait = 0; wait < 40 && !(list.length && list[0].anchor); wait += 1) {
     list = (await pending()).instructions || [];
-    if (!list.length) await page.waitForTimeout(250);
+    if (!(list.length && list[0].anchor)) await page.waitForTimeout(250);
   }
   const one = list.length === 1 ? list[0] : null;
   filedKey = one ? one.key : '';
@@ -568,13 +609,8 @@ let filedKey = '';
             const card = document.querySelector(
               `.gly-rail-band .gly-thread[data-key="${key}"]`,
             );
-            const view = window.galleyEdit.editor.view;
-            const doc = view.state.doc;
-            let pos = 0;
-            for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
-            const h = view.nodeDOM(pos);
             return Math.round(
-              card.getBoundingClientRect().top - h.getBoundingClientRect().top,
+              card.getBoundingClientRect().top - window.blockBox(index).top,
             );
           },
           [filedKey, heading2.index],
@@ -590,7 +626,17 @@ let filedKey = '';
   // THE KEYSTROKE AFTER. A grip that selected its section left that
   // selection standing, and the next keystroke replaced the section.
   await page.locator('.ProseMirror p', { hasText: 'nothing else' }).click();
-  await page.keyboard.press('End');
+  // The caret goes to the paragraph's end by position: End is the end of a
+  // visual line, and where the click landed on it is the window's business.
+  await page.evaluate(() => {
+    const editor = window.galleyEdit.editor;
+    let at = 0;
+    editor.state.doc.forEach((node, pos) => {
+      if (node.textContent.endsWith('is required.'))
+        at = pos + node.nodeSize - 1;
+    });
+    editor.commands.setTextSelection(at);
+  });
   await page.keyboard.type('x');
   let disk = '';
   for (let wait = 0; wait < 40; wait += 1) {
@@ -605,6 +651,317 @@ let filedKey = '';
   );
 }
 
+// --- §9 a refusal inside a table points at its grip ----------------------
+//
+// A selection inside the table is refused, and the muted line under the
+// refusal names the grip beside it: the one way to speak to the table. Read
+// off the page, so the line the reviewer sees is the line checked.
+{
+  await page.evaluate(() => {
+    const editor = window.galleyEdit.editor;
+    let at = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (at !== null) return false;
+      if (node.isText && node.text.includes('retries')) at = pos;
+      return at === null;
+    });
+    editor.commands.focus();
+    editor.commands.setTextSelection({ from: at, to: at + 'retries'.length });
+    editor.view.focus();
+  });
+  await page.waitForTimeout(400);
+  const said = await page.evaluate(() => {
+    const shown = (el) => !!el && !el.hidden && el.offsetParent !== null;
+    const deny = document.querySelector('.gly-composer-deny');
+    const hint = document.querySelector('.gly-composer-deny-hint');
+    return {
+      deny: shown(deny) ? deny.textContent : null,
+      hint: shown(hint) ? hint.textContent : null,
+    };
+  });
+  check(
+    'a selection inside the table is refused in the table\u2019s own sentence',
+    said.deny === TABLE_INSIDE,
+    said,
+  );
+  check(
+    'and the line under it says the grip beside the table takes an instruction on the whole table',
+    !!said.hint &&
+      said.hint.startsWith(TABLE_HINT) &&
+      said.hint.endsWith(
+        '\u2014 or press + beside it to leave an instruction on the whole table',
+      ),
+    said,
+  );
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const editor = window.galleyEdit.editor;
+    editor.commands.setTextSelection(editor.state.selection.from);
+    editor.commands.blur();
+  });
+  await page.waitForTimeout(200);
+}
+
+// fileOn presses the grip of the one block of `kind`, reads where the
+// composer opened against the block, types `text` and sends it, and returns
+// what was read and the instruction the server filed for those words.
+//
+// The page is given the server's block list first. Every filing inserts a note
+// and renumbers the blocks after it, and a grip pressed before the page has
+// heard says, rightly, that its block is not in the document yet. The block
+// is scrolled near the top of the window, where a reviewer reads it, so the
+// form's grown height fits beneath it.
+async function fileOn(kind, text) {
+  const ref = ((await pending()).blocks || []).find((b) => b.kind === kind);
+  const grip = page.locator(`.gly-block-grip[data-kind="${kind}"]`);
+  if (!ref || (await grip.count()) !== 1) {
+    return { ref, opened: false, seat: null, one: null };
+  }
+  await page
+    .waitForFunction(
+      ([key, index]) =>
+        (window.galleyEdit.app.blocks || []).some(
+          (b) => b.key === key && b.index === index,
+        ),
+      [ref.key, ref.index],
+      { timeout: 10000 },
+    )
+    .catch(() => {});
+  await page.evaluate(
+    (index) => window.scrollBy(0, window.blockBox(index).top - 150),
+    ref.index,
+  );
+  await page.waitForTimeout(150);
+  await grip.click();
+  const opened = await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  const seat = await page.evaluate((index) => {
+    const b = window.blockBox(index);
+    const c = document.querySelector('.gly-composer').getBoundingClientRect();
+    const deny = document.querySelector('.gly-composer-deny');
+    return {
+      below: Math.round((c.top - b.bottom) * 10) / 10,
+      covers: c.top < b.bottom && c.bottom > b.top,
+      deny: !!deny && !deny.hidden,
+      head: document.querySelector('.gly-composer-head').textContent,
+      lit: [...document.querySelector('.ProseMirror').children]
+        .map((e, i) => (e.classList.contains('gly-grip-scope') ? i : -1))
+        .filter((i) => i >= 0),
+    };
+  }, ref.index);
+  let one = null;
+  if (opened) {
+    await page.keyboard.type(text);
+    await page.keyboard.press('Enter');
+    // With its anchor, for the reason §5 waits for one.
+    for (let wait = 0; wait < 40 && !one?.anchor; wait += 1) {
+      one =
+        ((await pending()).instructions || []).find((i) => i.text === text) ||
+        null;
+      if (!one?.anchor) await page.waitForTimeout(250);
+    }
+  }
+  return { ref, opened, seat, one };
+}
+
+// cardBeside reads the rail card for `key` against the block at `index`: how
+// far apart their tops are, and what the card's head says.
+const cardBeside = (key, index) =>
+  page
+    .waitForSelector(`.gly-rail-band .gly-thread[data-key="${key}"]`, {
+      timeout: key ? 10000 : 1,
+    })
+    .then(
+      () =>
+        page.evaluate(
+          ([k, i]) => {
+            const card = document.querySelector(
+              `.gly-rail-band .gly-thread[data-key="${k}"]`,
+            );
+            const b = window.blockBox(i);
+            const top = card.getBoundingClientRect().top;
+            // The card above it in the rail, if any: a card pushed down is
+            // pushed down by that one.
+            const above = [
+              ...document.querySelectorAll('.gly-rail-band .gly-card'),
+            ]
+              .map((c) => c.getBoundingClientRect())
+              .filter((r) => r.top < top)
+              .reduce((m, r) => Math.max(m, r.bottom), -Infinity);
+            return {
+              offset: Math.round(top - b.top),
+              clear: Math.round(top - above),
+              head: card.querySelector('.gly-card-head').textContent,
+            };
+          },
+          [key, index],
+        ),
+      () => null,
+    );
+
+// --- §7a a block the page has not heard of files nothing ----------------
+//
+// A grip pressed before the page has the server's key for its block says so,
+// and the instruction cannot be sent, by the button or by Enter: there is no
+// key to file it on, and filing it as anything else puts it somewhere the
+// reviewer did not point.
+{
+  const before = ((await pending()).instructions || []).length;
+  const saved = await page.evaluate(() => {
+    const app = window.galleyEdit.app;
+    const kept = app.blocks;
+    app.blocks = [];
+    return kept.length;
+  });
+  await page.locator('.gly-block-grip[data-kind="table"]').click();
+  await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .catch(() => {});
+  const said = await page.evaluate(() => ({
+    note: document.querySelector('.gly-composer-note').textContent,
+    send: document.querySelector('.gly-composer-send').disabled,
+  }));
+  // Every write the page attempts, not only the ones the server accepted: an
+  // instruction with no key, sent as anything else, is a write to somewhere
+  // the reviewer did not point, whether or not the server finds it.
+  const posts = [];
+  const watch = (r) => {
+    if (r.method() === 'POST' && r.url().includes('/_galley/instruct')) {
+      posts.push(r.postData());
+    }
+  };
+  page.on('request', watch);
+  await page.keyboard.type('nowhere to go');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1500);
+  page.off('request', watch);
+  const after = ((await pending()).instructions || []).length;
+  check(
+    'a block the page has no key for says it is not in the document yet, and Enter sends nothing',
+    saved > 0 &&
+      said.note.startsWith('not in the document yet') &&
+      said.send &&
+      posts.length === 0 &&
+      after === before,
+    { said, posts, before, after },
+  );
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.galleyEdit.app.refreshPending());
+}
+
+// --- §7 a table instruction, end to end ----------------------------------
+const filed = filedKey ? [filedKey] : [];
+let tableKey = '';
+let tableFiled = '';
+{
+  const { ref, opened, seat, one } = await fileOn(
+    'table',
+    'add a units column',
+  );
+  tableKey = ref ? ref.key : '';
+  check(
+    'the table\u2019s grip opens the form, with no refusal, just beneath the table and clear of it',
+    opened &&
+      !!seat &&
+      !seat.deny &&
+      seat.below >= 0 &&
+      seat.below <= 8 &&
+      !seat.covers,
+    seat,
+  );
+  check(
+    'the composer says it is on this table, and outlines the table alone',
+    !!seat &&
+      !!ref &&
+      seat.head === 'INSTRUCTION \u00b7 ON this table' &&
+      seat.lit.join() === String(ref.index),
+    seat,
+  );
+  check(
+    'sending files one BLOCK instruction on the table\u2019s key, quoting its header',
+    !!one &&
+      !!ref &&
+      one.anchor === 'block' &&
+      one.blockKind === 'table' &&
+      one.anchorKey === ref.key &&
+      one.quote === 'table: key, value',
+    one,
+  );
+  tableFiled = one ? one.key : '';
+  if (tableFiled) filed.push(tableFiled);
+  const card = await cardBeside(tableFiled, ref ? ref.index : -1);
+  // Level with the table, or, where the section's card above runs past the
+  // table's top, stacked just under that card.
+  check(
+    'its card sits beside the table and says it is on the table by its header',
+    !!card &&
+      (Math.abs(card.offset) <= 2 ||
+        (card.offset > 0 && card.clear >= 0 && card.clear <= 16)) &&
+      card.head.includes('on table: key, value'),
+    card,
+  );
+  const note = await page
+    .waitForSelector(
+      `.ProseMirror .gly-note[data-comment-id="${tableFiled || 'none'}"]`,
+      { timeout: tableFiled ? 10000 : 1 },
+    )
+    .then(
+      () =>
+        page.evaluate((k) => {
+          const aside = document.querySelector(
+            `.ProseMirror .gly-note[data-comment-id="${k}"]`,
+          );
+          const table = document.querySelector('.ProseMirror table');
+          return {
+            tag: aside.tagName,
+            words: aside.textContent.includes('add a units column'),
+            below:
+              aside.getBoundingClientRect().top >=
+              table.getBoundingClientRect().bottom,
+          };
+        }, tableFiled),
+      () => null,
+    );
+  check(
+    'the instruction\u2019s note is in the document, under the table',
+    !!note && note.tag === 'ASIDE' && note.words && note.below,
+    note,
+  );
+}
+
+// --- §8 display math and front matter ------------------------------------
+for (const [kind, text, head] of [
+  ['mathBlock', 'define c', 'INSTRUCTION \u00b7 ON this equation'],
+  ['frontMatter', 'add a date', 'INSTRUCTION \u00b7 ON the front matter'],
+]) {
+  const { ref, opened, seat, one } = await fileOn(kind, text);
+  check(
+    `the ${kind} grip opens the form beneath its block, saying what it is on`,
+    opened &&
+      !!seat &&
+      !seat.deny &&
+      seat.below >= 0 &&
+      seat.below <= 8 &&
+      !seat.covers &&
+      seat.head === head,
+    seat,
+  );
+  check(
+    `and files one BLOCK instruction on the ${kind}\u2019s key`,
+    !!one &&
+      !!ref &&
+      one.anchor === 'block' &&
+      one.blockKind === kind &&
+      one.anchorKey === ref.key,
+    one,
+  );
+  if (one) filed.push(one.key);
+}
+
 await browser.close();
 
 // --- §6 the file holds the marks and nothing of the grip -----------------
@@ -617,14 +974,61 @@ await browser.close();
     (m) => m[1],
   );
   check(
-    'the file holds exactly the instruction\u2019s mark, and no grip face or label',
-    marks.length === 1 &&
-      marks[0] === filedKey &&
+    'the file holds exactly the instructions\u2019 marks, and no grip face or label',
+    marks.length === filed.length &&
+      filed.every((k) => marks.includes(k)) &&
       !disk.includes('+') &&
       !disk.includes('Mark a region') &&
       !disk.includes('Add an instruction'),
-    { marks, filedKey, disk },
+    { marks, filed, disk },
   );
+  // The table's mark is a block of its own: after the last row, before the
+  // paragraph that follows, and inside no cell.
+  check(
+    'the table\u2019s mark is on its own line after the table, before the next block',
+    !!tableFiled &&
+      disk.includes(
+        `| timeout | 30s |\n\n{>>@comment ${tableFiled}<<}\n\n- install it first`,
+      ),
+    disk,
+  );
+}
+
+// --- §7, reopened ---------------------------------------------------------
+//
+// A second server on the same file, on the held port: the instruction and its
+// card come back from the file, which is what was saved and nothing else.
+{
+  const again = await serve(PORT + 1);
+  const list = (await (await fetch(`${again}/_galley/pending`)).json())
+    .instructions;
+  const back = (list || []).find((i) => i.key === tableFiled);
+  check(
+    'reopened, the table instruction is back on the same table',
+    !!back &&
+      back.anchor === 'block' &&
+      back.blockKind === 'table' &&
+      back.anchorKey === tableKey &&
+      back.text === 'add a units column',
+    back || list,
+  );
+  const reopened = await chromium.launch({ executablePath });
+  children.add(() => reopened.process()?.kill('SIGKILL'));
+  const view = await reopened.newPage({
+    viewport: { width: 1440, height: 1000 },
+  });
+  await view.goto(again, { waitUntil: 'networkidle' });
+  const card = await view
+    .waitForSelector(`.gly-rail-band .gly-thread[data-key="${tableFiled}"]`, {
+      timeout: tableFiled ? 15000 : 1,
+    })
+    .then(
+      () => true,
+      () => false,
+    );
+  check('and so is its card', card);
+  await reopened.close();
+  await stopped();
 }
 
 console.log(

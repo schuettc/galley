@@ -973,7 +973,7 @@ check(
         hit.what === 'frontMatter' &&
         hit.kind === 'inside' &&
         hit.reason === FRONT_MATTER_INSIDE &&
-        hit.hint === FRONT_MATTER_HINT
+        hit.hint.startsWith(FRONT_MATTER_HINT)
       );
     })(),
   );
@@ -1057,7 +1057,7 @@ check(
         hit.what === 'mathBlock' &&
         hit.kind === 'inside' &&
         hit.reason === MATH_INSIDE &&
-        hit.hint === MATH_HINT
+        hit.hint.startsWith(MATH_HINT)
       );
     })(),
   );
@@ -1096,6 +1096,68 @@ check(
       MATH_JOIN !== FENCE_JOIN &&
       MATH_INSIDE !== FRONT_MATTER_INSIDE &&
       MATH_INSIDE !== TABLE_INSIDE,
+  );
+}
+
+// --- the hint names the grip, where there is one ---
+//
+// A top-level fence, table, equation or front matter has a grip beside it, so
+// the refusal's muted second line can say where an instruction on the whole
+// block goes. A NESTED one has no grip, and the clause there would send the
+// reviewer looking for a control that is not on the page: the hint has to be
+// TRUE, so the clause is asked by position and not by kind.
+{
+  const grip = (noun) =>
+    ` — or press + beside it to leave an instruction on ${noun}`;
+  const hintAt = (doc, pos) => {
+    const hit = literalHit(doc, pos, pos + 1);
+    return hit ? hit.hint : null;
+  };
+  const before = 1 + 'before'.length + 1;
+  const mermaid = schema.node('codeBlock', { language: 'mermaid' }, [
+    schema.text('graph TD\n  a --> b'),
+  ]);
+  const top = {
+    table: hintAt(
+      docOf(para('before'), tableNode(), para('after')),
+      before + 3,
+    ),
+    fence: hintAt(docOf(para('before'), fence('alpha bravo')), before + 2),
+    mermaid: hintAt(docOf(para('before'), mermaid), before + 2),
+    math: hintAt(docOf(para('before'), mathNode()), before + 2),
+    frontMatter: hintAt(docOf(frontMatterNode(), para('after')), 2),
+  };
+  check(
+    'a top-level table, fence, diagram, equation and front matter each point at their grip',
+    top.table === TABLE_HINT + grip('the whole table') &&
+      top.fence === FENCE_HINT + grip('the whole code block') &&
+      top.mermaid === FENCE_HINT + grip('the whole diagram') &&
+      top.math === MATH_HINT + grip('the whole equation') &&
+      top.frontMatter === FRONT_MATTER_HINT + grip('the front matter'),
+    top,
+  );
+
+  const quoted = docOf(
+    para('before'),
+    schema.node('blockquote', null, [tableNode()]),
+  );
+  const listed = docOf(
+    para('before'),
+    schema.node('bulletList', null, [
+      schema.node('listItem', null, [para('install'), fence('npm i')]),
+    ]),
+  );
+  // The offsets walk in: blockquote (1), table (1), row (1), cell (1), and a
+  // character into the cell's paragraph; list (1), item (1), the paragraph,
+  // then a character into the fence.
+  const nested = {
+    table: hintAt(quoted, before + 5),
+    fence: hintAt(listed, before + 2 + 'install'.length + 2 + 2),
+  };
+  check(
+    'a table in a quotation and a fence in a list item have no grip, and their hint does not mention one',
+    nested.table === TABLE_HINT && nested.fence === FENCE_HINT,
+    nested,
   );
 }
 

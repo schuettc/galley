@@ -235,6 +235,7 @@ export const figureMethods = {
     c.bar.hidden = true;
     c.button.hidden = true;
     c.deny.hidden = true;
+    c.denyHint.hidden = true;
     c.form.hidden = false;
     c.input.value = '';
     c.block = { key: ref.key, label: ref.label, region };
@@ -358,9 +359,9 @@ export const figureMethods = {
     target: GripTarget,
     opener: HTMLElement | null,
   ) {
-    if (target.kind !== 'heading' && target.kind !== 'codeBlock') {
-      // Every grip is painted, and these kinds' composers are not built yet:
-      // the press says so where a developer will see it and opens nothing.
+    if (target.figure) {
+      // Every grip is painted, and a figure's composer is not built yet: the
+      // press says so where a developer will see it and opens nothing.
       console.info(`galley: no block instruction on a ${target.kind} yet`);
       return;
     }
@@ -403,6 +404,8 @@ export const figureMethods = {
     c.button.hidden = true;
     c.deny.hidden = true;
     c.deny.textContent = '';
+    c.denyHint.hidden = true;
+    c.denyHint.textContent = '';
     c.form.hidden = false;
     c.input.value = '';
     // Assigning `value` fires no `input` event, so the box would keep the

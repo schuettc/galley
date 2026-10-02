@@ -94,6 +94,7 @@ export interface Composer {
   bar: HTMLElement;
   button: HTMLButtonElement;
   deny: HTMLElement;
+  denyHint: HTMLElement;
   form: HTMLElement;
   head: HTMLElement;
   input: HTMLTextAreaElement;
@@ -404,12 +405,19 @@ export const composerMethods = {
     const deny = document.createElement('div');
     deny.className = 'gly-composer-deny';
     deny.hidden = true;
+    // The muted line under the refusal: what the reviewer CAN do instead —
+    // the refused keystroke's note says the same line (see paintRefusal). A
+    // sibling and not a child, so the deny line's text is the reason alone,
+    // which is what paintRefusal compares to stand its own note down.
+    const denyHint = document.createElement('div');
+    denyHint.className = 'gly-composer-deny-hint';
+    denyHint.hidden = true;
 
     // A native prompt() would block the whole page and is unreachable from a
     // browser test; an inline composer is neither.
     // deny replaces the whole BAR, not just the comment button: in a fence
     // neither affordance is available, and the reason is the same one for both.
-    root.append(bar, deny, form, note);
+    root.append(bar, deny, denyHint, form, note);
     // Keeping focus in the editor keeps the selection alive — a blurred
     // ProseMirror selection is not a selection any more.
     root.addEventListener('mousedown', (e) => {
@@ -436,6 +444,7 @@ export const composerMethods = {
       bar,
       button,
       deny,
+      denyHint,
       form,
       head,
       input,
@@ -610,6 +619,8 @@ export const composerMethods = {
     c.button.hidden = next.denied;
     c.deny.hidden = !next.denied;
     c.deny.textContent = next.denyReason;
+    c.denyHint.hidden = !next.denied;
+    c.denyHint.textContent = next.denyHint;
     c.form.hidden = true;
 
     // No Strike lines any more: the button is retired (deletion is the
@@ -743,6 +754,8 @@ export const composerMethods = {
     this.composer.button.hidden = false;
     this.composer.deny.hidden = true;
     this.composer.deny.textContent = '';
+    this.composer.denyHint.hidden = true;
+    this.composer.denyHint.textContent = '';
     this.composer.note.textContent = '';
     this.composer.note.classList.remove('gly-quiet');
     this.composer.target = '';
@@ -777,6 +790,13 @@ export const composerMethods = {
   // websocket.
   sendComment(this: AppShell) {
     const c = this.composer;
+    // ENTER SENDS WHAT THE BUTTON SENDS, AND NOTHING THE BUTTON CANNOT. A grip
+    // pressed for a block the server has not listed yet has no key, and send
+    // says so by being disabled; Enter reached here anyway and posted the
+    // words as a range comment on no range at all.
+    if (c.opener && !c.block) {
+      return;
+    }
     const text = c.input.value.trim();
     if (!text) {
       c.note.textContent = 'say something first';
@@ -990,6 +1010,7 @@ export type ComposerVerdict =
       range: DocRange | null;
       denied: boolean;
       denyReason: string;
+      denyHint: string;
     };
 
 /**
@@ -1074,6 +1095,7 @@ export function composerPlacement(
     range: docRange(state),
     denied,
     denyReason: denied && literal ? literal.reason : '',
+    denyHint: denied && literal ? literal.hint : '',
   };
 }
 
