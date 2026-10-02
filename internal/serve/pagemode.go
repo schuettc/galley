@@ -237,6 +237,15 @@ func pageBase(abs string) string {
 // writePageWorkdir lays out .galley/pages/<base>/: the round-zero cover
 // (original.html), content.md and template.json. It returns the path to
 // content.md and the original page bytes the drift check measures against.
+//
+// CONTENT.MD IS THE ONLY FILE THAT HOLDS A COMMENT'S PLACE. page.html never
+// carries comment marks, so an extraction from it has none, and writing that
+// over content.md at every open put every unsent comment back unplaced (its
+// words survive in pending.json). An existing content.md that says the same
+// document as the page, ignoring comment marks, is therefore kept as it is.
+// One that does not means the page changed outside galley: the prose is
+// extracted afresh, and if the old content.md carried marks the reviewer is
+// told their comments are kept, unplaced.
 func writePageWorkdir(dir string, src []byte, ex *htmlpage.Extraction) (contentPath string, original []byte, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", nil, err
@@ -273,8 +282,20 @@ func writePageWorkdir(dir string, src []byte, ex *htmlpage.Extraction) (contentP
 	}
 
 	contentPath = filepath.Join(dir, "content.md")
-	if err := os.WriteFile(contentPath, ex.Markdown, 0o644); err != nil {
-		return "", nil, err
+	existing, rerr := os.ReadFile(contentPath)
+	switch {
+	case rerr == nil && sameDocument(existing, ex.Markdown):
+		// The same document: keep its comment marks.
+	case rerr != nil && !errors.Is(rerr, os.ErrNotExist):
+		return "", nil, rerr
+	default:
+		if rerr == nil && carriesMarks(existing) {
+			_, _ = fmt.Fprintf(pageStderr, "htmlpage: page.html changed outside galley — its prose is extracted "+
+				"afresh, and unsent comments are kept, unplaced\n")
+		}
+		if err := os.WriteFile(contentPath, ex.Markdown, 0o644); err != nil {
+			return "", nil, err
+		}
 	}
 	// template.json is regenerated at open — overwrite it.
 	tmplJSON, err := json.Marshal(ex.Template)
@@ -896,7 +917,7 @@ func (r *pageRenderer) unclaim(md []byte) {
 // wants, since those marks never reach page.html either. The parse-and-
 // serialize round trip alone does NOT drop them: a highlight with its
 // `{>>@comment …<<}` and a block comment's ID note both serialize back, and
-// without the lift every page with an unsent comment compared unequal (bug 8).
+// without the lift every page with an unsent comment compared unequal.
 //
 // THE TWO SIDES SPELL THE SAME DOCUMENT DIFFERENTLY, ALWAYS AND HARMLESSLY.
 // The extractor writes markdown its own way and galley's serializer writes it
@@ -920,6 +941,16 @@ func sameDocument(a, b []byte) bool {
 		return false
 	}
 	return bytes.Equal(markdown.Serialize(suggest.ClearInstructions(am)), markdown.Serialize(suggest.ClearInstructions(bm)))
+}
+
+// carriesMarks reports whether md holds any comment mark — a place an unsent
+// comment would lose if md were replaced.
+func carriesMarks(md []byte) bool {
+	m, _, err := markdown.Parse(md)
+	if err != nil {
+		return false
+	}
+	return !bytes.Equal(markdown.Serialize(m), markdown.Serialize(suggest.ClearInstructions(m)))
 }
 
 // drifted reports whether page.html changed on disk since galley last wrote
