@@ -141,7 +141,6 @@ import {
   queueArrivals,
   nextArrival,
   holdLabel,
-  shownSuggestions,
   arrivalAuthor,
   ARRIVAL_AGENT,
 } from './arrivals.ts';
@@ -166,7 +165,6 @@ import {
   trimAffixes,
   expandToWord,
   retractReverted,
-  mergeAdopt,
   diffOf,
   reanchor,
   emptyBlockAnchor,
@@ -175,8 +173,6 @@ import {
   placeEmptyBlocks,
   TRAIL_SET_CAP,
   trailDecorations,
-  serializeEntries,
-  loadedEntry,
 } from './trail.ts';
 import {
   stackCards,
@@ -194,20 +190,8 @@ import {
   HEAD_QUOTE_CHARS,
   overallThreads,
   railThreads,
-  settledThreads,
-  settledHandle,
-  proposalThread,
-  readSettledOpen,
-  writeSettledOpen,
   threadPlacement,
   carryDrafts,
-  collapseKey,
-  readCollapsed,
-  writeCollapsed,
-  readOverallOpen,
-  writeOverallOpen,
-  overallHandle,
-  OVERALL_TITLE,
   RAIL_GAP,
   RAIL_MIN_WIDTH,
 } from './rail.ts';
@@ -2115,6 +2099,29 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
 // Everything here is the pure half; typing.mjs drives the same contract from
 // a real keyboard and the layers pass reads the paint.
 
+// unplacedEntry builds an entry with no position yet — what settleEntries'
+// retryAdrift pass is handed when an entry lost its place. `placed` is left
+// absent unless the fixture states it, which is an entry no settle has
+// written: the case the set rule must leave out of the order.
+let unplacedIds = 1000;
+const unplacedEntry = (c) => {
+  unplacedIds += 1;
+  return {
+    id: unplacedIds,
+    old: c.old || '',
+    new: c.new || '',
+    blockKey: c.blockKey || '',
+    prefix: c.prefix || '',
+    suffix: c.suffix || '',
+    before: typeof c.before === 'string' ? c.before : null,
+    after: typeof c.after === 'string' ? c.after : null,
+    ...(typeof c.placed === 'boolean' ? { placed: c.placed } : {}),
+    anchored: false,
+    from: null,
+    to: null,
+  };
+};
+
 {
   // recordOf: what one step is to the trail.
   const st = stateOf(docOf(para('hello world')));
@@ -2122,21 +2129,21 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   check(
     'a typed insertion records {old:"", new}',
     JSON.stringify(recordOf(st.doc, ins.steps[0])) ===
-      JSON.stringify({ from: 3, to: 3, old: '', ins: 'XY', proposal: null }),
+      JSON.stringify({ from: 3, to: 3, old: '', ins: 'XY' }),
     recordOf(st.doc, ins.steps[0]),
   );
   const del = st.tr.delete(1, 6);
   check(
     'a deletion records the removed text',
     JSON.stringify(recordOf(st.doc, del.steps[0])) ===
-      JSON.stringify({ from: 1, to: 6, old: 'hello', ins: '', proposal: null }),
+      JSON.stringify({ from: 1, to: 6, old: 'hello', ins: '' }),
     recordOf(st.doc, del.steps[0]),
   );
   const rep = st.tr.insertText('Z', 2, 4);
   check(
     'typing over a selection records both halves',
     JSON.stringify(recordOf(st.doc, rep.steps[0])) ===
-      JSON.stringify({ from: 2, to: 4, old: 'el', ins: 'Z', proposal: null }),
+      JSON.stringify({ from: 2, to: 4, old: 'el', ins: 'Z' }),
     recordOf(st.doc, rep.steps[0]),
   );
 
@@ -2161,238 +2168,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
 }
 
 {
-  // WHOSE TEXT THE HAND LANDED ON — the one fact only this moment holds.
-  //
-  // A hand edit over an AGENT'S proposed span is the reviewer rewriting a
-  // proposal (the verdict by hand); the same gesture on the reviewer's own
-  // prose is about no proposal at all, and the ledger records them as two
-  // different acts against two different authors. The signal cannot be
-  // recovered later: the edit itself removes the mark it is about — deleting
-  // text under a pending mark takes the mark with it — so it is read here,
-  // against the document the step applied TO, or never.
-  //
-  // These are the discriminating cases, and the fixture has to carry a
-  // proposal AND plain prose in one block, because a check that only ever
-  // reads marked text passes on a function that returns true.
-  const proposed = insMark('agent', '2026-08-15T09:00:00Z');
-  const mixed = docOf(
-    schema.node('paragraph', null, [
-      schema.text('The '),
-      schema.text('fresh', [proposed]),
-      schema.text(' word.'),
-    ]),
-  );
-  const st = stateOf(mixed);
-  const over = st.tr.insertText('new', 5, 10);
-  check(
-    "typing over an agent's proposed span records WHOSE it was",
-    recordOf(st.doc, over.steps[0]).proposal === 'agent',
-    recordOf(st.doc, over.steps[0]),
-  );
-  const own = st.tr.insertText('one', 12, 16);
-  check(
-    "the same gesture on the reviewer's own prose records null — and null " +
-      "is not '', which is a proposal whose mark carries no author",
-    recordOf(st.doc, own.steps[0]).proposal === null,
-    recordOf(st.doc, own.steps[0]),
-  );
-  const inside = st.tr.insertText('X', 7);
-  check(
-    'a caret insertion INSIDE a proposal is on it',
-    recordOf(st.doc, inside.steps[0]).proposal === 'agent',
-  );
-  const edge = st.tr.insertText('X', 10);
-  check(
-    "a caret insertion at a proposal's trailing edge is NOT on it — " +
-      "the next word is the reviewer's own",
-    recordOf(st.doc, edge.steps[0]).proposal === null,
-  );
-
-  // WHOEVER PROPOSED, not "the agent". `galley suggest --author NAME` makes a
-  // non-agent proposal, and the ledger's hand record names the party whose
-  // work was decided — so a browser that answered a boolean would file
-  // `hand`/agent about the span whose accept files `approved`/claude-2. The
-  // UNATTRIBUTED mark is the other half and is a real case: a mark parsed
-  // straight out of a file carries no author, and '' says exactly that. The
-  // default for it is serve.proposalAuthor's, on the Go side, so this must
-  // report '' rather than guessing here.
-  const byOther = docOf(
-    schema.node('paragraph', null, [
-      schema.text('The '),
-      schema.text('fresh', [insMark('claude-2', '2026-08-15T09:00:00Z')]),
-      schema.text(' bare', [insMark('', '')]),
-    ]),
-  );
-  const ost = stateOf(byOther);
-  check(
-    "a second agent's proposal is recorded in ITS name",
-    recordOf(ost.doc, ost.tr.insertText('new', 5, 10).steps[0]).proposal ===
-      'claude-2',
-  );
-  check(
-    "and an unattributed mark reads '' — a proposal with no author on it, " +
-      'which is not the same as no proposal',
-    recordOf(ost.doc, ost.tr.insertText('X', 12).steps[0]).proposal === '',
-  );
-
-  // ONE PROPOSAL IS USUALLY SEVERAL TEXT NODES, and every boundary INSIDE it
-  // is still inside it. `{++a **bold** word++}` is ONE ins run split into
-  // three text nodes by the formatting inside it — the same multi-inline shape
-  // CLAUDE.md's run entry calls normal — and the single-text-node fixture
-  // above cannot see a boundary that only exists when a proposal is split.
-  // Measured on this schema before the guard came off: positions 7 and 11 sit
-  // between two ins-marked text nodes, `marks()` reports `ins` at both, and
-  // onProposalAt answered false — a caret insertion there recorded as the
-  // reviewer's own prose while it was rewriting the agent's.
-  const multi = docOf(
-    schema.node('paragraph', null, [
-      schema.text('The '),
-      schema.text('a ', [proposed]),
-      schema.text('bold', [schema.marks.bold.create(), proposed]),
-      schema.text(' word', [proposed]),
-      schema.text(' after.'),
-    ]),
-  );
-  const mst = stateOf(multi);
-  const at = (pos) =>
-    recordOf(mst.doc, mst.tr.insertText('X', pos).steps[0]).proposal;
-  check(
-    'a caret at an INNER text-node boundary of a proposal is on it',
-    at(7) === 'agent' && at(11) === 'agent',
-    [at(7), at(11)],
-  );
-  check(
-    "and the proposal's own outer edges are still not — the schema's " +
-      '`inclusive: false` is what draws them, not a textOffset test',
-    at(5) === null && at(16) === null,
-    [at(5), at(16)],
-  );
-  // A deletion the agent proposed is a proposal too: rewriting the text under
-  // a `del` mark is deciding that proposal by hand exactly as an `ins` is.
-  const struck = docOf(
-    schema.node('paragraph', null, [
-      schema.text('Keep '),
-      schema.text('this', [delMark('agent', '2026-08-15T09:00:00Z')]),
-    ]),
-  );
-  const dst = stateOf(struck);
-  check(
-    'a del mark counts as a proposal too',
-    recordOf(dst.doc, dst.tr.delete(6, 10).steps[0]).proposal === 'agent',
-  );
-  // A highlight is a COMMENT'S ANCHOR, not a proposed change. Editing under
-  // one is editing prose that is already in the document — the conversation is
-  // settled by resolving the thread — so it must not read as a rewrite.
-  const noted = docOf(
-    schema.node('paragraph', null, [
-      schema.text('Keep '),
-      schema.text('this', [schema.marks.highlight.create({ author: 'agent' })]),
-    ]),
-  );
-  const nst = stateOf(noted);
-  check(
-    'a highlight is a conversation, not a proposal',
-    recordOf(nst.doc, nst.tr.delete(6, 10).steps[0]).proposal === null,
-  );
-}
-
-{
-  // The stamp is STICKY across a coalesce and travels on the wire. Both halves
-  // matter: an entry that ever reached a proposal rewrote one, and a wire
-  // shape that dropped the author would record every rewrite as ordinary prose
-  // — or, worse, as a rewrite of somebody else's work.
-  const proposed = insMark('agent', '2026-08-15T09:00:00Z');
-  const doc = docOf(
-    schema.node('paragraph', null, [
-      schema.text('The '),
-      schema.text('fresh', [proposed]),
-      schema.text(' word.'),
-    ]),
-  );
-  const first = applyRecord(
-    [],
-    doc,
-    { from: 5, to: 10, old: 'fresh', ins: 'new', proposal: 'agent' },
-    'T1',
-  );
-  check(
-    'an entry carries the proposal it was recorded against',
-    first.merged.proposal === 'agent',
-    first.merged,
-  );
-  const after = docOf(
-    schema.node('paragraph', null, [schema.text('The new word.')]),
-  );
-  const grown = applyRecord(
-    [first.merged],
-    after,
-    { from: 8, to: 8, old: '', ins: 'X', proposal: null },
-    'T2',
-  );
-  check(
-    'a later keystroke on plain text does not un-rewrite the entry',
-    grown.merged.proposal === 'agent',
-    grown.merged,
-  );
-  // THE EARLIEST PROPOSAL WINS, the same rule the entry's id and instant
-  // follow: a coalesced entry keeps the identity of the edit it started as.
-  const onto = applyRecord(
-    [grown.merged],
-    after,
-    { from: 9, to: 9, old: '', ins: 'Y', proposal: 'claude-2' },
-    'T3',
-  );
-  check(
-    'and reaching a SECOND proposal does not re-author the entry',
-    onto.merged.proposal === 'agent',
-    onto.merged,
-  );
-  // '' IS STICKY TOO, and this is where a truthiness test would have failed:
-  // an unattributed mark is a proposal, and `||` would drop it on the floor.
-  const bare = applyRecord(
-    [],
-    doc,
-    { from: 5, to: 10, old: 'fresh', ins: 'new', proposal: '' },
-    'T4',
-  );
-  const kept = applyRecord(
-    [bare.merged],
-    after,
-    { from: 8, to: 8, old: '', ins: 'X', proposal: null },
-    'T5',
-  );
-  check(
-    'an unattributed proposal is still a proposal across a coalesce',
-    kept.merged.proposal === '',
-    kept.merged,
-  );
-  check(
-    'serializeEntries carries it to the server, null as null',
-    serializeEntries([grown.merged])[0].proposal === 'agent' &&
-      serializeEntries([kept.merged])[0].proposal === '' &&
-      serializeEntries([{ old: 'a', new: 'b' }])[0].proposal === null,
-  );
-  check(
-    'and loadedEntry reads it back — a sidecar row with no field is null',
-    loadedEntry({ old: 'a', new: 'b', proposal: 'agent' }).proposal ===
-      'agent' &&
-      loadedEntry({ old: 'a', new: 'b', proposal: '' }).proposal === '' &&
-      loadedEntry({ old: 'a', new: 'b' }).proposal === null,
-  );
-}
-
-{
   // applyRecord: one region, one story. Typing coalesces; deleting what was
   // typed shrinks the entry; a region restored by hand records NOTHING —
   // the trail is what the reviewer did, not the noise of their fingers
   // getting there.
   const doc = docOf(para('hello world'));
-  const first = applyRecord(
-    [],
-    doc,
-    { from: 3, to: 3, old: '', ins: 'XY' },
-    'T1',
-  );
+  const first = applyRecord([], doc, { from: 3, to: 3, old: '', ins: 'XY' });
   check(
     'a fresh edit opens an entry at its own range',
     first.keep.length === 0 &&
@@ -2407,12 +2188,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   // The next keystroke lands at the entry's edge in the NEW doc; the merge is
   // asked against that doc.
   const doc2 = docOf(para('heXYllo world'));
-  const grown = applyRecord(
-    [first.merged],
-    doc2,
-    { from: 5, to: 5, old: '', ins: 'Z' },
-    'T2',
-  );
+  const grown = applyRecord([first.merged], doc2, {
+    from: 5,
+    to: 5,
+    old: '',
+    ins: 'Z',
+  });
   check(
     'an adjacent keystroke continues the entry rather than opening a second',
     grown.keep.length === 0 &&
@@ -2424,12 +2205,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   );
 
   const doc3 = docOf(para('heXYZllo world'));
-  const undone = applyRecord(
-    [grown.merged],
-    doc3,
-    { from: 3, to: 6, old: 'XYZ', ins: '' },
-    'T3',
-  );
+  const undone = applyRecord([grown.merged], doc3, {
+    from: 3,
+    to: 6,
+    old: 'XYZ',
+    ins: '',
+  });
   check(
     'typing and then deleting it all leaves NO trail — nothing was done',
     undone.keep.length === 0 && undone.merged === null,
@@ -2437,12 +2218,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   );
 
   // Delete, then type in the hole: one substitution, not two entries.
-  const ghost = applyRecord(
-    [],
-    doc,
-    { from: 1, to: 6, old: 'hello', ins: '' },
-    'T4',
-  );
+  const ghost = applyRecord([], doc, { from: 1, to: 6, old: 'hello', ins: '' });
   check(
     'a pure deletion is a zero-width entry carrying its old text',
     ghost.merged &&
@@ -2453,12 +2229,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     ghost.merged,
   );
   const hole = docOf(para(' world'));
-  const swapped = applyRecord(
-    [ghost.merged],
-    hole,
-    { from: 1, to: 1, old: '', ins: 'HI' },
-    'T5',
-  );
+  const swapped = applyRecord([ghost.merged], hole, {
+    from: 1,
+    to: 1,
+    old: '',
+    ins: 'HI',
+  });
   check(
     'typing into a deletion reads as one substitution',
     swapped.merged &&
@@ -2477,12 +2253,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   // the entry survived as a permanent adrift phantom the agent read as
   // decided fact.
   const overDoc = docOf(para('brown fox'));
-  const over = applyRecord(
-    [],
-    overDoc,
-    { from: 1, to: 6, old: 'brown', ins: 'blue' },
-    'T7',
-  );
+  const over = applyRecord([], overDoc, {
+    from: 1,
+    to: 6,
+    old: 'brown',
+    ins: 'blue',
+  });
   check(
     'an overtype is stored as its minimal diff — shared affixes trimmed',
     over.merged &&
@@ -2496,12 +2272,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   // And a hand-restore of ORIGINAL text drops the entry the same way.
   const typedOver = docOf(para('XXllo world'));
   const entry = { ...first.merged, old: 'he', new: 'XX', from: 1, to: 3 };
-  const restored = applyRecord(
-    [entry],
-    typedOver,
-    { from: 1, to: 3, old: 'XX', ins: 'he' },
-    'T6',
-  );
+  const restored = applyRecord([entry], typedOver, {
+    from: 1,
+    to: 3,
+    old: 'XX',
+    ins: 'he',
+  });
   check(
     'restoring the original text by hand retracts the entry',
     restored.keep.length === 0 && restored.merged === null,
@@ -2699,9 +2475,8 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
         to: s.to,
         old: text.slice(s.from - 1, s.to - 1),
         ins: s.ins,
-        proposal: null,
       };
-      const { keep, merged } = applyRecord(entries, before, rec, 'T');
+      const { keep, merged } = applyRecord(entries, before, rec);
       const delta = s.ins.length - (s.to - s.from);
       text = text.slice(0, s.from - 1) + s.ins + text.slice(s.to - 1);
       const after = para(text);
@@ -2777,32 +2552,26 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
       mid.entries[0].new === 'the ',
     mid.entries[0],
   );
+  // An entry with no reach must still work: it falls back to its own stored
+  // range, which is what every entry did before the reach existed.
   check(
-    'and the reach is not on the wire — the sidecar takes the eight fields it always did',
-    !Object.prototype.hasOwnProperty.call(
-      serializeEntries(mid.entries)[0],
-      'reachFrom',
-    ) &&
-      !Object.prototype.hasOwnProperty.call(
-        serializeEntries(mid.entries)[0],
-        'reachTo',
-      ),
-    serializeEntries(mid.entries)[0],
-  );
-  // An entry read back from the sidecar has no reach and must still work: it
-  // falls back to its own stored range, which is what every entry did before.
-  check(
-    'a reloaded entry with no reach merges on its stored range, as it always did',
+    'an entry with no reach merges on its stored range, as it always did',
     (() => {
-      const loaded = loadedEntry(serializeEntries(mid.entries)[0]);
-      const placed = { ...loaded, from: 13, to: 17, anchored: true };
+      const placed = {
+        ...mid.entries[0],
+        from: 13,
+        to: 17,
+        anchored: true,
+        reachFrom: null,
+        reachTo: null,
+      };
       return (
-        applyRecord(
-          [placed],
-          para(`${START}the simpler${REST}`),
-          { from: 15, to: 15, old: '', ins: 'X', proposal: null },
-          'T',
-        ).merged !== null
+        applyRecord([placed], para(`${START}the simpler${REST}`), {
+          from: 15,
+          to: 15,
+          old: '',
+          ins: 'X',
+        }).merged !== null
       );
     })(),
   );
@@ -2967,190 +2736,6 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
       swept.entries.length === 1 &&
       swept.entries[0].id === 5,
     swept.entries.map((e) => e.id),
-  );
-}
-
-{
-  // mergeAdopt: the first adoption is a MERGE — the sidecar's record first,
-  // then whatever the reviewer typed before the first pending payload landed,
-  // deduped by content-and-instant. The skip-if-local first implementation
-  // let one early keystroke clobber a whole previous session's record.
-  const loaded = [
-    { old: 'a', new: 'b', at: 'T1' },
-    { old: 'c', new: 'd', at: 'T2' },
-  ];
-  const local = [
-    { old: 'c', new: 'd', at: 'T2' },
-    { old: '', new: 'QQ', at: 'T3' },
-  ];
-  const merged = mergeAdopt(loaded, local);
-  check(
-    'adoption merges server-first and keeps the early local edit',
-    merged.length === 3 && merged[0].at === 'T1' && merged[2].new === 'QQ',
-    merged,
-  );
-  check(
-    'a duplicate is taken once',
-    merged.filter((e) => e.at === 'T2').length === 1,
-  );
-
-  // TWO EDITS OF THE SAME WORD IN ONE TRANSACTION ARE TWO EDITS. `at` is
-  // stamped once per transaction, so a replace-all — or any multi-step
-  // transaction correcting the same misspelling twice — produces entries with
-  // byte-identical old/new AND the same instant, differing only in WHERE they
-  // are. Keyed on content-and-instant alone they collided and the second was
-  // silently dropped at the first adoption: an edit the reviewer's own hand
-  // made, gone from the record with nothing to show it ever existed.
-  const twice = mergeAdopt(
-    [],
-    [
-      { old: 'teh', new: 'the', at: 'T9', from: 12, to: 15 },
-      { old: 'teh', new: 'the', at: 'T9', from: 84, to: 87 },
-    ],
-  );
-  check(
-    'two same-text edits at different places both survive adoption',
-    twice.length === 2 && twice[0].from === 12 && twice[1].from === 84,
-    twice,
-  );
-
-  // AND A LOCAL ENTRY THAT IS ALREADY PLACED IS STILL THE SAME EDIT AS ITS OWN
-  // SIDECAR COPY. The sidecar records context and never coordinates, so every
-  // loaded entry arrives unplaced — key the dedupe on the PLACE and a placed
-  // local entry can never match the record of itself, and the trail carries the
-  // edit twice from the first adoption on. It used to cost only a duplicated
-  // row in the log, because a contextless loaded copy could never re-anchor
-  // (its needle was ''); now that a block-emptying entry re-anchors on its
-  // neighbours, the copy lands on the very block the local one is standing on
-  // and the reviewer sees the SAME deletion ghosted twice.
-  //
-  // Place is still what tells two edits of one transaction apart — the check
-  // above — so the rule is a PAIRING and not a looser key: each loaded record
-  // may be claimed by at most one local entry, and the local one wins the slot
-  // because it is the copy that knows where it is.
-  //
-  // DEFENCE, NOT A REPRODUCED SYMPTOM: the merge runs once per page load and
-  // the locals it meets have never been POSTed, so no gesture is known that
-  // puts a record and its own local copy in the same merge (see trail.ts). The
-  // checks here are synthetic on purpose — they hold the rule, not a bug.
-  const readopted = mergeAdopt(
-    [{ old: 'gone', new: '', at: 'T4', before: 'above', after: null }],
-    [
-      {
-        id: 7,
-        old: 'gone',
-        new: '',
-        at: 'T4',
-        anchored: true,
-        from: 8,
-        to: 8,
-        before: 'above',
-        after: null,
-      },
-    ],
-  );
-  check(
-    'a placed local entry dedupes against its own unplaced sidecar copy — one edit, one ghost',
-    readopted.length === 1 &&
-      readopted[0].from === 8 &&
-      readopted[0].anchored === true,
-    readopted,
-  );
-  const pair = mergeAdopt(
-    [
-      { old: 'teh', new: 'the', at: 'T9' },
-      { old: 'teh', new: 'the', at: 'T9' },
-    ],
-    [
-      { old: 'teh', new: 'the', at: 'T9', from: 12, to: 15 },
-      { old: 'teh', new: 'the', at: 'T9', from: 84, to: 87 },
-    ],
-  );
-  check(
-    'and a transaction that made the same edit twice pairs one for one — two records, two entries',
-    pair.length === 2 && pair[0].from === 12 && pair[1].from === 84,
-    pair,
-  );
-  const uneven = mergeAdopt(
-    [{ old: 'teh', new: 'the', at: 'T9' }],
-    [
-      { old: 'teh', new: 'the', at: 'T9', from: 12, to: 15 },
-      { old: 'teh', new: 'the', at: 'T9', from: 84, to: 87 },
-    ],
-  );
-  check(
-    'a local edit the sidecar has no record of is still kept — the pairing runs out, it does not swallow',
-    uneven.length === 2 && uneven[0].from === 12 && uneven[1].from === 84,
-    uneven,
-  );
-
-  // AND THE INSTANT COMES BACK SPELLED DIFFERENTLY THAN IT WENT OUT, which is
-  // the case the pairing actually meets and the one every check above misses
-  // by using hand-written instants that survive nothing. The browser mints
-  // toISOString() — always three fraction digits — and Go re-marshals its
-  // time.Time as RFC3339Nano, which TRIMS trailing zeros. Measured through
-  // encoding/json: '…T10:00:00.100Z' comes back '…T10:00:00.1Z' and
-  // '…T10:00:00.000Z' comes back '…T10:00:00Z'. Keyed on the raw string, every
-  // entry whose millisecond ends in a zero — one in ten, and every entry
-  // landing on an exact second — could never pair with the record of itself.
-  const MINTED = '2026-08-15T10:00:00.100Z';
-  const WIRE = '2026-08-15T10:00:00.1Z';
-  const trimmed = mergeAdopt(
-    [{ old: 'gone', new: '', at: WIRE, before: 'above', after: null }],
-    [
-      {
-        id: 7,
-        old: 'gone',
-        new: '',
-        at: MINTED,
-        anchored: true,
-        from: 8,
-        to: 8,
-      },
-    ],
-  );
-  check(
-    'an instant Go trimmed a trailing zero from still pairs with the entry that minted it',
-    trimmed.length === 1 && trimmed[0].from === 8,
-    trimmed,
-  );
-  const onTheSecond = mergeAdopt(
-    [{ old: 'gone', new: '', at: '2026-08-15T10:00:00Z' }],
-    [
-      {
-        id: 8,
-        old: 'gone',
-        new: '',
-        at: '2026-08-15T10:00:00.000Z',
-        anchored: true,
-        from: 8,
-      },
-    ],
-  );
-  check(
-    'and one landing on an exact second — the whole fraction trimmed away — pairs too',
-    onTheSecond.length === 1 && onTheSecond[0].from === 8,
-    onTheSecond,
-  );
-  // AND IT IS STILL AN INSTANT AND NOT A FUZZY MATCH: two different instants
-  // are two records, however close.
-  const apart = mergeAdopt(
-    [{ old: 'gone', new: '', at: '2026-08-15T10:00:00.100Z' }],
-    [
-      {
-        id: 9,
-        old: 'gone',
-        new: '',
-        at: '2026-08-15T10:00:00.101Z',
-        anchored: true,
-        from: 8,
-      },
-    ],
-  );
-  check(
-    'but a different instant is a different record — normalising is not rounding',
-    apart.length === 2,
-    apart,
   );
 }
 
@@ -3890,25 +3475,24 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     roomy.map((e) => [e.old, e.anchored]),
   );
 
-  // (3) A LEGACY RECORD HAS NO ORDER TO BE RESOLVED BY, and must degrade to
-  // refusal rather than to a guess. `placed` is what says the trail's order
-  // speaks for an entry; a row written before the field existed carries none,
-  // reads null, and is left out of the order — so the very configuration the
-  // set rule fixes goes back to refusing for a trail saved by an older build.
-  // That is the honest degradation: the fact cannot be invented from a record
-  // that never carried it.
+  // (3) AN ENTRY NO SETTLE HAS PLACED HAS NO ORDER TO BE RESOLVED BY, and must
+  // degrade to refusal rather than to a guess. `placed` is what says the
+  // trail's order speaks for an entry; one no settle has written carries none
+  // and is left out of the order — so the very configuration the set rule
+  // fixes goes back to refusing. That is the honest degradation: the fact
+  // cannot be invented for an entry nobody has placed.
   const legacy = docOf(para(TWIN), para(''), para(TWIN), para(''), para(TWIN));
   const older = settleEntries(
     legacy,
     [
-      loadedEntry({
+      unplacedEntry({
         old: 'the first',
         new: '',
         before: evidence.before,
         after: evidence.after,
         at: 'T1',
       }),
-      loadedEntry({
+      unplacedEntry({
         old: 'the second',
         new: '',
         before: evidence.before,
@@ -3920,14 +3504,14 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     true,
   );
   check(
-    'a legacy trail — no `placed` on any row — refuses the ambiguity the order would have settled',
+    'a trail with no `placed` on any entry refuses the ambiguity the order would have settled',
     older.every((e) => !e.anchored),
     older.map((e) => [e.old, e.anchored, e.placed]),
   );
   const current = settleEntries(
     legacy,
     [
-      loadedEntry({
+      unplacedEntry({
         old: 'the first',
         new: '',
         before: evidence.before,
@@ -3935,7 +3519,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
         at: 'T1',
         placed: true,
       }),
-      loadedEntry({
+      unplacedEntry({
         old: 'the second',
         new: '',
         before: evidence.before,
@@ -3955,8 +3539,8 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   );
 
   // AND ONE ROW OF EACH IS NOT AN ORDER. `placed` is a fact about ONE entry, so
-  // a trail is not ordered-or-not as a whole: a legacy row can sit beside a row
-  // this build wrote, and an entry that went adrift on the last settle sits
+  // a trail is not ordered-or-not as a whole: an entry no settle has written
+  // can sit beside one a settle wrote, and an entry that went adrift on the last settle sits
   // beside one that did not. An unordered entry neither reads the floor nor
   // moves it, so it constrains nobody and nobody constrains it — the two rows
   // below match the same two slots, BOTH assignments respect the single order
@@ -3966,7 +3550,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   const mixed = settleEntries(
     legacy,
     [
-      loadedEntry({
+      unplacedEntry({
         old: 'the first',
         new: '',
         before: evidence.before,
@@ -3974,7 +3558,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
         at: 'T1',
         placed: true,
       }),
-      loadedEntry({
+      unplacedEntry({
         old: 'the second',
         new: '',
         before: evidence.before,
@@ -3991,24 +3575,12 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     mixed.map((e) => [e.old, e.anchored, e.placed]),
   );
 
-  // AND THE FIELD TRAVELS. It is written from the OUTCOME of every settle, and
-  // it rides the wire exactly as Before/After do — three-valued, with null for
-  // a row nobody recorded it on. A serializer that dropped it would leave the
-  // browser's saved baseline permanently unequal to the server's copy (see
-  // App.applyServerTrail) as well as costing the order its evidence.
+  // AND THE FIELD IS WRITTEN FROM THE OUTCOME of every settle, never assumed.
   check(
     'every settled entry leaves carrying `placed`, read from what actually happened',
     current.every((e) => e.placed === true) &&
       older.every((e) => e.placed === false),
     [current.map((e) => e.placed), older.map((e) => e.placed)],
-  );
-  const posted = serializeEntries(current);
-  check(
-    'and `placed` is on the wire, and a legacy row round-trips as null rather than as false',
-    posted.every((c) => c.placed === true) &&
-      serializeEntries(older.map((e) => loadedEntry(e)))[0].placed === false &&
-      serializeEntries([loadedEntry({ old: 'x' })])[0].placed === null,
-    posted,
   );
 }
 
@@ -4186,14 +3758,14 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   // three thread regions, extended to the new region's own population).
   const doc = docOf(para('hello XYworld'));
   const loaded = [
-    loadedEntry({
+    unplacedEntry({
       old: '',
       new: 'XY',
       prefix: 'llo ',
       suffix: 'wor',
       at: 'T1',
     }),
-    loadedEntry({
+    unplacedEntry({
       old: 'gone',
       new: '',
       prefix: 'never seen',
@@ -4253,42 +3825,6 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     'a deletion ghost is a widget decoration — NOT content',
     trailDecorations(doc, ghosted).find().length === 1,
     ghosted,
-  );
-
-  // And the wire shape survives its own round trip.
-  const wire = serializeEntries(settled);
-  check(
-    'serialize -> load keeps every field the sidecar carries',
-    wire.length === 2 &&
-      wire[0].new === 'XY' &&
-      wire[1].old === 'gone' &&
-      loadedEntry(wire[1]).prefix === 'never seen',
-    wire,
-  );
-
-  // AND THE THREE STATES OF THE NEIGHBOUR EVIDENCE SURVIVE IT TOO, because
-  // that is where they would quietly become two. '' is "the block that side is
-  // empty" and null is "there is no block that side"; a serializer that wrote
-  // '' for both would put the conflation emptyBlockAnchor was fixed for on the
-  // wire, where a reload makes it permanent. An absent field — a legacy row —
-  // loads as null, which is the one thing it can honestly mean.
-  const sided = serializeEntries([
-    { old: 'x', new: '', before: 'text above', after: '' },
-    { old: 'y', new: '', before: null, after: null },
-    { old: 'z', new: '' },
-  ]);
-  check(
-    "the wire keeps null and '' apart, and an absent side loads as null",
-    JSON.stringify(sided.map((c) => [c.before, c.after])) ===
-      JSON.stringify([
-        ['text above', ''],
-        [null, null],
-        [null, null],
-      ]) &&
-      loadedEntry(sided[0]).after === '' &&
-      loadedEntry(sided[1]).after === null &&
-      loadedEntry({ old: 'w', new: '' }).before === null,
-    sided.map((c) => [c.before, c.after]),
   );
 }
 
@@ -4647,10 +4183,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
       { run: 'c', kind: 'insert' },
       { run: 'd', kind: 'comment' },
     ],
-    comments: [
-      { key: 'cm-1', resolved: false },
-      { key: 'cm-2', resolved: true },
-    ],
+    comments: [{ key: 'cm-1' }, { key: 'cm-2' }],
   };
   const c = censusCounts(view);
   check(
@@ -4658,7 +4191,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     c.pending === 3 && c.inserts === 2 && c.deletes === 1,
     c,
   );
-  check('the census counts only OPEN threads', c.threads === 1, c);
+  check('the census counts every thread', c.threads === 2, c);
   check(
     'an empty payload counts to zero rather than throwing',
     censusCounts({}).pending === 0 && censusCounts(undefined).threads === 0,
@@ -4745,26 +4278,15 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
       false,
   );
 
-  // `answered` counts ANSWERED AND UNRESOLVED, beside `threads`: a resolved
-  // thread is already settled, so the sweep would not touch it, and counting
-  // it would light ✓ all up for a document the sweep would leave untouched.
+  // `answered` counts the threads the agent spoke last on, beside `threads`.
   const swept = censusCounts({
     comments: [
-      {
-        key: 'a',
-        resolved: false,
-        entries: [{ author: 'court' }, { author: 'agent' }],
-      },
-      {
-        key: 'b',
-        resolved: true,
-        entries: [{ author: 'court' }, { author: 'agent' }],
-      },
-      { key: 'c', resolved: false, entries: [{ author: 'court' }] },
+      { key: 'a', entries: [{ author: 'court' }, { author: 'agent' }] },
+      { key: 'c', entries: [{ author: 'court' }] },
     ],
   });
   check(
-    'the census counts answered unresolved threads beside open ones',
+    'the census counts answered threads beside open ones',
     swept.answered === 1 && swept.threads === 2,
     swept,
   );
@@ -4786,19 +4308,16 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
       {
         key: 'cd-1',
         anchor: 'document',
-        resolved: false,
         entries: [{ author: 'agent' }],
       },
       {
         key: 'md-1',
         anchor: 'range',
-        resolved: false,
         entries: [{ author: 'agent' }],
       },
       {
         key: 'md-2',
         anchor: 'range',
-        resolved: false,
         entries: [{ author: 'court' }],
       },
     ],
@@ -4820,58 +4339,15 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   check(
     'a lone open doc instruction still counts in the total verdictLabel reads',
     censusCounts({
-      comments: [{ key: 'cd-1', anchor: 'document', resolved: false }],
+      comments: [{ key: 'cd-1', anchor: 'document' }],
     }).threads === 1,
   );
   check(
     'and verdictLabel still refuses Approve on it',
     verdictLabel({
       suggestions: [],
-      comments: [{ key: 'cd-1', anchor: 'document', resolved: false }],
+      comments: [{ key: 'cd-1', anchor: 'document' }],
     }) === REVISE_IDLE,
-  );
-
-  // THE HANDLE'S THIRD STATE. `+ instruct document` meant "none" and "one, settled" at
-  // once — measured after a sweep, on a document still carrying
-  // `{>>@document …<<}` and still rendering SETTLED in its own prose.
-  check(
-    'the handle carries the verb only when there is genuinely nothing there',
-    overallHandle(0, 0) === '+ instruct document',
-  );
-  check(
-    'an open doc instruction is counted',
-    overallHandle(1, 0) === '1 doc instruction' &&
-      overallHandle(2, 0) === '2 doc instructions',
-  );
-  check(
-    'a SETTLED doc instruction is not an absent one — it reads settled, not empty',
-    overallHandle(0, 1) === '✓ 1 doc instruction' &&
-      overallHandle(0, 3) === '✓ 3 doc instructions',
-  );
-  check(
-    'and an open one outranks a settled one, since the open one needs answering',
-    overallHandle(1, 2) === '1 doc instruction',
-  );
-  check(
-    'the census reports the settled doc instructions the handle needs',
-    censusCounts({
-      comments: [
-        { key: 'cd-1', anchor: 'document', resolved: true },
-        { key: 'md-1', anchor: 'range', resolved: true },
-      ],
-    }).docSettled === 1,
-  );
-  // The reserve is a BOUND stated against THIS trio — see .gly-census-overall.
-  check(
-    '24ch bounds the widest handle the trio can print, ▾ included',
-    `▾ ${overallHandle(0, 99)}`.length <= 24,
-  );
-  check(
-    'the whole-doc handle says what its press does — the one bar control with no title',
-    typeof OVERALL_TITLE === 'string' &&
-      OVERALL_TITLE.length > 0 &&
-      !/\d/.test(OVERALL_TITLE),
-    OVERALL_TITLE,
   );
 }
 
@@ -4998,49 +4474,6 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     'and an ordinary key is none of its business',
     fired.length === 1 && prevented === 1,
   );
-}
-
-{
-  // Collapse is remembered PER DOCUMENT: collapsing the rail while reading one
-  // spec must not collapse it for the next one.
-  check(
-    'two documents get two collapse keys',
-    collapseKey('spec.md') !== collapseKey('README.md'),
-  );
-
-  const store = new Map();
-  const storage = {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, v),
-  };
-  check(
-    'collapse defaults to open',
-    readCollapsed(storage, 'spec.md') === false,
-  );
-  writeCollapsed(storage, 'spec.md', true);
-  check('collapse round-trips', readCollapsed(storage, 'spec.md') === true);
-  check(
-    'collapse does not leak between documents',
-    readCollapsed(storage, 'README.md') === false,
-  );
-
-  // Storage THROWS in a sandboxed iframe and in some privacy modes. A rail that
-  // will not render because localStorage said no is worse than a rail that
-  // forgets it was collapsed.
-  const hostile = {
-    getItem() {
-      throw new Error('denied');
-    },
-    setItem() {
-      throw new Error('denied');
-    },
-  };
-  check(
-    'a storage that throws leaves the rail open rather than breaking it',
-    readCollapsed(hostile, 'spec.md') === false,
-  );
-  writeCollapsed(hostile, 'spec.md', true); // must not throw
-  check('writing to a storage that throws is survivable', true);
 }
 
 // --- the section grip's span ---
@@ -5692,11 +5125,10 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   const threads = [
     { key: 'a', anchor: 'document', heading: 'the whole document' },
     { key: 'b', heading: 'a range thread' },
-    { key: 'c', anchor: 'document', resolved: true, heading: 'settled' },
     { key: 'd', anchor: 'block', anchorKey: 'bk-1', heading: 'a block' },
   ];
   check(
-    'the overall card takes every open document thread',
+    'the overall card takes every document thread',
     overallThreads(threads)
       .map((t) => t.key)
       .join('') === 'a',
@@ -5709,95 +5141,17 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
       .join('') === 'bd',
     railThreads(threads),
   );
-  // A resolved document note is in neither of those two — the overall card is
-  // permanent, its entries are not — and that USED TO BE THE END OF IT.
-  //
-  // THE BUG COURT FOUND. He resolved a note on the whole document and asked
-  // what ✓ resolve had meant: the {>>@document …<<} stayed in his file, still
-  // rendering as a block in the prose, while the panel he manages it from now
-  // said there was nothing there. Resolve must not destroy what someone typed
-  // — a note's words ARE the content — so the file was right and the interface
-  // was lying. A resolved thread may never be INVISIBLE-BUT-PRESENT.
-  //
-  // So the split is three ways, and it is asserted as a PARTITION rather than
-  // as three filters: every thread lands in exactly one region, which is the
-  // property "nothing is dropped" actually depends on. Three separate
-  // membership checks would still pass on the day a fourth state fell through
-  // all of them.
+  // Asserted as a PARTITION rather than as two filters: every thread lands in
+  // exactly one region, which is the property "nothing is dropped" actually
+  // depends on. Two separate membership checks would still pass on the day a
+  // third state fell through both of them.
+  const all = [...overallThreads(threads), ...railThreads(threads)]
+    .map((t) => t.key)
+    .sort();
   check(
-    'a resolved document note is out of the map and into the settled list',
-    !overallThreads(threads).some((t) => t.key === 'c') &&
-      !railThreads(threads).some((t) => t.key === 'c') &&
-      settledThreads(threads)
-        .map((t) => t.key)
-        .join('') === 'c',
-  );
-  {
-    const all = [
-      ...overallThreads(threads),
-      ...railThreads(threads),
-      ...settledThreads(threads),
-    ]
-      .map((t) => t.key)
-      .sort();
-    check(
-      'the three regions are a partition — nothing dropped, nothing twice',
-      all.join('') === 'abcd',
-      all,
-    );
-  }
-  check(
-    'a resolved RANGE thread is settled too, not merely un-carded',
-    settledThreads([{ key: 'r', heading: 'x', resolved: true }]).length === 1,
-  );
-
-  // The header is the only thing on screen while the region is closed, so it
-  // has to answer "is there anything in here" without being opened.
-  check(
-    'the settled header leads with the count and names the state',
-    settledHandle(1) === '✓ 1 settled' && settledHandle(4) === '✓ 4 settled',
-  );
-}
-
-// --- a proposal's conversation renders ON the proposal's card ---
-//
-// /_galley/pending pairs a proposal thread back by RUN (threadView.Run), and
-// the card that renders the proposal renders the thread's entries between the
-// proposal's text and the verbs. The thread loop then SKIPS a paired thread —
-// one conversation, one object, R9's rule arriving at a new surface — and the
-// skip and the render have to agree, so both ask this ONE function. Where it
-// answers null the thread still gets its own card, which is what keeps the
-// no-double-display rule from becoming a dropped-thread bug.
-{
-  const threads = [
-    { key: 'p', heading: 'tighten this paragraph', run: 'r1' },
-    { key: 'q', heading: 'a range comment', run: 'r2' },
-    { key: 'w', anchor: 'document', heading: 'about the file', run: 'r1' },
-  ];
-  check(
-    'a live proposal finds its one open thread by run',
-    (proposalThread({ kind: 'replace', run: 'r1' }, threads) || {}).key === 'p',
-  );
-  check(
-    'a comment mark never pairs here — its thread card is its one object',
-    proposalThread({ kind: 'comment', run: 'r2' }, threads) === null,
-  );
-  check(
-    'no run, no pairing — an unminted mark has no identity to pair on',
-    proposalThread({ kind: 'insert', run: '' }, threads) === null,
-  );
-  check(
-    'two threads on one run is a server bug this refuses to guess about',
-    proposalThread({ kind: 'replace', run: 'rx' }, [
-      { key: 'a', run: 'rx' },
-      { key: 'b', run: 'rx' },
-    ]) === null,
-  );
-  check(
-    'a resolved thread stays in the settled region, never on the card',
-    proposalThread({ kind: 'replace', run: 'r9' }, [
-      { key: 'c', run: 'r9', resolved: true },
-    ]) === null,
+    'the two regions are a partition — nothing dropped, nothing twice',
+    all.join('') === 'abd',
+    all,
   );
 }
 
@@ -5920,42 +5274,6 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     before.length === 1 && after.length === 1 && before[0].key !== after[0].key,
     [before, after],
   );
-}
-
-// The settled region remembers its own collapse, per document, and is CLOSED
-// by default: it exists so settled work is reachable, not so it is in the way.
-{
-  const store = new Map();
-  const fake = {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, v),
-  };
-  check(
-    'the settled region is closed until someone opens it',
-    readSettledOpen(fake, 'spec.md') === false,
-  );
-  writeSettledOpen(fake, 'spec.md', true);
-  check(
-    'opening it is remembered per document',
-    readSettledOpen(fake, 'spec.md') === true &&
-      readSettledOpen(fake, 'other.md') === false,
-  );
-  const hostile = {
-    getItem() {
-      throw new Error('nope');
-    },
-    setItem() {
-      throw new Error('nope');
-    },
-  };
-  let threw = false;
-  try {
-    readSettledOpen(hostile, 'x');
-    writeSettledOpen(hostile, 'x', true);
-  } catch {
-    threw = true;
-  }
-  check('hostile storage cannot take the editor down', threw === false);
 }
 
 // --- where a thread belongs ---
@@ -6989,19 +6307,9 @@ function bindsContentField(src) {
         holdLabel(true, 0) === '▶ release · 0',
       );
 
-      const all = [{ run: 'a' }, { run: 'b' }, { run: 'c' }];
-      check(
-        'a held run is not shown in the rail',
-        shownSuggestions(all, new Set(['b']))
-          .map((s) => s.run)
-          .join(',') === 'a,c',
-      );
-      check(
-        'holding nothing shows everything',
-        shownSuggestions(all, new Set()).length === 3,
-      );
-      // The census takes the SERVER's payload and never this filter, which is what
-      // lets the count keep telling the truth while the rail holds its tongue.
+      // The census takes the SERVER's payload and never the rail's hold, which
+      // is what lets the count keep telling the truth while the rail holds its
+      // tongue.
       check(
         'the census is not filtered by hold',
         censusCounts({ suggestions: [{ kind: 'insert' }, { kind: 'delete' }] })
@@ -7043,29 +6351,16 @@ function bindsContentField(src) {
         verdictLabel({ instructions: [] }) === 'Approve',
       );
       check(
-        'a resolved thread does not hold up Approve',
-        verdictLabel({ suggestions: [], comments: [{ resolved: true }] }) ===
-          'Approve',
-      );
-      check(
         'a clean document offers Approve',
         verdictLabel({ suggestions: [], comments: [] }) === 'Approve',
       );
-      // A comment-kind entry is not decidable — a thread is resolved, never
-      // accepted — and a resolved document note stays in the file, so its entry
-      // never leaves the list. Only its THREAD's state can hold up Approve.
-      check(
-        'a resolved note alone does not hold up Approve',
-        verdictLabel({
-          suggestions: [{ kind: 'comment' }],
-          comments: [{ resolved: true }],
-        }) === 'Approve',
-      );
+      // A comment-kind entry is not decidable, so only its THREAD can hold up
+      // Approve.
       check(
         'an open legacy note still offers Revise through its thread',
         verdictLabel({
           suggestions: [{ kind: 'comment' }],
-          comments: [{ resolved: false }],
+          comments: [{}],
         }) === 'Revise ▾',
       );
       // The reviewer's own hand edits are outgoing markup: a pending change
@@ -7300,97 +6595,6 @@ function bindsContentField(src) {
       );
     }
 
-    // The overall card is collapsed until asked for, and that default is load
-    // bearing: its height is the band's ceiling, so it is also the distance by
-    // which every card near the top of the document misses its own mark.
-    {
-      const store = new Map();
-      const fake = {
-        getItem: (k) => (store.has(k) ? store.get(k) : null),
-        setItem: (k, v) => store.set(k, v),
-      };
-      check(
-        'the overall thread is collapsed until someone opens it',
-        readOverallOpen(fake, 'spec.md') === false,
-      );
-      writeOverallOpen(fake, 'spec.md', true);
-      check(
-        'opening it is remembered per document',
-        readOverallOpen(fake, 'spec.md') === true &&
-          readOverallOpen(fake, 'other.md') === false,
-      );
-      writeOverallOpen(fake, 'spec.md', false);
-      check(
-        'closing it is remembered too',
-        readOverallOpen(fake, 'spec.md') === false,
-      );
-
-      // Storage throws outright in some privacy modes; a forgotten preference is a
-      // shrug, an exception during construction takes the editor down.
-      const hostile = {
-        getItem() {
-          throw new Error('nope');
-        },
-        setItem() {
-          throw new Error('nope');
-        },
-      };
-      let threw = false;
-      try {
-        readOverallOpen(hostile, 'x');
-        writeOverallOpen(hostile, 'x', true);
-      } catch {
-        threw = true;
-      }
-      check('hostile storage cannot take the editor down', threw === false);
-
-      // THE HANDLE LEADS WITH THE VERB. Court went looking for a way to comment on
-      // the whole document and did not find it — it was there all along, reading
-      // `on trial.md · 1 note`: the only NOUN in a row of verbs (`✓ all`, the
-      // since-retired `✗ all`, `Revise`). A description of what exists never says
-      // you may add to it.
-      //
-      // The two requirements pull opposite ways at zero, so both are asserted:
-      // empty must carry a VERB (that is exactly when someone is hunting for it,
-      // and exactly when a count says nothing), and non-empty must still show the
-      // COUNT without opening the panel (a folded conversation that hid the fact
-      // of itself would be worse than the space it saves).
-      //
-      // "on the whole doc" trimmed to "doc": the handle sits in a strip whose
-      // width is part of the bar's fold arithmetic, and the long form's reserve
-      // held ~100px of preposition at every width — a third of why the bar folded
-      // at ordinary desktop widths. "doc" keeps the claim ("about the whole
-      // document, not a span of it"), and the panel's head still spells it out.
-      check(
-        'an empty overall thread invites a note rather than counting to zero',
-        overallHandle(0) === '+ instruct document',
-      );
-      check(
-        'and never merely describes what is not there',
-        /[+]|add|note on/.test(overallHandle(0)) &&
-          !overallHandle(0).includes('0'),
-      );
-      check(
-        'one note reads singular, and still scopes itself to the whole doc',
-        overallHandle(1) === '1 doc instruction',
-      );
-      check(
-        'several notes read plural',
-        overallHandle(3) === '3 doc instructions',
-      );
-      check(
-        'the count is visible without opening the panel, at every size',
-        [1, 2, 12].every((n) => overallHandle(n).startsWith(String(n))),
-      );
-      // The document's name is gone from the handle — that is the room the verb
-      // needed. The bar carries it a few inches to the left and the panel's own
-      // head still reads "on <doc> as a whole".
-      check(
-        'the handle no longer spends its width on the document name',
-        !overallHandle(2).includes('.md'),
-      );
-    }
-
     check(
       'the built bundle carries the instruction rail',
       src.includes('gly-rail') && src.includes('gly-card'),
@@ -7486,19 +6690,17 @@ function bindsContentField(src) {
         src.includes('gly-instruction-actions') &&
         /\["instruction",|\['instruction',/.test(src),
     );
-    // The settled region, and the fact that a resolved thread still reaches
-    // the screen. A bundle without this is the bug Court found: the note in the
-    // file, and nothing in the panel about it.
-    // The settled region lives on ONE surface now — the sheet — and this is
-    // where it is pinned. It moved because the rail holds live work only, and
-    // `railSurfaces` had to start offering the sheet above the breakpoint in
-    // the same change, or `↺ reopen` would have been unreachable on a desktop.
+    // THE SETTLED REGION IS GONE FROM THE SHEET TOO. Nothing resolves an
+    // instruction any more — a sent one leaves with its round and a retracted
+    // one is deleted — so there is no settled thread for a region to hold, and
+    // its absence is asserted in the bundle, the one place it could come back
+    // without a source reader noticing.
     check(
-      'the built bundle carries the settled region, on the sheet, with its header',
-      src.includes('gly-sheet-settled') &&
-        src.includes('gly-sheet-settled-list') &&
-        src.includes('gly-settled-head') &&
-        src.includes(' settled`'),
+      'the built bundle carries no settled region on any surface',
+      !src.includes('gly-sheet-settled') &&
+        !src.includes('gly-settled-head') &&
+        !src.includes('gly-resolved') &&
+        !src.includes('gly-declined'),
     );
     // A block note's words are painted from the instruction data, by ID, as
     // a DECORATION; the text- and order-paired settled marker is gone.
@@ -7886,14 +7088,10 @@ function bindsContentField(src) {
       'and the rail has no disclosure left to open over its own map',
       !css.includes('.gly-settled-list') && !css.includes('.gly-changed-list'),
     );
-    // The one that survived is the sheet's, and it is in flow for the reason it
-    // always was: the sheet already scrolls, so a section opening at the end of
-    // the scroll grows downward and moves nothing on screen.
+    // The sheet's settled list went with the region it listed.
     check(
-      "and the sheet's settled list is in flow, with no scroller of its own",
-      css.includes('.gly-sheet-settled-list') &&
-        !/\.gly-sheet-settled-list\{[^}]*bottom:100%/.test(css) &&
-        !/\.gly-sheet-settled-list\{[^}]*overflow/.test(css),
+      "and the sheet's settled list is gone from the stylesheet with it",
+      !css.includes('.gly-sheet-settled') && !css.includes('.gly-settled-head'),
     );
     // The chip must not be copyable. "select and copy still work" is the second
     // half of the refusal, and a chip that lands in the clipboard beside the
@@ -8104,11 +7302,8 @@ function bindsContentField(src) {
     );
     // The handle's label carries a count, and the count changes when a note is
     // filed in the panel it opens. 16ch is a bound, like the census count's —
-    // retuned from 28ch when the label pair dropped "on the whole doc". It is
-    // a label TRIO now (the settled face, `✓ n doc instructions`, which is what
-    // `+ instruct document` used to swallow), and sixteen still bounds it exactly:
-    // `▾ ✓ 99 doc instructions`. The pure check on that arithmetic is beside
-    // overallHandle above; this one reads the SHIPPED stylesheet.
+    // retuned from 28ch when the label pair dropped "on the whole doc". This
+    // reads the SHIPPED stylesheet.
     check(
       'the whole-doc handle reserves its width against its own count',
       /\.gly-census-overall\{[^}]*min-width:calc\(24ch/.test(css),

@@ -151,8 +151,8 @@ function heldArrivalsNotice(held: number): HTMLElement {
 // changeCard is one edit the REVIEWER made by hand, as it will reach the agent.
 //
 // It is not a thread and must not become one — `threadCard` reads
-// `thread.resolved`/`run`/`outcome` and builds the edit and delete verbs, and a
-// change is none of those. What is shared is the ANATOMY (`cardShell`,
+// `thread.run` and builds the edit and delete verbs, and a change is none of
+// those. What is shared is the ANATOMY (`cardShell`,
 // `cardBody`), which is the split this codebase already draws between the two.
 //
 // THE QUOTE IS DRAWN IN THE REMOVAL VOCABULARY THE PROSE ALREADY USES: removed
@@ -190,20 +190,12 @@ function unplacedSection(unplaced: HTMLElement[]): HTMLElement {
   return section;
 }
 
-// declinedOutcome, threadCardHead and lostAnchorLine are three of
-// threadCard's internal rendering steps, pulled out because none of them
+// threadCardHead and lostAnchorLine are two of threadCard's internal
+// rendering steps, pulled out because none of them
 // touches `this` — they are label composition and DOM construction over
 // exactly the fields they are handed. threadCard stays the one component
 // (CLAUDE.md: it "is not the shared builder and must not become one"); these
 // are its own peeled steps, not a second builder.
-
-// SETTLED AND declined, both: ↺ reopen flips `resolved` and leaves the
-// outcome standing (handleThreadResolve writes resolved only), so on the
-// outcome alone a reopened conversation would carry "declined" back into
-// the rail's band as its head — an open thread wearing a verdict.
-function declinedOutcome(thread: Thread): boolean {
-  return !!thread.resolved && thread.outcome === 'declined';
-}
 
 // KIND · WHAT IT IS ABOUT · AGE — the card's one fixed anatomy, and the AGE
 // was the part this head was missing. Every other card in the deck carries
@@ -900,10 +892,8 @@ export const cardMethods = {
     }
   },
 
-  // railThreads drops the resolved ones — a settled thread has nothing
-  // pending about it and no highlight left to point at, and the map is for
-  // what is still open —
-  // AND the document-anchored ones, which the overall card above owns.
+  // railThreads drops the document-anchored ones, which the overall card
+  // above owns.
   //
   // Split out of paintRailCards because it is `this`-bound (`this.held`,
   // `this.blocks`, `this.threadCard`) rather than because it is a second
@@ -917,11 +907,6 @@ export const cardMethods = {
       if (thread.run && this.held.has(thread.run)) {
         // A thread whose highlight is held is a card not yet shown, same as
         // any other arrival.
-        continue;
-      }
-      if (thread.resolved) {
-        // A settled thread has nothing pending about it and no highlight left
-        // to point at; the map is for what is still open.
         continue;
       }
       // NOT `!!thread.run`. A thread has a run only if it hangs on a MARK, and
@@ -968,8 +953,8 @@ export const cardMethods = {
   // agent, with the one verb that makes sense on it.
   //
   // It is not a thread and must not become one — `threadCard` reads
-  // `thread.resolved`/`run`/`outcome` and builds the edit and delete verbs, and
-  // a change is none of those. What is shared is the ANATOMY (`cardShell`,
+  // `thread.run` and builds the edit and delete verbs, and a change is none of
+  // those. What is shared is the ANATOMY (`cardShell`,
   // `cardBody`), which is the split this codebase already draws.
   //
   // THE QUOTE IS DRAWN IN THE REMOVAL VOCABULARY THE PROSE ALREADY USES:
@@ -1097,10 +1082,7 @@ export const cardMethods = {
     // History's rail. `head` comes back already in the card; the body is asked
     // for below only where there is a lost anchor to quote, because a thread
     // card's entries and verbs follow the head directly.
-    const { el, head } = cardShell(
-      'gly-thread',
-      thread.resolved ? 'gly-resolved' : '',
-    );
+    const { el, head } = cardShell('gly-thread');
     // tabIndex HERE and not only through `revealOn`: an anchorless thread card
     // gets no reveal — there is nowhere to go — and it still has to be reachable
     // by keyboard, because `delete` and `edit` are on it.
@@ -1118,16 +1100,6 @@ export const cardMethods = {
     // Every thread card carries its own head, including the ones in the
     // whole-document panel — the panel's own head is chrome voice summoning
     // the margin, not a repetition of what the card underneath says.
-    //
-    // A DECLINED NO STAYS VISIBLE. Declining a proposal settles its thread
-    // with outcome "declined" (handleDecline), and in the settled region that
-    // record leads with which no it was rather than with the generic "thread".
-    // ONE CLASS, PAINT ONLY — the kind-rule cascade lesson: a card-state rule
-    // declares paint and never position (see .gly-card.gly-declined).
-    //
-    if (declinedOutcome(thread)) {
-      el.classList.add('gly-declined');
-    }
     head.textContent = threadCardHead(thread, about.label);
 
     // Only when there is something to quote: a block or document thread

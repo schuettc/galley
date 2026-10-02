@@ -145,7 +145,7 @@ export const figureMethods = {
     const pins = ref
       ? this.comments.filter(
           (t): t is Thread & { region: Region } =>
-            !t.resolved && !!t.region && t.anchorKey === ref.key,
+            !!t.region && t.anchorKey === ref.key,
         )
       : [];
     if (!pins.length) {

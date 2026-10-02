@@ -91,7 +91,6 @@ type Thread struct {
 	Key      string  `json:"key"`
 	Heading  string  `json:"heading"`
 	Resolved bool    `json:"resolved"`
-	Outcome  string  `json:"outcome,omitempty"`
 	Entries  []Entry `json:"entries"`
 	Anchor   string  `json:"anchor,omitempty"`
 	// BlockKind is the docmodel kind of the block the thread was opened on —
@@ -206,9 +205,6 @@ func readThread(key string, tm *crdt.YMap) Thread {
 	}
 	if v, ok := tm.Get("resolved"); ok {
 		t.Resolved, _ = v.(bool)
-	}
-	if v, ok := tm.Get("outcome"); ok {
-		t.Outcome, _ = v.(string)
 	}
 	if v, ok := tm.Get("anchor"); ok {
 		t.Anchor, _ = v.(string)
@@ -339,7 +335,6 @@ func (s *Session) SetAnchor(key, anchor, blockKind string) {
 	})
 }
 
-// SetResolved marks a thread settled, or reopens it.
 // numberAt reads a stored float, tolerating the integer form a JSON round trip
 // or another CRDT client may have left behind. A region whose x happened to be
 // 0 and came back as an int is a region silently dropped.
@@ -503,43 +498,12 @@ func diffBounds(cur, next string) (start, endCur, endNext int) {
 
 func isLowSurrogate(u uint16) bool { return u >= 0xDC00 && u <= 0xDFFF }
 
-func (s *Session) SetResolved(key string, resolved bool) error {
-	root := s.doc.GetMap(threadsRoot)
-	thread, ok := mustGet[*crdt.YMap](root, key)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrNoThread, key)
-	}
-	s.tx(func(txn *crdt.Transaction) {
-		thread.Set(txn, "resolved", resolved)
-	})
-	return nil
-}
-
-// SetOutcome records which no was said — the reviewer's disposition on a
-// thread, alongside whether it is resolved. A transcription of SetResolved:
-// the handle is resolved before the transaction opens, and a thread the key
-// does not name is an error rather than a silent no-op, for the same reason
-// Delete's absence is an error — a caller with a typo has no way left to
-// notice otherwise.
-func (s *Session) SetOutcome(key, outcome string) error {
-	root := s.doc.GetMap(threadsRoot)
-	thread, ok := mustGet[*crdt.YMap](root, key)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrNoThread, key)
-	}
-	s.tx(func(txn *crdt.Transaction) {
-		thread.Set(txn, "outcome", outcome)
-	})
-	return nil
-}
-
 // Delete removes a thread outright — the conversation and every entry in it.
 //
-// IT IS THE ONE DESTRUCTIVE OPERATION IN THIS FILE, and it is separate from
-// SetResolved because the two mean different things. Resolving settles a
-// conversation and keeps what everybody said; deleting is for a comment that no
-// longer applies at all, and it is irreversible. Nothing calls this except
-// the card's delete control, the endpoint behind it, and the send's clear.
+// IT IS THE ONE DESTRUCTIVE OPERATION IN THIS FILE: deleting is for a comment
+// that no longer applies at all, and it is irreversible. Nothing calls this
+// except the card's delete control, the endpoint behind it, and the send's
+// clear.
 //
 // The thread's absence is an ERROR rather than a no-op: a delete that silently
 // succeeds against a key naming nothing is a delete agreeing with a typo, and

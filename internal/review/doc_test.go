@@ -1,7 +1,6 @@
 package review
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -53,31 +52,6 @@ func TestRepliesAppendInOrderAndDoNotBecomeTheComment(t *testing.T) {
 	// thread's identity would drift every time they follow up.
 	if got.Comment() != "why two artifacts?" {
 		t.Fatalf("comment drifted to %q", got.Comment())
-	}
-}
-
-func TestResolveAndReopen(t *testing.T) {
-	doc := crdt.New()
-	Wrap(doc).Append("k", "H", AuthorCourt, "look at this", at("2026-08-02T10:00:00Z"))
-
-	if err := Wrap(doc).SetResolved("k", true); err != nil {
-		t.Fatal(err)
-	}
-	if !Read(doc)[0].Resolved {
-		t.Fatal("thread did not resolve")
-	}
-	if err := Wrap(doc).SetResolved("k", false); err != nil {
-		t.Fatal(err)
-	}
-	if Read(doc)[0].Resolved {
-		t.Fatal("thread did not reopen")
-	}
-}
-
-func TestResolveAnUnknownSectionIsAnError(t *testing.T) {
-	doc := crdt.New()
-	if err := Wrap(doc).SetResolved("nope", true); err == nil {
-		t.Fatal("want an error for a section with no thread")
 	}
 }
 
@@ -242,26 +216,5 @@ func TestARegionSurvivesTheRoundTrip(t *testing.T) {
 	}
 	if byKey["cm-plain"].Region != nil {
 		t.Errorf("a thread with no region grew one: %+v", byKey["cm-plain"].Region)
-	}
-}
-
-// Outcome must survive the document round trip like Resolved does — it is how
-// the rail shows which no was said.
-func TestOutcomeRoundTrips(t *testing.T) {
-	doc := crdt.New()
-	s := Wrap(doc)
-	s.Append("cm-x", "heading", AuthorCourt, "no thanks", time.Now())
-	if err := s.SetOutcome("cm-x", "declined"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetResolved("cm-x", true); err != nil {
-		t.Fatal(err)
-	}
-	got := Read(doc)
-	if len(got) != 1 || got[0].Outcome != "declined" || !got[0].Resolved {
-		t.Fatalf("Read = %+v, want one declined resolved thread", got)
-	}
-	if err := s.SetOutcome("cm-missing", "declined"); !errors.Is(err, ErrNoThread) {
-		t.Errorf("missing key: %v, want ErrNoThread", err)
 	}
 }

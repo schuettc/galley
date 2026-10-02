@@ -63,11 +63,11 @@
 //   `/_galley/trail` route to POST one to. The browser's trail plugin is
 //   entirely alive — ghosts, highlights, retraction, the set-assignment
 //   re-anchor — so each of those checks is restated against `trailEntries()`,
-//   THE PLUGIN'S OWN LIST, which carries the same eight fields (`old`, `new`,
-//   `proposal`, `placed`, `before`, `after`, `anchored`). The CLAIM about the
-//   trail's recording is kept exactly; the claim that it REACHED THE SERVER is
-//   deleted, because it does not. `proposal` is a field nothing can populate
-//   now and the two checks that read it went with §3.
+//   THE PLUGIN'S OWN LIST, which carries the fields they read (`old`, `new`,
+//   `placed`, `before`, `after`, `anchored`). The CLAIM about the trail's
+//   recording is kept exactly; the claim that it REACHED THE SERVER is
+//   deleted, because it does not. `proposal` is gone from the entry, and the
+//   two checks that read it went with §3.
 //
 //   §8'S `.gly-revise-trail` CLAUSE — "and it is counted in what the press
 //   will tell the agent". That element does not exist: the primary reads
@@ -699,8 +699,8 @@ const adriftRows = () =>
  *  minimal diff while displaying as a word, that an entry refused a place is
  *  kept as a record with `placed: false` — is a claim about `web/trail.ts`'s
  *  recording, and that is alive and is what this reads. `app.trailEntries()`
- *  carries the same eight fields `serializeEntries` used to put on the wire,
- *  so no check below had to be reworded to be restated here.
+ *  carries every field those checks read, so no check below had to be
+ *  reworded to be restated here.
  *
  *  Read through the app rather than through an imported plugin key: the page
  *  runs the minified bundle, and a key imported from source is a different

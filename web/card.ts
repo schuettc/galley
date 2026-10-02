@@ -42,9 +42,8 @@
 // browser, not by which surface is calling.
 //
 // WHAT IS DELIBERATELY *NOT* HERE. `threadCard` is not, and must not become,
-// the History card's builder. It reads `thread.resolved`, `thread.run`,
-// `thread.outcome`, builds the edit and delete verbs and carries the two-step
-// arm — a change is not a thread and has none of that. What is shared is the
+// the History card's builder. It reads `thread.run`, builds the edit and
+// delete verbs and carries the two-step arm — a change is not a thread and has none of that. What is shared is the
 // ANATOMY (an article, a mono head, an optional body) and the GESTURE (click or
 // Enter to be shown the words this card is about). A builder that knows what a
 // thread is stays in the file that knows what a thread is.

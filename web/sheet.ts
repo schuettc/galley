@@ -1,15 +1,12 @@
 // web/sheet.ts owns the review sheet: the narrow layout's whole chrome
 // (makeBottomBar — the Instructions door, the History chip, `↓ next`), the
-// full-screen list surface itself (makeSheet — its head, its body, its
-// settled region), opening and closing it, and painting it: `paintSheet`
-// renders `railThreads ∪ overallThreads` through `this.threadCard`, and
-// `paintSheetSettled` renders the settled region at the sheet's foot.
-// `setSettledOpen`/`applySettledOpen` persist and paint that region's
-// collapse state. It is a MIXIN — an object of methods `Object.assign`ed
+// full-screen list surface itself (makeSheet — its head and its body),
+// opening and closing it, and painting it: `paintSheet` renders
+// `railThreads ∪ overallThreads` through `this.threadCard`. It is a MIXIN — an object of methods `Object.assign`ed
 // onto `App.prototype` in entry.ts — not a class of its own, so every
 // method here still reads and writes `this` on the live App instance
 // exactly as it did before the move (`this.sheet`, `this.sheetOpen`,
-// `this.settledOpen`, `this.comments`, `this.blocks`, `this.cards`,
+// `this.comments`, `this.blocks`, `this.cards`,
 // `this.sheetCards`, and so on). `this` IS TYPED AGAINST `AppShell`
 // (web/appshell.ts) — see that file's own header for the this-typing
 // decision.
@@ -20,14 +17,7 @@
 // chrome of its own — it belongs here, beside the surface it opens.
 
 import { VERSIONS_LABEL, VERSIONS_NAME } from './versions.ts';
-import {
-  railThreads,
-  overallThreads,
-  settledThreads,
-  settledHandle,
-  writeSettledOpen,
-  threadPlacement,
-} from './rail.ts';
+import { railThreads, overallThreads, threadPlacement } from './rail.ts';
 import type { AppShell, Thread } from './appshell.ts';
 
 // What the sheet's ✕ is called. A constant rather than a literal because the
@@ -132,9 +122,6 @@ export const sheetMethods = {
     root: HTMLElement;
     head: HTMLElement;
     body: HTMLElement;
-    settled: HTMLElement;
-    settledHead: HTMLButtonElement;
-    settledList: HTMLElement;
   } {
     const root = document.createElement('div');
     root.className = 'gly-sheet';
@@ -165,39 +152,10 @@ export const sheetMethods = {
     close.title = SHEET_CLOSE_NAME;
     close.addEventListener('click', () => this.closeSheet());
     head.append(untracked, close);
-    // The settled region, at the foot of the list — and THE ONLY ONE THERE IS.
-    // A RESOLVED THREAD MAY NEVER BE INVISIBLE-BUT-PRESENT: a surface that
-    // simply dropped it would say there is nothing there while its mark goes
-    // on rendering in the prose.
+    // THE SHEET HAS NO SETTLED REGION. It held resolved conversations, and
+    // nothing resolves an instruction any more: a sent one leaves with its
+    // round and a retracted one is deleted, so every thread is open.
     //
-    // It used to have a twin in the rail, and this one was added afterwards
-    // because below the breakpoint the rail's was off screen and `↺ reopen`,
-    // the only way back from a mis-tapped `✓ resolve`, was unreachable on a
-    // phone. The rail holds live work only now (the 2026-08-16 spec), so the
-    // twin is gone and this is where a settled conversation lives at every
-    // width — which is why `railSurfaces` had to start offering the sheet above
-    // the breakpoint too. Had it not, the same unreachability would simply have
-    // moved to the desktop.
-    //
-    // IN FLOW, with no cap and no scroller of its own: the sheet already
-    // scrolls, a section opening at the end of a scroll grows downward and
-    // moves nothing already on screen, and a scroller inside a scroller is the
-    // bubble's own scroll-dismissal trap waiting to be walked into a second
-    // time.
-    const settled = document.createElement('div');
-    settled.className = 'gly-sheet-settled';
-    settled.hidden = true;
-    const settledHead = document.createElement('button');
-    settledHead.type = 'button';
-    settledHead.className = 'gly-settled-head';
-    settledHead.setAttribute('aria-expanded', 'false');
-    settledHead.addEventListener('click', () =>
-      this.setSettledOpen(!this.settledOpen),
-    );
-    const settledList = document.createElement('div');
-    settledList.className = 'gly-sheet-settled-list';
-    settled.append(settledHead, settledList);
-    body.append(settled);
     // THE SHEET HAS NO CHANGED REGION EITHER, and it is worth saying here as
     // well as in makeRail, because this one had its own justification and that
     // justification is the trap. It read: "the sheet is the narrow layout's
@@ -208,7 +166,7 @@ export const sheetMethods = {
     // rides the button that sends it. See rail.ts's outgoingCounts.
     root.append(head, body);
     document.body.appendChild(root);
-    return { root, head, body, settled, settledHead, settledList };
+    return { root, head, body };
   },
 
   openSheet(this: AppShell) {
@@ -245,18 +203,17 @@ export const sheetMethods = {
     // went for the same reason: the wire carries no suggestions, so there was
     // never a proposal card here for a conversation to be folded into.
     // THE SHEET IS THE WHOLE REVIEW, AND IT IS THE ONLY SURFACE THAT IS. Every
-    // NON-RESOLVED thread belongs here — anchored, block-anchored, document-wide
+    // thread belongs here — anchored, block-anchored, document-wide
     // and ANCHORLESS alike, which is exactly railThreads ∪ overallThreads — and
     // that last population is the one this list became load-bearing for. The
     // rail holds live work beside the text it is about; a thread whose highlight
     // is gone is beside nothing, so the rail's loop skips it and this is the one
-    // place it renders. settledThreads stays out of THIS list and goes to the
-    // region at the foot instead.
+    // place it renders.
     //
     // The PLACEMENT is threadPlacement's verdict, not a hardcoded foot. A
     // hardcoded foot told threadCard every thread was unanchored — which
-    // drew a live, on-a-mark conversation exactly like the settled list
-    // draws a genuinely gone one (dashed, "not tied to a mark"), and skipped
+    // drew a live, on-a-mark conversation exactly like a genuinely gone one
+    // (dashed, "not tied to a mark"), and skipped
     // the title and the reveal click threadCard only wires up when it was
     // handed an anchor. No card here lights the prose whatever its placement:
     // the light is the band's — `litRunAt` reads `.gly-rail-band .gly-card` and
@@ -270,61 +227,7 @@ export const sheetMethods = {
       el.classList.add('gly-sheet-card');
       body.appendChild(el);
     }
-    this.paintSheetSettled();
     this.sheetCards = this.cards;
     this.cards = keep;
-  },
-
-  // The sheet's settled region — the only one, from the one partition
-  // (settledThreads) the rest of this file reads.
-  //
-  // The region node is RE-APPENDED rather than rebuilt: `body.textContent = ''`
-  // above detaches it with everything else, and it carries the head the
-  // reviewer's click listener is on.
-  paintSheetSettled(this: AppShell) {
-    const { body, settled, settledHead, settledList } = this.sheet;
-    const threads: Thread[] = settledThreads(this.comments);
-    body.appendChild(settled);
-    settled.hidden = threads.length === 0;
-    settledList.textContent = '';
-    if (!threads.length) {
-      return;
-    }
-    settledHead.textContent = settledHandle(threads.length);
-    for (const thread of threads) {
-      const card = this.threadCard(thread, {
-        where: 'anchorless',
-        index: -1,
-        region: null,
-      });
-      card.classList.add('gly-settled-card', 'gly-sheet-card');
-      settledList.appendChild(card);
-    }
-    this.applySettledOpen();
-  },
-
-  setSettledOpen(this: AppShell, open: boolean) {
-    this.settledOpen = !!open;
-    writeSettledOpen(window.localStorage, this.docName, this.settledOpen);
-    this.applySettledOpen();
-    // NO RE-MEASURE, and its absence is the claim — sharper now than when this
-    // was written. The region is not in the rail at all: it is a section at the
-    // end of the sheet, and the sheet and the rail are never on screen together
-    // (railSurfaces). Opening it cannot move a card because no card is
-    // rendered. Scheduling a re-measure anyway would redraw every card to the
-    // same coordinates and pass a "nothing moved" check just as well — while
-    // hiding the day it stopped being true.
-  },
-
-  // ONE FLAG, ONE REGION — and it stays a persisted flag rather than a local
-  // one because the SHEET is rebuilt on every pending refresh (paintRail calls
-  // paintSheet while it is open), so a collapse state living on the element
-  // would be lost every 1.5 seconds.
-  applySettledOpen(this: AppShell) {
-    const open = !!this.settledOpen;
-    const region = this.sheet;
-    region.settledList.hidden = !open;
-    region.settledHead.setAttribute('aria-expanded', open ? 'true' : 'false');
-    region.settledHead.classList.toggle('is-open', open);
   },
 };

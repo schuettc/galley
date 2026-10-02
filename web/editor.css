@@ -1180,7 +1180,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    lines below or was painting a surface nobody opens.
 
    A DEAD DECLARATION THAT HAPPENS TO MATCH IS WORSE THAN NO DECLARATION —
-   this file records the rule under `.gly-settled-card` — and a whole dead
+   this file records the rule under the deleted settled card — and a whole dead
    BLOCK is that failure at scale: every reader after this one would have had
    to work out which of its fifteen properties the rail spelling still let
    through. The element is still HIDDEN while there is no reason to show it,
@@ -1259,11 +1259,23 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    one grey costume, and if the reviewer cannot tell them apart the presentation
    has already failed.
 
-   Settled conversations moved to the sheet, where `.gly-settled-head` (below,
-   shared) and `.gly-sheet-settled-list` (further down) render them. The trail
-   moved NOWHERE: it is an outgoing message to the agent, its count rides the
-   verdict button, and `.gly-change`, `.gly-change-line`, `.gly-change-who` and
-   `.gly-change-adrift` are deleted with the rows they painted. The one thing
+   Settled conversations moved to the sheet first, and that region is gone as
+   well: nothing resolves an instruction any more, so there is nothing settled
+   to draw, and `.gly-settled-head`, `.gly-sheet-settled*`,
+   `.gly-card.gly-resolved`, `.gly-card.gly-settled-card` and
+   `.gly-card.gly-declined` are deleted with it.
+
+   THE LESSON THE SETTLED CARD PAID FOR OUTLIVES IT, and other rules here cite
+   it. Its 0.8 dimming was written as a bare `.gly-settled-card` (0,1,0), which
+   lost outright to `.gly-card.gly-resolved` (0,2,0), and as
+   `.gly-card.gly-settled-card` declared a thousand lines EARLIER, which tied
+   and lost on source order. It painted resolve's 0.55 both ways, with a
+   `:hover` that lost too, while the stylesheet said 0.8. A declaration that
+   loses while appearing to apply is worse than none.
+
+   The trail moved NOWHERE: it is an outgoing message to the agent, its count
+   rides the verdict button, and `.gly-change`, `.gly-change-line`,
+   `.gly-change-who` and `.gly-change-adrift` are deleted with the rows they painted. The one thing
    `.gly-change-*` carried that nothing else did — red and green under a head
    naming whose hand it was, the declared exemption to "red is reserved for
    waiting on you" — needs no exemption now that no row exists, and there is no
@@ -1272,28 +1284,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    removal mark the product has.
 
    See docs/superpowers/specs/2026-08-16-the-rail-holds-live-work.md. */
-
-/* The settled region's HEAD, shared by nothing now but the sheet — kept under
-   its own name because it is the same handle saying the same thing it always
-   said, and probe pins the selector in the built css. */
-.gly-settled-head {
-  width: 100%;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--gly-line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--gly-muted);
-  font: inherit;
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-}
-.gly-settled-head::before { content: "\25b8  "; opacity: 0.7; }
-.gly-settled-head.is-open::before { content: "\25be  "; }
-.gly-settled-head:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
-/* The settled card's own dimming is NOT declared here. It has to out-specify
-   and out-order `.gly-card.gly-resolved`, which every settled card also
-   carries, so it lives beside that rule — see `.gly-card.gly-settled-card`. */
 
 /* THE CARDS IN THE RAIL SHARE ONE LEFT EDGE, so the column reads as one column
    — the same work, in a different place.
@@ -1373,7 +1363,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    `.gly-rail-teach { border-style: dashed }` therefore loses on source order
    and paints solid: measured `border: "solid"` with the rule right there in the
    stylesheet. This file records the shape under `.gly-thread-delete` and under
-   `.gly-settled-card`; it is the same trap a third time. */
+   the deleted settled card; it is the same trap a third time. */
 .gly-card.gly-rail-teach {
   border-style: dashed;
   cursor: default;
@@ -1664,8 +1654,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    and it moves `.gly-composer-head` and `.gly-thread-who` earlier and
    `.gly-bubble-head` later. Nothing at (0,1,0) between the old positions
    declares any of these five properties on any of these four elements;
-   `.gly-versions .gly-card > .gly-card-head` and
-   `.gly-card.gly-declined .gly-card-head` are both higher and win either way.
+   `.gly-versions .gly-card > .gly-card-head` is higher and wins either way.
    `just layers` reads `.gly-card-head`'s computed font-family back off three
    different surfaces against `.gly-census`'s own. */
 .gly-bubble-head,
@@ -2091,18 +2080,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    nothing else, so a sheet card is not in the question — and the sheet covers
    the prose it would have lit. */
 
-/* The sheet's settled region, at the foot of its list — and the ONE settled
-   region there is. It wears `.gly-settled-head`, the same handle saying the
-   same thing it said at the foot of the rail, and its LIST is its own and IN
-   FLOW: the sheet is a scroll container whose foot is the end of the scroll, so
-   a region opening there grows downward and moves nothing already on screen,
-   which is what `a disclosure covers, it does not displace` asks for here. No
-   cap and no scroller of its own either — the sheet already scrolls, and a
-   scroller inside a scroller is the gesture trap the bubble had to be rescued
-   from. */
-.gly-sheet-settled { padding-top: 8px; }
-.gly-sheet-settled-list { padding-top: 8px; }
-
 /* Touch: 44px targets on every decision verb, per the handoff. Keyed on the
    pointer rather than the width — a touchscreen laptop is wide and still has
    fingers on it. */
@@ -2353,9 +2330,9 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    CONTAINER-SPECIFIED, and that is not a habit. `.gly-bar button` is (0,1,1)
    and declares `background`, `border` and `color`; a bare `.gly-revise` is
    (0,1,0) and would lose every one of them while appearing to set them — the
-   dead-declaration shape this file records under `.gly-settled-card`. The
-   plain `.gly-revise` block above survives only because that rule deliberately
-   declares no `display`.
+   dead-declaration shape this file records under the deleted settled card
+   (see THE RAIL'S SETTLED AND CHANGED SECTIONS). The plain `.gly-revise` block
+   above survives only because that rule deliberately declares no `display`.
 
    The disabled face is (0,3,0) so it beats `.gly-bar button[disabled]` at
    (0,2,1): a disabled PRIMARY has to give up its fill, or "dead" reads as
@@ -2904,38 +2881,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   color: var(--gly-del);
   opacity: 1;
 }
-.gly-card.gly-resolved { opacity: 0.55; }
-/* A settled card is quieter than a live one and still fully operable — it
-   replies, it reopens, it deletes. Dimming says "this is done", never "this is
-   inert": the same distinction the fold clusters had to make, and the reason
-   §2's state table puts settled at 0.8 rather than at resolve's 0.55.
-
-   BOTH THE SHAPE AND THE PLACE ARE LOAD-BEARING. `paintSettled` gives every
-   settled card `gly-resolved` as well, so this rule has to beat the one
-   directly above it: a bare `.gly-settled-card` is (0,1,0) and loses outright,
-   and `.gly-card.gly-settled-card` declared up in the settled-region block
-   TIES at (0,2,0) and loses on source order. It was written both of those ways
-   at once and painted 0.55 in both, with a `:hover` that tied and lost too —
-   so settled rendered at resolve's value and hovering it did nothing, while
-   the stylesheet said 0.8 the better part of a thousand lines earlier — far
-   enough that nobody reading either end saw the other. Moving either of these
-   two rules above `.gly-card.gly-resolved` reinstates that bug in silence;
-   `just layers` asserts the 0.8 on a real settled card. */
-.gly-card.gly-settled-card { opacity: 0.8; }
-.gly-card.gly-settled-card:hover { opacity: 1; }
-
-/* A DECLINED NO STAYS VISIBLE. A declined proposal settles into the region
-   above as a thread whose head reads `declined · <what>` (entry.js writes the
-   words), and this rule paints that head in the deletion color — the one color
-   the prose already taught means "this goes". PAINT ONLY, deliberately: a
-   card-state rule at (0,2,0)+ can beat the band's placement rules on order,
-   and a kind rule that declared `position` for its own reasons once took every
-   replace card out of the band's absolute placement (see CLAUDE.md). This one
-   declares color and nothing else; (0,3,0) beats `.gly-card-head`'s (0,1,0)
-   outright, so it needs no source-order trick — it sits with the settled rules
-   because a declined card is always a settled card. */
-.gly-card.gly-declined .gly-card-head { color: var(--gly-del); }
-
 /* The stepped card, so j/k is legible in the rail as well as in the text. */
 .gly-card.gly-stepped { border-color: var(--gly-signal); box-shadow: 0 0 0 1px var(--gly-signal); }
 
@@ -3756,8 +3701,6 @@ body.gly-history-mode > main {
 .gly-rail[hidden],
 .gly-refusal[hidden],
 .gly-sheet[hidden],
-.gly-sheet-settled[hidden],
-.gly-sheet-settled-list[hidden],
 .gly-strip[hidden],
 .gly-strip-dismiss[hidden],
 .gly-strip-fade[hidden],

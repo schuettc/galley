@@ -232,30 +232,6 @@ export function holdLabel(holding: boolean, n: number): string {
 }
 
 /**
- * shownSuggestions is what the RAIL displays while some arrivals are held.
- *
- * HOLD IS A BROWSER-SIDE QUEUE OVER WHAT IS DISPLAYED, NOT A SERVER-SIDE GATE
- * ON THE DOCUMENT. The suggestions are in the CRDT and on disk either way —
- * pretending otherwise would mean the file and the screen disagreeing about
- * what the document contains, which is the one thing this editor cannot do. A
- * held arrival is A CARD NOT YET SHOWN, never a suggestion not yet made. The
- * opposite reading is the intuitive one, which is why it is written down here.
- *
- * The census is deliberately NOT filtered through this. It counts the server's
- * projection, so it keeps telling the truth while the rail is holding its
- * tongue — which is exactly the division of labour those two surfaces have.
- */
-export function shownSuggestions(
-  suggestions: Arrival[] | null | undefined,
-  held: Set<string | undefined> | null | undefined,
-): Arrival[] {
-  if (!held || held.size === 0) {
-    return suggestions || [];
-  }
-  return (suggestions || []).filter((s) => !held.has(s.run));
-}
-
-/**
  * nextArrival is one `show me` click: the first queued arrival that is still
  * pending, and the queue with it removed.
  *

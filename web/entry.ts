@@ -180,7 +180,7 @@ import {
   ARRIVAL_FADE_MS,
   ARRIVAL_SUFFIX,
 } from './arrivals.ts';
-import { readSettledOpen, carryDrafts } from './rail.ts';
+import { carryDrafts } from './rail.ts';
 import { mountPreview } from './preview.ts';
 import { shellMarkerQuiet } from './marker.ts';
 import { headingAlign } from './headingalign.ts';
@@ -764,14 +764,10 @@ class App implements AppState {
     root: HTMLElement;
     head: HTMLElement;
     body: HTMLElement;
-    settled: HTMLElement;
-    settledHead: HTMLButtonElement;
-    settledList: HTMLElement;
   };
   cards: CardEntry[];
   sheetCards: CardEntry[];
   sheetOpen: boolean;
-  settledOpen: boolean;
   overall?: OverallCard;
   capture?: CaptureCard;
   cardSizes: ReturnType<typeof growthWatch>;
@@ -980,12 +976,8 @@ class App implements AppState {
 
     const mount = document.getElementById('editor');
     this.docName = (mount && mount.dataset.doc) || '';
-    // Closed by default, same reasoning: settled work has to be REACHABLE, not
-    // in the way of the work that is still open.
-    this.settledOpen = readSettledOpen(window.localStorage, this.docName);
     // THE TRAIL HAS NO REGION TO REMEMBER A COLLAPSE FOR, AND NO SAVE STATE
-    // EITHER. `changedOpen` was the settled flag's sibling for the log at the
-    // rail's foot; the trail is an outgoing message and not a history, so there
+    // EITHER. `changedOpen` was a collapse flag for the log at the rail's foot; the trail is an outgoing message and not a history, so there
     // is no log, no head to open and nothing to persist.
     //
     // `trailPosted`, `trailLoaded`, `trailTimer`, `trailSaving` and `trailEpoch`
@@ -1969,11 +1961,9 @@ class App implements AppState {
   // THREE SECTIONS ARE GONE AND EACH LEFT FOR ITS OWN REASON.
   //
   //   `.gly-rail-settled` — finished conversations. Not live work, and beside
-  //   nothing. They are the SHEET's now (paintSheetSettled), which already
-  //   scrolls and is already the surface that answers "show me everything in
-  //   this review". The cost is real and was accepted: reopening a settled
-  //   thread is two gestures where it was one click on a bar, and the bar cost
-  //   every review while reopening is rare.
+  //   nothing. They moved to the sheet first, and that region is gone too:
+  //   nothing resolves an instruction any more, so there is nothing settled to
+  //   show.
   //
   //   `.gly-rail-changed` — the trail's log. Deleted outright rather than
   //   moved, because the trail is an OUTGOING MESSAGE TO THE AGENT and not a

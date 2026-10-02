@@ -48,7 +48,6 @@ function instructionsToThreads(
   return (instructions || []).map((instruction): Thread => ({
     key: instruction.key,
     heading: instruction.quote || '',
-    resolved: false,
     entries: [{ author: AUTHOR, at: instruction.at, text: instruction.text }],
     run: instruction.run || '',
     anchor: instruction.anchor || '',

@@ -23,7 +23,7 @@ be revisited.
 import json
 import sys
 
-BOUND = 14
+BOUND = 13
 
 data = json.load(sys.stdin)
 real = [f for f in data["findings"] if f["exceeded"] != "crap"]
