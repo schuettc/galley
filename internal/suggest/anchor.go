@@ -148,10 +148,38 @@ func blockLabel(b docmodel.Block) string {
 		return "---"
 	case docmodel.Paragraph:
 		return truncateLabel(plainText(b.Inlines))
+	case docmodel.Table:
+		cells := headerCells(b)
+		if len(cells) == 0 {
+			return "table"
+		}
+		return truncateLabel("table: " + strings.Join(cells, ", "))
 	default:
 		first, _, _ := strings.Cut(strings.TrimSpace(blockContent(b)), "\n")
 		return truncateLabel(first)
 	}
+}
+
+// headerCells is the plain text of each non-empty cell in a table's first
+// row. A cell holds blocks, so its text is its blocks' inlines; a Note in a
+// cell is a comment's mark, not the header's words.
+func headerCells(table docmodel.Block) []string {
+	if len(table.Children) == 0 {
+		return nil
+	}
+	var out []string
+	for _, cell := range table.Children[0].Children {
+		var words []string
+		for _, c := range cell.Children {
+			if c.Kind != docmodel.Note {
+				words = append(words, plainText(c.Inlines))
+			}
+		}
+		if text := strings.TrimSpace(strings.Join(words, " ")); text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
 }
 
 func headingLevel(b docmodel.Block) int {
