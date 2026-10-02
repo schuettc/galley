@@ -189,6 +189,16 @@ async function addOverallInstruction(page, text, want) {
       n,
     want,
   );
+  // AND THE PAGE HAS FINISHED FILING IT. The server lists the instruction the
+  // moment it is stored; the box closes only when the page's own request
+  // returns, and until then it is open but disabled. A caller filing the next
+  // instruction in that gap saw an open box, skipped the click, typed into a
+  // disabled field, and timed out when the box closed under it (on CI's slower
+  // runner, about one run in two).
+  await page.waitForSelector('.gly-capture', {
+    state: 'hidden',
+    timeout: 5000,
+  });
 }
 
 // The section grip on the document's title, then its bar's button: the form
