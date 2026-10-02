@@ -114,31 +114,6 @@ func TestSubstitutionHasNoIncoherentReachableState(t *testing.T) {
 	walk(parseDoc(t, subDoc), nil)
 }
 
-func TestSubstitutionDecideAllIsOneDecision(t *testing.T) {
-	for _, tc := range []struct {
-		accept bool
-		want   string
-	}{
-		{true, "The quick red fox\n"},
-		{false, "The quick brown fox\n"},
-	} {
-		d, n := DecideAll(parseDoc(t, subDoc), tc.accept)
-		if n != 1 {
-			t.Errorf("DecideAll(%v) decided %d, want 1", tc.accept, n)
-		}
-		if got := string(markdown.Serialize(d)); got != tc.want {
-			t.Errorf("DecideAll(%v) -> %q, want %q", tc.accept, got, tc.want)
-		}
-	}
-}
-
-func TestSubstitutionAcceptAll(t *testing.T) {
-	d := AcceptAll(parseDoc(t, subDoc))
-	if got := string(markdown.Serialize(d)); got != "The quick red fox\n" {
-		t.Errorf("AcceptAll -> %q", got)
-	}
-}
-
 // A DEL THAT IS NOT PURE IS NOT HALF OF A SUBSTITUTION. A highlighted
 // deletion is a deletion someone is talking about; collapsing it into the
 // insertion after it would drop the highlight, so the serializer declines
@@ -150,10 +125,10 @@ func TestHighlightedDeletionDoesNotGroup(t *testing.T) {
 		Inlines: []docmodel.Inline{
 			{Text: "The quick "},
 			{Text: "brown", Marks: []docmodel.Mark{
-				suggestionMark(docmodel.Highlight, "court", at),
-				suggestionMark(docmodel.Del, "court", at),
+				authoredMark(docmodel.Highlight, "court", at, newRun()),
+				authoredMark(docmodel.Del, "court", at, newRun()),
 			}},
-			{Text: "red", Marks: []docmodel.Mark{suggestionMark(docmodel.Ins, "court", at)}},
+			{Text: "red", Marks: []docmodel.Mark{authoredMark(docmodel.Ins, "court", at, newRun())}},
 			{Text: " fox"},
 		},
 	}}}
@@ -213,30 +188,6 @@ func TestUnpairableSubstitutionListsAsTwo(t *testing.T) {
 	}
 }
 
-// Replace is the transform that creates a substitution, so what it writes
-// must be what List reads back as one.
-func TestReplaceCreatesOneSuggestion(t *testing.T) {
-	at := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	d, err := Replace(parseDoc(t, "The quick brown fox\n"), "brown", "red", "agent", at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := List(d)
-	if len(got) != 1 || got[0].Kind != KindReplace {
-		t.Fatalf("List = %+v, want one replace", got)
-	}
-	if got[0].Author != "agent" {
-		t.Errorf("author = %q, want %q", got[0].Author, "agent")
-	}
-	accepted, err := Accept(d, got[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := string(markdown.Serialize(accepted)); s != "The quick red fox\n" {
-		t.Errorf("accept -> %q", s)
-	}
-}
-
 // The ordinal stays the display coordinate: after grouping there is simply
 // one fewer id in the list, and the ones that remain still number from 1 in
 // document order.
@@ -275,12 +226,12 @@ func TestSubstitutionRunIsTheDeletedHalfs(t *testing.T) {
 	if got[0].Run == "" || got[0].Run != del.Attr(docmodel.Del, docmodel.RunAttr) {
 		t.Fatalf("run = %q, want the Del mark's %q", got[0].Run, del.Attr(docmodel.Del, docmodel.RunAttr))
 	}
-	out, err := AcceptRun(d, got[0].Run)
+	out, err := Accept(d, got[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s := string(markdown.Serialize(out)); s != "The quick red fox\n" {
-		t.Errorf("AcceptRun -> %q", s)
+		t.Errorf("accept -> %q", s)
 	}
 }
 

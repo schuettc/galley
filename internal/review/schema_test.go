@@ -61,7 +61,7 @@ func TestASidecarWrittenBeforeVersionsLoadsAndReplays(t *testing.T) {
 	}
 	tr := f.Threads[0]
 	if tr.Key != "md-0-9" || tr.Heading != "The opening" || tr.Anchor != "block" ||
-		tr.AnchorKey != "b-1" || tr.BlockKind != "paragraph" {
+		tr.BlockKind != "paragraph" {
 		t.Fatalf("thread = %+v", tr)
 	}
 	if tr.Region == nil || tr.Region.X != 0.1 || tr.Region.H != 0.4 {
@@ -170,8 +170,8 @@ func TestTheSidecarKeysAreTheContract(t *testing.T) {
 			Suggestions: []SuggestionMeta{{}}, Changes: []Change{{}}},
 			"v,page,updated,threads,comments,suggestions,changes"},
 		{"Thread", Thread{Key: "k", Heading: "h", Resolved: true, Outcome: "o", Entries: []Entry{},
-			Anchor: "block", AnchorKey: "a", BlockKind: "paragraph", Region: &Region{}},
-			"key,heading,resolved,outcome,entries,anchor,anchorKey,blockKind,region"},
+			Anchor: "block", BlockKind: "paragraph", Region: &Region{}},
+			"key,heading,resolved,outcome,entries,anchor,blockKind,region"},
 		{"Entry", Entry{Author: "a", Text: "t"}, "author,at,text"},
 		{"Region", Region{}, "x,y,w,h"},
 		{"Comment", Comment{Key: "k", Heading: "h", Text: "t"}, "key,heading,text"},

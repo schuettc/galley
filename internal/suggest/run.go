@@ -1,36 +1,8 @@
 package suggest
 
 import (
-	"fmt"
-
 	"github.com/schuettc/galley/internal/docmodel"
 )
-
-// AcceptRun accepts the suggestion identified by run. Identical to Accept in
-// every respect but how the mark is named.
-func AcceptRun(d docmodel.Doc, run string) (docmodel.Doc, error) {
-	return applyDecisionRun(d, run, true)
-}
-
-// RejectRun rejects the suggestion identified by run.
-func RejectRun(d docmodel.Doc, run string) (docmodel.Doc, error) {
-	return applyDecisionRun(d, run, false)
-}
-
-// applyDecisionRun resolves a run to the ordinal applyDecision already speaks,
-// rather than carrying a second copy of what accepting means. There is one
-// implementation of every transform and this is deliberately not another one.
-func applyDecisionRun(d docmodel.Doc, run string, accept bool) (docmodel.Doc, error) {
-	if run == "" {
-		return docmodel.Doc{}, fmt.Errorf("suggest: empty run")
-	}
-	for _, p := range List(d) {
-		if p.Run == run {
-			return applyDecision(d, p.ID, accept)
-		}
-	}
-	return docmodel.Doc{}, fmt.Errorf("suggest: no suggestion with run %q", run)
-}
 
 // MintRuns gives every suggestion mark in d an identity, returning the result.
 // Marks that already carry one keep it unchanged.
@@ -55,20 +27,20 @@ func applyDecisionRun(d docmodel.Doc, run string, accept bool) (docmodel.Doc, er
 // "{--age--}{--age--}" case above and must stay two decisions. That is
 // indistinguishable, from the document alone, from one authored edit spread
 // across several inlines. So this does not try to tell them apart: the
-// transforms that DO know which they made — Replace, CommentOn, CommentOnRange,
-// via addSuggestionMark — stamp one run across every inline their edit touches
+// transforms that DO know which they made — CommentOn, CommentOnRange and
+// CommentAcross — stamp one run across every inline their edit touches
 // before this ever sees it, and the skip below leaves it exactly as stamped.
 // Do not add grouping here. It would have to guess, and it would guess wrong on
 // the single case runs were introduced for.
 //
 // Tokens are random rather than sequential because there are four minters —
-// this one, markdown's applyMark, addSuggestionMark and the BROWSER — in
+// this one, markdown's applyMark, the comment transforms and the BROWSER — in
 // different packages and two languages, running at different times, with no
 // counter they could share.
 //
 // THE FOURTH IS THE CLIENT, and it is why a typed edit no longer arrives here
 // to be split. web/suggestions.js stamps ONE run across every inline the mark
-// it just applied touches, for exactly the reason addSuggestionMark does on
+// it just applied touches, for exactly the reason commentMarked does on
 // this side: the editor knows the extent of that edit and this function
 // cannot. A mark the reviewer types reaches here already carrying a run, and
 // the skip above leaves it as stamped.

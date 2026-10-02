@@ -86,12 +86,11 @@ func Blocks(d docmodel.Doc) []BlockRef {
 // blockKeys returns a key per top-level block, parallel to d.Blocks, empty
 // for the Note blocks that are not themselves addressable.
 //
-// The key is derived from the block's OWN CONTENT — the same way CommentKey
-// is derived from the quote it anchors to, and for the same reason. A path
-// ("blocks[3]") and an ordinal both renumber the moment anything is inserted
-// above them, and this codebase has already paid for that once: a comment
-// thread keyed by an ordinal silently reattached itself to different text
-// (see CommentKey, and CLAUDE.md's "an ordinal ID is not identity"). A
+// The key is derived from the block's OWN CONTENT. A path ("blocks[3]") and an
+// ordinal both renumber the moment anything is inserted above them, and this
+// codebase has already paid for that once: a comment thread keyed by an
+// ordinal silently reattached itself to different text (CLAUDE.md's "an
+// ordinal ID is not identity"). A
 // content hash moves only when the block itself changes, which is exactly
 // when a comment on it deserves re-examination anyway.
 //
@@ -205,10 +204,8 @@ func AnchorFor(d docmodel.Doc, path []int) Anchor {
 // blockKeys SERIALIZES EVERY BLOCK to markdown, so calling it once per note is
 // quadratic in the document: 50 notes made List 136 ms — 1,765x slower than the
 // same document with none — while the sidebar polls List on a timer and
-// project() calls it on every debounce. This is the regression AcceptAll's own
-// comment records having already paid for once ("that made 400 suggestions take
-// minutes"), so every caller that resolves more than one anchor computes the
-// keys once and passes them here.
+// project() calls it on every debounce. So every caller that resolves more
+// than one anchor computes the keys once and passes them here.
 func anchorForKeys(d docmodel.Doc, path []int, keys []string) Anchor {
 	b, ok := blockAt(d, path)
 	if !ok || b.Kind != docmodel.Note {

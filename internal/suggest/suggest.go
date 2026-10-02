@@ -9,14 +9,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
 )
 
 // Kind identifies what a Pending suggestion would do if accepted.
@@ -48,12 +46,11 @@ const (
 // reviewer's own words. So it is not a proposal, and no surface may offer a
 // verdict on it.
 //
-// IT IS ONE PREDICATE BECAUSE IT WAS SIX, and the sixth disagreed. DecideAll's
-// own firstDecidable, serve.Decidable, serve.findPendingProposal,
-// cmd/galley's findPendingByID and liveSweep each spelled `!= KindComment`
-// separately and agreed; the browser's revision receipt spelled NOTHING,
-// paired a revision's runs against the whole pending list, and put a comment's
-// run under the card's ✓. Pending.Decidable carries this answer onto the wire
+// IT IS ONE PREDICATE BECAUSE IT WAS SIX, and the sixth disagreed. Five
+// callers, since deleted, each spelled `!= KindComment` separately and
+// agreed; the browser's revision receipt spelled NOTHING, paired a revision's
+// runs against the whole pending list, and put a comment's run under the
+// card's ✓. Pending.Decidable carries this answer onto the wire
 // so the browser reads it rather than making a seventh guess.
 //
 // THAT CARD IS DELETED AND THIS FIELD IS NOT. The receipt was consolidated
@@ -84,7 +81,7 @@ const replaceSep = " → "
 // document value it was listed from — pass it straight to Accept or Reject
 // and nowhere else. NEVER PERSIST ONE. A thread keyed by a comment's ordinal
 // silently reattaches itself to different text on the next edit; see
-// CommentKey for what a comment is keyed by instead.
+// unsent.NewID for what a comment is keyed by instead.
 //
 // The JSON tags are lower-case to match review.SuggestionMeta, which already
 // ships these same fields into the sidecar that way: an agent reading
@@ -246,8 +243,7 @@ type span struct {
 	// A pointer to a whole span rather than a second index range, because
 	// resolving the inserted half needs its author and raw "at" too:
 	// dropMark removes exactly the mark instance a span was built from, and
-	// the two halves can carry different attribution (see replayReplace,
-	// which restores a sidecar that recorded them separately).
+	// the two halves can carry different attribution.
 	ins *span
 	// oldText and newText are the two halves' plain text, kept because text
 	// is the joined display form for a replace and the halves cannot be
@@ -265,8 +261,7 @@ func List(d docmodel.Doc) []Pending {
 	// it twice per note — once through AnchorFor and once through noteContext.
 	// At 50 notes that was 67 ms per List, ~1,600x the same document with none,
 	// while the sidebar polls List on a timer and project() calls it on every
-	// debounce. See BenchmarkList50Notes, and AcceptAll's comment about the
-	// last time this package paid for a per-item rescan.
+	// debounce. See BenchmarkList50Notes.
 	var keys []string
 	for i, sp := range spans {
 		p := Pending{
@@ -330,41 +325,6 @@ func Accept(d docmodel.Doc, id string) (docmodel.Doc, error) {
 // Highlight mark, same as Accept.
 func Reject(d docmodel.Doc, id string) (docmodel.Doc, error) {
 	return applyDecision(d, id, false)
-}
-
-// AcceptAll accepts every pending suggestion in d.
-//
-// It resolves one suggestion per pass, then recomputes spans before
-// resolving the next — never batches several mutations against indices
-// computed up front. That is what makes this correct in the presence of
-// OVERLAPPING spans: a Del and a Highlight commonly cover the exact same
-// inline (commenting on a proposed deletion is ordinary usage), and a
-// batch that sorted both by "start" and applied them against indices
-// computed before either ran would have the second span's indices go
-// stale the instant the first one removes an inline. Resolving one at a
-// time against a freshly-derived index sidesteps the whole class of bug
-// rather than trying to order around it.
-//
-// It resolves from listSpans directly rather than going through List and
-// Accept. List decorates every entry with Context — a markdown.Serialize
-// pass over the entry's containing block — and an earlier version of this
-// function called List once per resolved suggestion, computing (and
-// discarding) Context for every OTHER still-pending suggestion each time
-// through the loop: O(n) Serialize passes per iteration, n iterations.
-// That made 400 suggestions take minutes. listSpans has no such cost, and
-// mutating the single working copy directly (rather than cloning it fresh
-// on every Accept call) removes the other redundant O(n) pass per
-// iteration, so the whole function is the O(n) mutations its job actually
-// requires, each preceded by an O(n) re-scan to keep indices honest.
-func AcceptAll(d docmodel.Doc) docmodel.Doc {
-	current := cloneDoc(d)
-	for {
-		spans := listSpans(current)
-		if len(spans) == 0 {
-			return current
-		}
-		current = applySpan(current, spans[0], true)
-	}
 }
 
 // applySpan resolves one span on a COPY of d. A mark-based span is mutated in
@@ -452,101 +412,6 @@ func coalesceRuns(spans []span) []span {
 	return out
 }
 
-// DecideAll accepts (or rejects) every pending insertion and deletion in d, and
-// reports how many it decided.
-//
-// COMMENT HIGHLIGHTS ARE LEFT EXACTLY AS THEY WERE, which is the difference
-// from AcceptAll and the reason this is a second function rather than a flag on
-// that one. A thread is resolved, never accepted: the census strip's ✓ all
-// clears the edits waiting on a decision, and closing an unread conversation is
-// not one of them. This is what `galley accept --all`/`galley approve --all`
-// call now too, live (serve.EditServer.sweep, and the plain census-strip
-// decideAll) and offline (cmd/galley's offlineDecide) alike — one sweep
-// semantic everywhere, so a note's text and a comment's highlight survive an
-// "accept everything" the same way whether or not a server happens to be up.
-// AcceptAll is kept for the caller that genuinely wants comment highlights
-// cleared too (a document-teardown pass, not a bulk decision gesture) — see
-// its own doc comment.
-//
-// Re-listing on every iteration, like AcceptAll: a span carries inline indices
-// into the block it was derived from, and those go stale the instant the first
-// decision removes an inline. Resolving one at a time against a freshly-derived
-// index sidesteps the whole class of bug rather than trying to order around it.
-// Each iteration decides one span and removes it from the list, so this
-// terminates in as many passes as there are decidable spans.
-func DecideAll(d docmodel.Doc, accept bool) (docmodel.Doc, int) {
-	current := cloneDoc(d)
-	decided := 0
-	for {
-		target, ok := firstDecidable(current)
-		if !ok {
-			return current, decided
-		}
-		docmodel.Walk(current, func(path []int, b *docmodel.Block) {
-			if pathEqual(path, target.path) {
-				mutateSpan(b, target, accept)
-			}
-		})
-		decided++
-	}
-}
-
-func firstDecidable(d docmodel.Doc) (span, bool) {
-	for _, sp := range listSpans(d) {
-		if sp.kind.Decidable() {
-			return sp, true
-		}
-	}
-	return span{}, false
-}
-
-// Replace finds the one place old occurs in d's text and turns it into a
-// substitution suggestion: old marked Del (keeping its original
-// formatting), immediately followed by new marked Ins. old must occur
-// exactly once across the whole document, or Replace fails naming how many
-// times it actually matched.
-func Replace(d docmodel.Doc, old, newText, author string, at time.Time) (docmodel.Doc, error) {
-	m, err := findUnique(d, old)
-	if err != nil {
-		return docmodel.Doc{}, err
-	}
-	if mk, cAuthor, cAt, found := conflictingMark(d, m, docmodel.Ins, docmodel.Del); found {
-		return docmodel.Doc{}, fmt.Errorf("suggest: %q already has a pending %s suggestion by %s (at %s)", old, kindFor(mk), cAuthor, cAt)
-	}
-	clone := cloneDoc(d)
-	docmodel.Walk(clone, func(path []int, b *docmodel.Block) {
-		if !pathEqual(path, m.path) {
-			return
-		}
-		before, matched, after := sliceByRuneRange(b.Inlines, m.start, m.end)
-		delRun := addSuggestionMark(matched, docmodel.Del, author, at)
-		insRun := []docmodel.Inline{{Text: newText, Marks: []docmodel.Mark{suggestionMark(docmodel.Ins, author, at)}}}
-		b.Inlines = concatInlines(before, delRun, insRun, after)
-	})
-	return clone, nil
-}
-
-// InsertAfter finds the one place anchor occurs in d's text and inserts
-// text immediately after it, marked Ins. anchor's own text and marks are
-// untouched. anchor must occur exactly once, or InsertAfter fails naming
-// how many times it actually matched.
-func InsertAfter(d docmodel.Doc, anchor, text, author string, at time.Time) (docmodel.Doc, error) {
-	m, err := findUnique(d, anchor)
-	if err != nil {
-		return docmodel.Doc{}, err
-	}
-	clone := cloneDoc(d)
-	docmodel.Walk(clone, func(path []int, b *docmodel.Block) {
-		if !pathEqual(path, m.path) {
-			return
-		}
-		before, matched, after := sliceByRuneRange(b.Inlines, m.start, m.end)
-		insRun := []docmodel.Inline{{Text: text, Marks: []docmodel.Mark{suggestionMark(docmodel.Ins, author, at)}}}
-		b.Inlines = concatInlines(before, matched, insRun, after)
-	})
-	return clone, nil
-}
-
 // CommentOn finds the one place target occurs in d's text and highlights it
 // (preserving its existing marks), stamping id on the highlight: the comment's
 // identity, minted by the caller (unsent.NewID) and written into the file as
@@ -592,7 +457,7 @@ func CommentOnRange(d docmodel.Doc, path []int, from, to int, id, author string,
 // to double-comment it and highlight it under id. One implementation, so a fix
 // to either caller's addressing cannot drift from the other's semantics.
 func commentAtMatch(d docmodel.Doc, m match, target, id, author string, at time.Time) (docmodel.Doc, error) {
-	if _, cAuthor, cAt, found := conflictingMark(d, m, docmodel.Highlight); found {
+	if cAuthor, cAt, found := conflictingComment(d, m); found {
 		return docmodel.Doc{}, fmt.Errorf("suggest: %q already has a pending comment by %s (at %s)", target, cAuthor, cAt)
 	}
 	run := newRun()
@@ -616,6 +481,15 @@ func commentAtMatch(d docmodel.Doc, m match, target, id, author string, at time.
 
 // commentMarked is matched with a comment highlight added to every inline: one
 // run, so one span, and one ID, so one comment.
+//
+// ONE AUTHORED EDIT IS ONE SPAN. A target is matched against the document's
+// PLAIN TEXT, so a selection crossing a code span (or bold, or a link) marks
+// every inline it crosses; a code span is its own inline. Left to MintRuns
+// those inlines would get a run EACH, and one selection would arrive as one
+// card per inline. Stamped here because this is the transform that knows what
+// the reviewer asked for; MintRuns sees only a document, where the same shape
+// is also what `{--age--}{--age--}` looks like after a load from disk. It skips
+// a mark that already carries a run, so these survive it unchanged.
 func commentMarked(matched []docmodel.Inline, id, author string, at time.Time, run string) []docmodel.Inline {
 	out := make([]docmodel.Inline, len(matched))
 	for i, in := range matched {
@@ -643,35 +517,7 @@ func CommentText(d docmodel.Doc, id string) (string, bool) {
 	return p.Text, ok
 }
 
-// CommentKey is a comment thread's identity: stable for the life of the
-// thread, derived once at creation from what the comment is anchored to.
-//
-// It exists because the OBVIOUS key — the ordinal List reports for the
-// highlight, "c1", "c2"… — is not identity at all. List recomputes ordinals
-// in document order on every call, so a comment made second but sitting
-// earlier in the document takes "c1" away from the thread already using it.
-// review.Session.Append upserts by key, so the live server merged two
-// unrelated conversations onto one anchor; the offline CLI blind-appends, so
-// it wrote two threads both keyed "c1". Both are silent.
-//
-// The ordinal remains exactly what it was good for: naming a suggestion in
-// `galley accept`/`reject` against a document you just listed. It is never
-// persisted.
-//
-// Nothing recomputes this after creation. The key is written into the sidecar
-// and matched literally thereafter, so it cannot drift when the mark's
-// attribution is later filled in or the surrounding text changes.
-//
-// A SELECTED-TEXT COMMENT NO LONGER TAKES THIS KEY. It is keyed by an ID the
-// server mints (unsent.NewID) and writes into the file after the highlight, and
-// it is paired with its place by that ID alone (PairFor). This stays for
-// MigrateCommentKeys.
-func CommentKey(quote, author string, at time.Time) string {
-	return digestKey("cm-", quote, author, at.UTC().Format(time.RFC3339Nano))
-}
-
-// digestKey is the shared key derivation (CommentKey, and blockKeys' block
-// keys): parts length-prefixed rather than
+// digestKey is blockKeys' key derivation: parts length-prefixed rather than
 // delimiter-joined, so a part that happens to contain the delimiter cannot
 // spell a different tuple with the same digest.
 func digestKey(prefix string, parts ...string) string {
@@ -680,54 +526,6 @@ func digestKey(prefix string, parts ...string) string {
 		_, _ = fmt.Fprintf(h, "%d:%s", len(part), part)
 	}
 	return prefix + hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-// legacyCommentKey matches the ordinal keys an older galley persisted.
-var legacyCommentKey = regexp.MustCompile(`^c[0-9]+$`)
-
-// MigrateCommentKeys re-keys comment threads a previous build wrote under an
-// ordinal ("c1") onto stable CommentKeys, and returns whether anything moved.
-//
-// Best-effort, by quote match: the ordinal is looked up against the CURRENT
-// document's comment highlights and the text it names becomes the key's quote,
-// with the thread's own first entry supplying author and time — the thread's
-// values, not the mark's, because the mark's attribution can still be filled
-// in later and a key that moved would be no key at all. A thread whose
-// ordinal no longer names any highlight (the comment was resolved, or the
-// text edited away) is left exactly as it is: an unrecognised key is a
-// reachable key, a wrongly-rewritten one is not.
-//
-// This runs on every load. It is a no-op once nothing ordinal is left, which
-// after one write-back is the steady state.
-func MigrateCommentKeys(model docmodel.Doc, threads []review.Thread) ([]review.Thread, bool) {
-	quotes := map[string]string{}
-	for _, p := range List(model) {
-		if p.Kind == KindComment {
-			quotes[p.ID] = p.Text
-		}
-	}
-	out := append([]review.Thread(nil), threads...)
-	changed := false
-	for i := range out {
-		if !legacyCommentKey.MatchString(out[i].Key) {
-			continue
-		}
-		quote, ok := quotes[out[i].Key]
-		if !ok {
-			continue
-		}
-		var author string
-		var at time.Time
-		if len(out[i].Entries) > 0 {
-			author, at = out[i].Entries[0].Author, out[i].Entries[0].At
-		}
-		out[i].Key = CommentKey(quote, author, at)
-		if out[i].Heading == "" {
-			out[i].Heading = quote
-		}
-		changed = true
-	}
-	return out, changed
 }
 
 // UnknownIDError is what every path returns for an id that names no pending
@@ -805,10 +603,8 @@ func mutateSpan(b *docmodel.Block, sp span, accept bool) {
 // author, and raw "at" string all matching — from every inline in sp's
 // range. It deliberately does NOT strip every mark of kind mk: an inline
 // can carry two suggestion marks of the same kind from two different
-// authors (Replace refuses to create that going forward, see
-// conflictingMark, but nothing stops a document built some other way from
-// having it), and removing sp's mark must never take a different author's
-// suggestion down with it.
+// authors (a document built by hand can have it), and removing sp's mark
+// must never take a different author's suggestion down with it.
 func dropMark(b *docmodel.Block, sp span, mk docmodel.MarkKind) {
 	for i := sp.start; i < sp.end; i++ {
 		b.Inlines[i].Marks = removeMarkInstance(b.Inlines[i].Marks, mk, sp.author, sp.atRaw)
@@ -970,7 +766,7 @@ func substitutionSpan(d docmodel.Doc, del, ins span) (span, bool) {
 // single accept decides both. And it is what carries a span the other way —
 // one edit, or one CriticMarkup span in the file, crossing several inlines
 // keeps ONE run and so stays one decision (see markdown's applyMark and
-// addSuggestionMark).
+// commentMarked).
 //
 // findUnattributedRun walks the same boundaries for a different purpose and
 // used to hand-copy this comparison. It calls this now. If you add a field,
@@ -1217,40 +1013,28 @@ func sliceByRuneRange(inlines []docmodel.Inline, start, end int) (before, matche
 	return before, matched, after
 }
 
-// conflictingMark reports the first mark of any of kinds found on m's
-// range, if any — the check Replace and CommentOn use to refuse stacking a
-// second suggestion mark of the SAME family onto text that already carries
-// one. This is a creation-time invariant only: it keeps every mark
-// unambiguous about which single author's suggestion it is, without
-// requiring Accept/Reject/List to understand multiple simultaneous marks
-// of one kind on one inline. It does not run across kinds — a Highlight
-// coexisting with a Del on the same text is the ordinary "comment on a
-// proposed deletion" case and stays fully legal.
-func conflictingMark(d docmodel.Doc, m match, kinds ...docmodel.MarkKind) (mk docmodel.MarkKind, author, at string, found bool) {
+// conflictingComment reports the comment highlight already on m's range, if
+// any — the check the comment paths use to refuse stacking a second comment
+// onto text that already carries one. This is a creation-time invariant only:
+// it keeps every highlight unambiguous about which single author's comment it
+// is, without requiring Accept/Reject/List to understand two highlights on one
+// inline. It does not run across kinds — a Highlight coexisting with a Del on
+// the same text is the ordinary "comment on a proposed deletion" case and
+// stays fully legal.
+func conflictingComment(d docmodel.Doc, m match) (author, at string, found bool) {
 	docmodel.Walk(d, func(path []int, b *docmodel.Block) {
 		if found || !pathEqual(path, m.path) {
 			return
 		}
 		_, matched, _ := sliceByRuneRange(b.Inlines, m.start, m.end)
 		for _, in := range matched {
-			for _, k := range kinds {
-				if in.Has(k) {
-					mk, author, at, found = k, in.Attr(k, "author"), in.Attr(k, "at"), true
-					return
-				}
+			if in.Has(docmodel.Highlight) {
+				author, at, found = in.Attr(docmodel.Highlight, "author"), in.Attr(docmodel.Highlight, "at"), true
+				return
 			}
 		}
 	})
-	return mk, author, at, found
-}
-
-// suggestionMark builds one authored suggestion mark, on its own run. Every
-// caller here is marking a SINGLE inline it just created — the inserted half of
-// a substitution, the text an --after inserts — which is one inline and one
-// decision either way. Marking an existing span, which may be any number of
-// inlines, is addSuggestionMark's job and has the harder rule.
-func suggestionMark(mk docmodel.MarkKind, author string, at time.Time) docmodel.Mark {
-	return authoredMark(mk, author, at, newRun())
+	return author, at, found
 }
 
 // authoredMark is a suggestion mark carrying its author, its instant and the
@@ -1262,41 +1046,6 @@ func authoredMark(mk docmodel.MarkKind, author string, at time.Time, run string)
 		attrs[docmodel.RunAttr] = run
 	}
 	return docmodel.Mark{Kind: mk, Attrs: attrs}
-}
-
-// addSuggestionMark clones inlines and appends the given suggestion mark to
-// each, on top of whatever marks it already carried.
-//
-// ONE AUTHORED EDIT IS ONE SPAN: all of them share ONE run, minted here, once.
-// This is the companion clause to CLAUDE.md's "one span in the file is one
-// decision everywhere" — that rule defends file -> cards, this one defends
-// intent -> file, and the defect that produced it came through the second
-// door. A target is matched against the document's PLAIN TEXT, so a run of
-// prose crossing a code span (or bold, or a link) matches and marks every
-// inline it crosses; a code span is its own inline. Left to MintRuns those
-// inlines get a run EACH, spansForMark's key differs at every boundary, and
-// one `--replace` arrives at the reviewer as two stray deletions and a
-// replacement. Rejecting the strays and accepting the replacement — three
-// individually reasonable decisions — put `The retryBudgetThe retry budget
-// controls retries.` on disk.
-//
-// Stamped HERE rather than grouped in MintRuns, and the difference is what
-// each one can know. This function is called by the transform that knows what
-// the reviewer or the agent asked for, so "one edit" is a fact it holds.
-// MintRuns sees only a document, where the same shape — adjacent marks, same
-// author, same second — is also exactly what `{--age--}{--age--}` looks like
-// after a load from disk. Grouping there would have to guess, and it would
-// guess wrong on the case runs were introduced for. See MintRuns' doc comment.
-//
-// MintRuns still runs afterwards and is still what mints for everything else;
-// it skips a mark that already carries a run, so these survive it unchanged.
-func addSuggestionMark(inlines []docmodel.Inline, mk docmodel.MarkKind, author string, at time.Time) []docmodel.Inline {
-	run := newRun()
-	out := make([]docmodel.Inline, len(inlines))
-	for i, in := range inlines {
-		out[i] = docmodel.Inline{Text: in.Text, Marks: append(cloneMarks(in.Marks), authoredMark(mk, author, at, run))}
-	}
-	return out
 }
 
 func concatInlines(parts ...[]docmodel.Inline) []docmodel.Inline {

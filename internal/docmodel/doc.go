@@ -166,7 +166,7 @@ const (
 // One edit, not one mark — a run is shared by every inline a single edit
 // touched, and a target of plain prose crossing a code span touches three. That
 // is what makes it a decision rather than a coordinate, and it is why
-// suggest.Replace and suggest.CommentOn stamp it themselves rather than leaving
+// suggest.CommentOn and its siblings stamp it themselves rather than leaving
 // it to suggest.MintRuns, which sees marks and cannot see edits. Two edits over
 // identical adjacent text still get two runs and stay two decisions; that is
 // what runs were introduced for and neither minter may collapse it.
@@ -182,8 +182,8 @@ const (
 // which is when the editor needs to say "this card points at THAT mark" — it
 // is exact, and two suggestions over identical text stay distinguishable.
 // Across sessions, identity is a different question, already answered
-// differently: authorship by suggest.ReplayAttribution, threads by
-// suggest.CommentKey. Do not merge the two. Collapsing them is what produced
+// differently: a comment by the ID written into the file after its mark
+// (CommentIDAttr). Do not merge the two. Collapsing them is what produced
 // the unstable ordinal thread keys that were a Critical in phase 1.
 const RunAttr = "run"
 

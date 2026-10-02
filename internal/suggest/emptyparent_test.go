@@ -11,8 +11,8 @@ import (
 
 // emptyparent_test.go is about the note that is the WHOLE of its parent.
 //
-// Removing it — delete-thread through suggest.Detach, or a sweep through
-// AcceptAll — used to take the parent's last child and leave the parent empty.
+// Removing it — delete-thread through suggest.Detach — used to take the
+// parent's last child and leave the parent empty.
 // A childless tableCell, tableHeader, listItem or blockquote is a node the
 // browser's schema CANNOT BUILD, and y-prosemirror does not skip one: it
 // deletes it out of the Y doc and broadcasts the deletion, EditServer projects,
@@ -111,7 +111,7 @@ func deleteOnlyThread(t *testing.T, d docmodel.Doc) docmodel.Doc {
 
 // A NOTE-ONLY CELL IS DELETED WITHOUT MOVING THE COLUMN BESIDE IT.
 //
-// Every column position, both verbs. The first two are the discriminating ones:
+// Every column position. The first two are the discriminating ones:
 // a value after the emptied cell is what slides.
 func TestDeletingANoteOnlyCellKeepsEveryOtherColumnInPlace(t *testing.T) {
 	head := "| knob | note | unit |\n| --- | --- | --- |\n"
@@ -142,9 +142,6 @@ func TestDeletingANoteOnlyCellKeepsEveryOtherColumnInPlace(t *testing.T) {
 			if got := onOpen(deleteOnlyThread(t, d)); got != c.want {
 				t.Errorf("delete-thread wrote\n got:  %q\n want: %q", got, c.want)
 			}
-			if got := onOpen(suggest.AcceptAll(parseDoc(t, c.src))); got != c.want {
-				t.Errorf("AcceptAll wrote\n got:  %q\n want: %q", got, c.want)
-			}
 		})
 	}
 }
@@ -159,9 +156,6 @@ func TestDeletingANoteOnlyHeaderCellKeepsTheTablesWidth(t *testing.T) {
 	d := parseDoc(t, src)
 	if got := onOpen(deleteOnlyThread(t, d)); got != want {
 		t.Errorf("delete-thread wrote\n got:  %q\n want: %q", got, want)
-	}
-	if got := onOpen(suggest.AcceptAll(parseDoc(t, src))); got != want {
-		t.Errorf("AcceptAll wrote\n got:  %q\n want: %q", got, want)
 	}
 }
 
@@ -202,9 +196,6 @@ func TestDeletingANoteThatIsTheWholeOfALisItemOrABlockquote(t *testing.T) {
 			d := parseDoc(t, c.src)
 			if got := onOpen(deleteOnlyThread(t, d)); got != c.want {
 				t.Errorf("delete-thread wrote\n got:  %q\n want: %q", got, c.want)
-			}
-			if got := onOpen(suggest.AcceptAll(parseDoc(t, c.src))); got != c.want {
-				t.Errorf("AcceptAll wrote\n got:  %q\n want: %q", got, c.want)
 			}
 		})
 	}

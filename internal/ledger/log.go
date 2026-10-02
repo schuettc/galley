@@ -225,7 +225,7 @@ type Record struct {
 	// a new kind has to be put on one side of it.
 	//
 	// The vocabulary is TWO WORDS, AuthorAgent and AuthorReviewer, at every
-	// site — serve.ledgerAuthor is the boundary that keeps a third one out.
+	// site.
 	Author  string `json:"author"`
 	Old     string `json:"old"`
 	New     string `json:"new"`

@@ -29,8 +29,7 @@ import (
 // inline that edit touches carries the same token — that is what makes it a
 // decision rather than a coordinate. A selection over three paragraphs is one
 // decision; it was only ever "one block" because nothing had asked it to be
-// more. `addSuggestionMark` mints a fresh run per call, so this cannot reuse
-// it: the run is minted ONCE here and handed to every block in the span.
+// more. The run is minted ONCE here and handed to every block in the span.
 //
 // THE ENDS ARE PARTIAL AND THE MIDDLE IS WHOLE. The first block is marked from
 // the offset the selection started at to its end, the last from its start to
@@ -72,7 +71,7 @@ func CommentAcross(d docmodel.Doc, fromPath []int, from int, toPath []int, to in
 			hi = to
 		}
 		m := match{path: append([]int(nil), path...), start: lo, end: hi}
-		if _, cAuthor, cAt, found := conflictingMark(d, m, docmodel.Highlight); found {
+		if cAuthor, cAt, found := conflictingComment(d, m); found {
 			return docmodel.Doc{}, fmt.Errorf(
 				"suggest: part of that selection already has a pending comment by %s (at %s)", cAuthor, cAt)
 		}

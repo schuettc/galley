@@ -289,3 +289,31 @@ func TestMovingTheMarkLineMovesTheComment(t *testing.T) {
 		}
 	}
 }
+
+// A block comment whose paragraph is deleted, with its ID note left behind,
+// moves to the nearest block above the note (suggest.AnchorFor's rule). It is
+// neither dropped nor left unplaced: the note is still in the file, so the
+// comment still has a place.
+func TestDeletingOnlyABlocksParagraphMovesItsCommentToTheBlockAbove(t *testing.T) {
+	s, _, block := commentedServer(t)
+	above := blockKeyOf(t, s, "paragraph", "Alpha one here.")
+	dropBlock(t, s, "Beta two here.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+
+	md := readMD(t, s)
+	if strings.Contains(md, "Beta two here.") || !strings.Contains(md, "{>>@comment "+block+"<<}") {
+		t.Fatalf("the fixture should leave the note without its paragraph:\n%s", md)
+	}
+	for _, in := range pendingView(t, s).Instructions {
+		if in.Key != block {
+			continue
+		}
+		if in.AnchorKey != above || in.BlockKind != "paragraph" {
+			t.Errorf("the comment sits on %q (%s), want the paragraph above, %q", in.AnchorKey, in.BlockKind, above)
+		}
+		return
+	}
+	t.Fatalf("the rail lost the block comment: %+v", pendingView(t, s).Instructions)
+}

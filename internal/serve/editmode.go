@@ -1617,7 +1617,7 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			return out, func(doc *crdt.Doc, tx review.Tx) {
 				sess := review.Bind(doc, tx)
 				sess.Append(key, heading, author, text, at)
-				sess.SetAnchor(key, string(anchor.Kind), anchor.Target, suggest.BlockKindFor(out, anchor))
+				sess.SetAnchor(key, string(anchor.Kind), suggest.BlockKindFor(out, anchor))
 				// The rectangle, when there is one.
 				if region != nil {
 					sess.SetRegion(key, region)

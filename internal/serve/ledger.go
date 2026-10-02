@@ -32,10 +32,8 @@ package serve
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/ledger"
 	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
 )
 
 // recorder is the ledger this server writes through — the process-wide default
@@ -88,51 +86,6 @@ func clipContext(s string) string {
 		return strings.TrimSpace(string(r[:contextLimit-1])) + "…"
 	}
 	return s
-}
-
-// ProposalRecord is one decision about one proposal, in ledger shape.
-//
-// Exported because cmd/galley's OFFLINE paths reach the same decisions with no
-// server in the room, and this codebase's rule for those is that they are
-// twins of the live handler rather than second implementations of it (see
-// offlineDecline's own comment). Two mappings from a Pending to a Record would
-// be two answers to "what was decided", and the ledger's whole value is that
-// there is one.
-//
-// The field pairing is exact and not a choice: Pending already carries the
-// deleted and inserted halves separately (Old/New), the text the decision
-// covers (Text), the author of the thing being decided, and the neighbourhood
-// it sits in — which are, in order, the record's old, new, quote, author and
-// context.
-func ProposalRecord(kind ledger.Kind, p suggest.Pending) ledger.Record {
-	return ledger.Record{
-		Kind:    kind,
-		Author:  proposalAuthor(p.Author),
-		Old:     p.Old,
-		New:     p.New,
-		Quote:   p.Text,
-		Context: clipContext(p.Context),
-	}
-}
-
-// proposalAuthor is who a record about a proposal is authored to, and it is a
-// function because TWO kinds of record are about a proposal.
-//
-// A mark parsed from a file carries no author — CriticMarkup has nowhere to
-// write one, and the sidecar is the only record of it (see CLAUDE.md).
-// Attributing it to the agent is the honest default: it is the only party that
-// proposes, and leaving it blank would put a row with no author into a store
-// whose central question is whose proposals fare how.
-//
-// handRecord asks the same question of the author the BROWSER read off the mark
-// (review.Change.Proposal), and asks it here rather than repeating the `if ==
-// ""` beside it: a rewrite and an accept of one span must name the same party,
-// and two spellings of the default are how they would come to disagree.
-func proposalAuthor(author string) string {
-	if author == "" {
-		return ledger.AuthorAgent
-	}
-	return author
 }
 
 // ThreadRecord is one decision about one conversation.
@@ -188,45 +141,4 @@ func verdictRecord(kind ledger.Kind, reason string) ledger.Record {
 		Author: review.AuthorCourt,
 		Reason: reason,
 	}
-}
-
-// ledgerAuthor translates THIS PACKAGE'S word for a party into THE LOG'S.
-//
-// They are not the same word and there is no reason they should be: `by` names
-// who pressed something in a review ("reviewer" · "agent"), and the ledger's
-// author vocabulary mirrors review.AuthorCourt / review.AuthorAgent ("court" ·
-// "agent"), which is what every other record in the file already carries.
-// handleReopen wrote `by` through untranslated, so the log held
-// `"author":"reviewer"` beside `"author":"court"` for one person and every
-// GROUP BY author reported three parties for two — a rollup cannot be
-// un-split after the fact, because the log is authoritative and lines are
-// never rewritten.
-//
-// Anything unrecognised maps to the reviewer, which is also handleReopen's own
-// default for an absent `by`: a record with an author outside the vocabulary is
-// worse than one with the wrong side of a two-valued guess, and the guard above
-// this call has already refused every value but two.
-// Decidable is every proposal suggest.DecideAll will act on — the population of
-// every bulk gesture, live or offline, read off the model BEFORE the transform
-// since afterwards there is nothing left to list.
-//
-// Comment kinds are excluded through suggest.Kind.Decidable — the SAME call
-// DecideAll's own firstDecidable makes, rather than a `!= KindComment` beside
-// it that agrees for now: a highlight is settled by resolving its thread, never
-// by a bulk decision, and a note's words ARE the content. Exported for
-// cmd/galley's offline sweep, which decides the same population through a file
-// rather than through a live document — one rule with one owner, the discipline
-// this codebase applies to every live/offline pair.
-//
-// One entry per DECISION, not per span: `{~~brown~>red~~}` is a single decision
-// everywhere in this codebase, and a ledger counting its two halves would
-// inflate every number the store exists to make trustworthy.
-func Decidable(model docmodel.Doc) []suggest.Pending {
-	var out []suggest.Pending
-	for _, p := range suggest.List(model) {
-		if p.Decidable {
-			out = append(out, p)
-		}
-	}
-	return out
 }

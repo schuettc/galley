@@ -10,6 +10,7 @@ import (
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/suggest"
+	"github.com/schuettc/galley/internal/unsent"
 )
 
 func parseDoc(t *testing.T, src string) docmodel.Doc {
@@ -272,31 +273,14 @@ func TestAcceptRemovesANoteBlock(t *testing.T) {
 	}
 }
 
-func TestAcceptAll_ClearsNotesToo(t *testing.T) {
-	d := parseDoc(t, figureDoc+"\n{>>@document b<<}\n")
-	key := keyOf(t, d, "the request path")
-	d, err := suggest.CommentOnBlock(d, key, "cb-0123456789abcdef")
-	if err != nil {
-		t.Fatalf("CommentOnBlock: %v", err)
-	}
-	d, err = suggest.Replace(d, "three parts", "four parts", "agent", time.Now())
-	if err != nil {
-		t.Fatalf("Replace: %v", err)
-	}
-	out := suggest.AcceptAll(d)
-	if got := suggest.List(out); len(got) != 0 {
-		t.Fatalf("AcceptAll left %#v", got)
-	}
-}
-
-// A suggestion target search must not reach into an existing comment's text —
-// otherwise commenting the word back at the author makes the next --replace
-// report "matched 2 times".
+// A comment's target search must not reach into an existing note's text —
+// otherwise a note that repeats the word makes the next comment on it report
+// "matched 2 times".
 func TestFindUnique_IgnoresNoteText(t *testing.T) {
 	d := parseDoc(t, "The widget works.\n\n{>>the widget is undefined<<}\n")
-	out, err := suggest.Replace(d, "widget", "gadget", "agent", time.Now())
+	out, err := suggest.CommentOn(d, "widget", "cm-0000000000000022", "court", time.Now())
 	if err != nil {
-		t.Fatalf("Replace: %v", err)
+		t.Fatalf("CommentOn: %v", err)
 	}
 	if md := string(markdown.Serialize(out)); !strings.Contains(md, "{>>the widget is undefined<<}") {
 		t.Errorf("the note was rewritten:\n%s", md)
@@ -312,16 +296,13 @@ func TestBlockKeysAndCommentKeysCannotCollide(t *testing.T) {
 		{Kind: docmodel.Paragraph, Inlines: []docmodel.Inline{{Text: "the same words"}}},
 	}}
 	blockKey := suggest.Blocks(d)[0].Key
-	commentKey := suggest.CommentKey("the same words", "court", time.Now().UTC())
-
-	if blockKey == commentKey {
-		t.Fatalf("block key and comment key collided: %q", blockKey)
-	}
 	if !strings.HasPrefix(blockKey, "bk-") {
 		t.Errorf("block key %q lost its namespace prefix", blockKey)
 	}
-	if !strings.HasPrefix(commentKey, "cm-") {
-		t.Errorf("comment key %q lost its namespace prefix", commentKey)
+	for _, k := range []unsent.Kind{unsent.KindText, unsent.KindBlock, unsent.KindDocument} {
+		if id := unsent.NewID(k); strings.HasPrefix(id, "bk-") {
+			t.Errorf("a %s comment's key %q shares the block keys' prefix", k, id)
+		}
 	}
 }
 
@@ -369,9 +350,6 @@ func TestABlockOrDocumentAnchorNeverCarriesARun(t *testing.T) {
 // note, by List (through AnchorFor and again through noteContext). The measured cost was 137 ms
 // of CPU per List at 50 notes — 1,765x the same document with none — while the
 // sidebar polls on a timer and project() fires on every debounce.
-//
-// This is the regression AcceptAll's own comment records having already paid
-// for once: "that made 400 suggestions take minutes."
 func benchDoc(notes int) docmodel.Doc {
 	var blocks []docmodel.Block
 	for i := 0; i < 400; i++ {

@@ -85,26 +85,27 @@ type Entry struct {
 
 // Thread is the conversation attached to one section of the page.
 //
-// Anchor and AnchorKey say what the thread is ABOUT when that is not a range
-// of prose: "block" (with AnchorKey naming the block, see suggest.BlockKey) or
-// "document". Both are omitempty and both are absent on every thread written
-// before block anchors existed, where an empty Anchor means the original
-// range anchor — so an older sidecar loads unchanged and a consumer that has
-// never heard of anchors reads exactly what it read before.
+// Anchor says what the thread is ABOUT when that is not a range of prose:
+// "block" or "document". It is omitempty and absent on every thread written
+// before block anchors existed, where an empty Anchor means the original range
+// anchor — so an older sidecar loads unchanged and a consumer that has never
+// heard of anchors reads exactly what it read before.
+//
+// WHICH block is never stored. It is read off the comment's ID mark every time
+// (serve's instructionsOf). An older sidecar's "anchorKey" still decodes (the
+// sidecar tolerates unknown keys) and is dropped.
 type Thread struct {
-	Key       string  `json:"key"`
-	Heading   string  `json:"heading"`
-	Resolved  bool    `json:"resolved"`
-	Outcome   string  `json:"outcome,omitempty"`
-	Entries   []Entry `json:"entries"`
-	Anchor    string  `json:"anchor,omitempty"`
-	AnchorKey string  `json:"anchorKey,omitempty"`
-	// BlockKind is the docmodel kind of the block AnchorKey named when the
-	// thread was opened — "image", "paragraph", "heading", "codeBlock". It is
-	// stored in the unsent round so a block comment whose mark is gone can
-	// still say what it was about. Where a placed comment sits, and on what
-	// kind of block, is read off its ID mark every time (serve's
-	// instructionsOf), never from these fields.
+	Key      string  `json:"key"`
+	Heading  string  `json:"heading"`
+	Resolved bool    `json:"resolved"`
+	Outcome  string  `json:"outcome,omitempty"`
+	Entries  []Entry `json:"entries"`
+	Anchor   string  `json:"anchor,omitempty"`
+	// BlockKind is the docmodel kind of the block the thread was opened on —
+	// "image", "paragraph", "heading", "codeBlock". It is stored in the unsent
+	// round so a block comment whose mark is gone can still say what it was
+	// about. Where a placed comment sits, and on what kind of block, is read
+	// off its ID mark every time (serve's instructionsOf), never from here.
 	//
 	// Empty on a range thread and on any thread written before this field
 	// existed.
@@ -299,13 +300,13 @@ type File struct {
 //
 // IT CARRIES THE AUTHOR, NOT A BOOLEAN, and the pointer is what makes that
 // sayable. Every other proposal record in the ledger names whoever wrote the
-// thing being decided, off the mark (serve.ProposalRecord); `galley suggest
+// thing being decided, off the mark; `galley suggest
 // --author NAME` puts a non-agent proposal in the document, so a boolean here
 // would file `approved`/that-author for accepting a span and `hand`/agent for
 // rewriting the same one — one invariant disagreeing with itself across two
 // verbs. nil is "this edit was on no proposal"; a pointer to "" is "a proposal
 // whose mark carries no author", which is a real case a file-parsed mark
-// reaches, and ProposalRecord's own default is what resolves it. Same
+// reaches, and is attributed to the agent, the only party that proposes. Same
 // distinction, and the same reason, as Before/After above.
 //
 // It is STICKY across coalescing (trail.js's applyRecord): an entry that ever
@@ -496,9 +497,6 @@ func readThread(key string, tm *crdt.YMap) Thread {
 	if v, ok := tm.Get("anchor"); ok {
 		t.Anchor, _ = v.(string)
 	}
-	if v, ok := tm.Get("anchorKey"); ok {
-		t.AnchorKey, _ = v.(string)
-	}
 	if v, ok := tm.Get("blockKind"); ok {
 		t.BlockKind, _ = v.(string)
 	}
@@ -599,8 +597,8 @@ func (s *Session) Append(key, heading, author, text string, at time.Time) {
 }
 
 // SetAnchor records what a thread is about when that is not a range of prose:
-// anchor is "block" or "document", and anchorKey names the block for the
-// first of those.
+// anchor is "block" or "document", and blockKind is the kind of the block for
+// the first of those.
 //
 // A separate call rather than two more parameters on Append: every existing
 // caller of Append is opening a RANGE thread, where the anchor is the
@@ -608,7 +606,7 @@ func (s *Session) Append(key, heading, author, text string, at time.Time) {
 // widening that signature would make each of them state a default it does not
 // care about. It is a no-op on a thread that does not exist yet — Append
 // creates the thread, so this runs after it.
-func (s *Session) SetAnchor(key, anchor, anchorKey, blockKind string) {
+func (s *Session) SetAnchor(key, anchor, blockKind string) {
 	if anchor == "" {
 		return
 	}
@@ -619,9 +617,6 @@ func (s *Session) SetAnchor(key, anchor, anchorKey, blockKind string) {
 	}
 	s.tx(func(txn *crdt.Transaction) {
 		thread.Set(txn, "anchor", anchor)
-		if anchorKey != "" {
-			thread.Set(txn, "anchorKey", anchorKey)
-		}
 		if blockKind != "" {
 			thread.Set(txn, "blockKind", blockKind)
 		}
@@ -970,7 +965,7 @@ func ImportFile(doc *crdt.Doc, f File) error {
 				}
 				s.Append(t.Key, t.Heading, e.Author, e.Text, at)
 			}
-			s.SetAnchor(t.Key, t.Anchor, t.AnchorKey, t.BlockKind)
+			s.SetAnchor(t.Key, t.Anchor, t.BlockKind)
 			// Every field of Thread has to be replayed here, not just the ones
 			// the replay happened to be written for: this is the load path for
 			// the sidecar, and a field the replay skips is a field deleted on

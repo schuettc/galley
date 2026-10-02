@@ -166,7 +166,7 @@ func replayUnsent(doc *crdt.Doc, threads []review.Thread) {
 		for _, e := range th.Entries {
 			s.Append(th.Key, th.Heading, e.Author, e.Text, e.At)
 		}
-		s.SetAnchor(th.Key, th.Anchor, th.AnchorKey, th.BlockKind)
+		s.SetAnchor(th.Key, th.Anchor, th.BlockKind)
 		if th.Region != nil {
 			s.SetRegion(th.Key, th.Region)
 		}

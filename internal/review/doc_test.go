@@ -313,7 +313,7 @@ func TestARegionSurvivesTheRoundTrip(t *testing.T) {
 	doc := crdt.New()
 	s := Wrap(doc)
 	s.Append("cm-fig", "a figure", AuthorCourt, "this axis is unlabelled", at("2026-08-07T10:00:00Z"))
-	s.SetAnchor("cm-fig", "block", "bk-fig", "image")
+	s.SetAnchor("cm-fig", "block", "image")
 	s.SetRegion("cm-fig", &Region{X: 0.1, Y: 0.2, W: 0.3, H: 0.4})
 	// A thread with NO region must stay that way: a nil region is the ordinary
 	// block note, and inventing a zero rectangle for it would draw a pin at the

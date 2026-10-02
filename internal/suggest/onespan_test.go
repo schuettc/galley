@@ -27,7 +27,6 @@ const (
 	codeSpanBefore = "The retryBudget value controls retries."
 	codeSpanAfter  = "The retry budget controls retries."
 	codeSpanTarget = "The retryBudget value controls"
-	codeSpanNew    = "The retry budget controls"
 )
 
 // codeSpanDoc is the review's reproduction at the model level:
@@ -62,33 +61,7 @@ func docText(d docmodel.Doc) string {
 
 func testAt() time.Time { return time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC) }
 
-// One Replace across a code span is ONE decision, not three. Before the fix
-// this reported `delete "The "`, `delete "retryBudget"` and
-// `replace " value controls"`.
-func TestReplaceAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
-	edited, err := Replace(codeSpanDoc(), codeSpanTarget, codeSpanNew, "agent", testAt())
-	if err != nil {
-		t.Fatalf("Replace: %v", err)
-	}
-
-	pending := List(MintRuns(edited))
-	if len(pending) != 1 {
-		for i, p := range pending {
-			t.Logf("  [%d] %s %q", i, p.Kind, p.Text)
-		}
-		t.Fatalf("one authored replace produced %d suggestions, want 1", len(pending))
-	}
-	if pending[0].Kind != KindReplace {
-		t.Errorf("kind = %s, want %s", pending[0].Kind, KindReplace)
-	}
-	if pending[0].Old != codeSpanTarget || pending[0].New != codeSpanNew {
-		t.Errorf("span = %q -> %q, want %q -> %q",
-			pending[0].Old, pending[0].New, codeSpanTarget, codeSpanNew)
-	}
-}
-
-// The same for a comment: one reviewer selection across a code span is one
-// highlight to decide, not three cards.
+// One reviewer selection across a code span is one highlight, not three cards.
 func TestCommentOnAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
 	edited, err := CommentOn(codeSpanDoc(), codeSpanTarget, "cm-0000000000000005", "court", testAt())
 	if err != nil {
@@ -128,84 +101,18 @@ func TestCommentOnRangeAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
 	}
 }
 
-// THIS IS THE HARM, and the reason counting spans is not enough.
+// THIS IS THE HARM, and the reason counting spans is not enough, reached the
+// likeliest way anyone actually meets it: a reviewer OPENS YESTERDAY'S
+// DOCUMENT. Nothing is authored in this session at all — the span is already in
+// the file, correct and clean, and reading it is what used to split it into
+// three. It starts from bytes on disk and exercises the read path, which is
+// where the document's OWN span boundaries have to survive.
 //
-// Decide the pieces one at a time the way a reviewer would — the stray
-// deletions read as an agent removing words at random, so reject them; the
-// replacement is the actual proposal, so accept it — and check the document
-// after EVERY decision, not only at the end. CLAUDE.md's complaint about
-// "brownred" is precisely that the incoherent state is already on disk before
-// the last decision is made.
-//
-// There are exactly two coherent outcomes: the edit was taken, or it was not.
-// The review reproduced a third, "The retryBudgetThe retry budget controls
-// retries.", which is a word neither side wrote.
-func TestDecidingACodeSpanReplacePieceByPieceNeverCorruptsTheDocument(t *testing.T) {
-	edited, err := Replace(codeSpanDoc(), codeSpanTarget, codeSpanNew, "agent", testAt())
-	if err != nil {
-		t.Fatalf("Replace: %v", err)
-	}
-	live := MintRuns(edited)
-
-	// A pending document holds both halves of every substitution, so its raw
-	// text is never the prose. What must hold is that every COMPLETION of it
-	// is: from wherever the reviewer has got to, taking the rest and declining
-	// the rest are the only two places this can land, and both must be prose
-	// someone actually wrote. That is the clause CLAUDE.md is making — the
-	// incoherent state is already on disk before the last decision is made, so
-	// checking only the end would find it one decision too late.
-	coherent := func(stage string, d docmodel.Doc) {
-		t.Helper()
-		for _, c := range []struct {
-			how    string
-			accept bool
-		}{{"taking the rest", true}, {"declining the rest", false}} {
-			done, _ := DecideAll(d, c.accept)
-			got := docText(done)
-			if got != codeSpanBefore && got != codeSpanAfter {
-				t.Fatalf("%s, %s: document reads %q\n  want either %q (declined) or %q (taken)",
-					stage, c.how, got, codeSpanBefore, codeSpanAfter)
-			}
-		}
-	}
-
-	coherent("before any decision", live)
-	// Bounded so a fix that somehow leaves a span undecidable fails loudly
-	// instead of spinning.
-	for i := 0; i < 8; i++ {
-		pending := List(live)
-		var next Pending
-		found := false
-		for _, p := range pending {
-			if p.Kind != KindComment {
-				next, found = p, true
-				break
-			}
-		}
-		if !found {
-			return
-		}
-		// A bare deletion of prose the agent never said it wanted gone is the
-		// decision a reviewer would make against these strays.
-		accept := next.Kind != KindDelete
-		live, err = applyDecisionOn(live, next.ID, accept)
-		if err != nil {
-			t.Fatalf("deciding %s %q: %v", next.Kind, next.Text, err)
-		}
-		coherent("after deciding "+string(next.Kind)+" "+next.Text, live)
-	}
-	t.Fatalf("still decidable after 8 rounds: %d spans left", len(List(live)))
-}
-
-// The same harm, reached the likeliest way anyone actually meets it: a reviewer
-// OPENS YESTERDAY'S DOCUMENT. Nothing is authored in this session at all — the
-// span is already in the file, correct and clean, and reading it is what used to
-// split it into three.
-//
-// The test above could not have caught this. It decides pieces produced by an
-// edit made in the same session, so it only ever exercised the write path; this
-// one starts from bytes on disk and exercises the read path, which is where the
-// document's OWN span boundaries have to survive.
+// Decide the pieces one at a time the way a reviewer would, and check the
+// document after EVERY decision, not only at the end. There are exactly two
+// coherent outcomes: the edit was taken, or it was not. The review reproduced a
+// third, "The retryBudgetThe retry budget controls retries.", which is a word
+// neither side wrote.
 func TestDecidingASpanReadFromAFilePieceByPieceNeverCorruptsTheDocument(t *testing.T) {
 	// No heading: docText concatenates every block, and the point of comparison
 	// here is the prose of the paragraph the span lives in.
@@ -230,7 +137,7 @@ func TestDecidingASpanReadFromAFilePieceByPieceNeverCorruptsTheDocument(t *testi
 			how    string
 			accept bool
 		}{{"taking the rest", true}, {"declining the rest", false}} {
-			done, _ := DecideAll(d, c.accept)
+			done := decideRest(t, d, c.accept)
 			got := docText(done)
 			if got != codeSpanBefore && got != codeSpanAfter {
 				t.Fatalf("%s, %s: document reads %q\n  want either %q (declined) or %q (taken)",
@@ -267,6 +174,32 @@ func applyDecisionOn(d docmodel.Doc, id string, accept bool) (docmodel.Doc, erro
 		return Accept(d, id)
 	}
 	return Reject(d, id)
+}
+
+// decideRest takes (or declines) every decidable suggestion left in d, one at a
+// time against a fresh List, the way a reviewer finishing the round would.
+func decideRest(t *testing.T, d docmodel.Doc, accept bool) docmodel.Doc {
+	t.Helper()
+	// Bounded, so a decision that leaves its span behind fails instead of
+	// spinning.
+	for i := 0; i < 64; i++ {
+		next := ""
+		for _, p := range List(d) {
+			if p.Decidable {
+				next = p.ID
+				break
+			}
+		}
+		if next == "" {
+			return d
+		}
+		var err error
+		if d, err = applyDecisionOn(d, next, accept); err != nil {
+			t.Fatalf("deciding %s: %v", next, err)
+		}
+	}
+	t.Fatalf("still decidable after 64 decisions: %+v", List(d))
+	return d
 }
 
 // The guarantee MintRuns exists for, stated against the AUTHORING path rather

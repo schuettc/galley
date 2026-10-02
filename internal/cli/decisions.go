@@ -10,8 +10,8 @@
 // often on. It is not a lesser copy: the file it writes is the document of
 // record.
 //
-// THE RECORD SHAPE IS THE LIVE HANDLER'S, imported rather than restated —
-// serve.ProposalRecord and serve.ThreadRecord. Two mappings from a decision to
+// THE RECORD SHAPE IS THE LIVE HANDLER'S, imported rather than restated from
+// internal/serve/ledger.go. Two mappings from a decision to
 // a ledger line would be two answers to "what was decided", and a store whose
 // whole value is that its numbers can be trusted cannot have two.
 //

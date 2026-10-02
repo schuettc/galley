@@ -15,8 +15,7 @@ import (
 //
 // It is the idiom this codebase already uses one population over. Deleting text
 // under an AGENT's pending mark has always been the verdict by hand — the
-// proposal vanishes and `suggest.ReplayAttribution` tolerates the absent mark by
-// design. An instruction is the reviewer's own mark over their own words, and
+// proposal vanishes. An instruction is the reviewer's own mark over their own words, and
 // removing those words retracts it.
 //
 // A TEXT COMMENT'S PLACE IS ITS ID ON A HIGHLIGHT, and nothing else. Editing a

@@ -292,15 +292,14 @@ function attrString(value: unknown): string {
  * step applied TO still has it, and this is the only moment anything does.
  *
  * IT RETURNS THE AUTHOR RATHER THAN A BOOLEAN, because every other proposal
- * record in the ledger carries the author off the mark (serve.ProposalRecord's
- * `p.Author`) and a boolean would make the hand record the one that could not.
+ * record in the ledger carries the author off the mark, and a boolean would
+ * make the hand record the one that could not.
  * `galley suggest --author NAME` puts a non-agent proposal in the document, so
  * accepting such a span would file `approved`/that-author while rewriting it
  * filed `hand`/agent — the same invariant disagreeing with itself across two
  * verbs on one span. `''` is a mark with NO author, which is a real case (a
  * mark parsed straight out of a file, where CriticMarkup has nowhere to write
- * one); the default for that is serve.ProposalRecord's and is applied on the Go
- * side, so there is one rule for it and not a second one here that agrees for
+ * one); the default for that is applied on the Go side, so there is one rule for it and not a second one here that agrees for
  * now. Hence null-versus-'' rather than a truthiness test — the same
  * distinction review.Change's Before/After pointers already carry.
  *
