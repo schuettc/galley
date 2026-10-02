@@ -356,6 +356,8 @@ export const figureMethods = {
       ),
     );
     view.focus();
+    // Collapsed again when this composer goes; see releaseGrip.
+    this.composer.gripFrom = view.state.selection.from;
 
     const c = this.composer;
     c.root.hidden = false;
@@ -442,6 +444,8 @@ export const figureMethods = {
       ),
     );
     view.focus();
+    // Collapsed again when this composer goes; see releaseGrip.
+    this.composer.gripFrom = view.state.selection.from;
 
     const c = this.composer;
     const heading = doc.child(index);

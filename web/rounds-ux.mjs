@@ -1166,18 +1166,39 @@ try {
       ),
     JSON.stringify({ blockKey, filed, unsent: readUnsent() }),
   );
+  // THE GRIP'S SELECTION ENDS WITH ITS COMPOSER. The section grip selects the
+  // whole section so the reviewer can see what the comment is about; once the
+  // comment is sent, that selection is nothing the reviewer made, and keeping
+  // it meant the next keystroke replaced the section. Measured on 73ea80a:
+  // typing after the send turned this fixture into `#  The budget is the
+  // subject.` on disk.
+  const afterSend = await page.evaluate(() => {
+    const s = window.galleyEdit.editor.state.selection;
+    return { empty: s.empty, from: s.from, to: s.to };
+  });
+  check(
+    'sending a section comment leaves no section selected',
+    afterSend.empty,
+    JSON.stringify(afterSend),
+  );
   // AND IT SURVIVES A PROJECTION THE BROWSER DROVE, which is the half a POST-
   // then-read cannot see: the server writes the block, and it is the round trip
-  // through the editor's own schema that would take it back out again. The
-  // section grip left the whole section selected, and typing over it would
-  // replace the section: collapse it first, then click into the paragraph.
-  await page.evaluate(() =>
-    window.galleyEdit.editor.commands.setTextSelection(1),
-  );
+  // through the editor's own schema that would take it back out again. Typed
+  // the way a reviewer types next — click into the paragraph and go on — with
+  // nothing collapsing the grip's selection for them.
   await page.locator('.ProseMirror p').first().click();
   await page.keyboard.press('End');
   await page.keyboard.type(' The budget is the subject.');
   const projected = await waitForDisk(/The budget is the subject\./);
+  check(
+    'typing after a section comment is sent keeps the section — heading, both paragraphs',
+    projected.startsWith('# A careful review\n') &&
+      projected.includes(
+        'should stay explicit and readable. The budget is the subject.',
+      ) &&
+      projected.includes('Nothing else in the pipeline is told'),
+    JSON.stringify(projected),
+  );
   check(
     'and it survives a projection the browser drove, with its id — the schema still builds the node',
     /The budget is the subject\./.test(projected) &&
@@ -1204,6 +1225,31 @@ try {
     removed === 200 &&
       !(await waitForDisk(/^(?![\s\S]*@comment cb-)/)).includes(blockMark),
     String(removed),
+  );
+
+  // AND A CANCELLED GRIP LEAVES NOTHING SELECTED EITHER: the same selection,
+  // the same keystroke waiting to replace it, with no comment sent at all.
+  await page.hover('.ProseMirror h1');
+  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
+    timeout: 5000,
+  });
+  await page.click('.gly-grip:not(.gly-code-grip)');
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])', {
+    timeout: 5000,
+  });
+  const gripHeld = await page.evaluate(
+    () => !window.galleyEdit.editor.state.selection.empty,
+  );
+  await page.click('.gly-composer-cancel');
+  const afterCancel = await page.evaluate(() => {
+    const s = window.galleyEdit.editor.state.selection;
+    return { empty: s.empty, from: s.from, to: s.to };
+  });
+  check(
+    'cancelling a section comment leaves no section selected',
+    gripHeld && afterCancel.empty,
+    JSON.stringify({ gripHeld, afterCancel }),
   );
 
   // §2.3 — AN INSTRUCTION CAN BE REVISED, NOT ONLY DESTROYED.

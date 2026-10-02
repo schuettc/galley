@@ -461,6 +461,7 @@ export interface AppMethods {
   closeSheet(): void;
   closeVerdictMenu(): void;
   hideComposer(): void;
+  releaseGrip(): void;
   openComposerForm(): void;
   menuItems(): MenuItem[];
   hideRefusal(): void;

@@ -377,6 +377,21 @@ await page.click('.gly-composer-send');
 await page.waitForSelector('.gly-rail-band .gly-thread', { timeout: 10000 });
 await page.waitForTimeout(600);
 
+// THE GRIP'S SELECTION GOES WITH ITS COMPOSER. The grip selected the whole
+// fence to show what the comment is about; left standing after the send, the
+// reviewer's next keystroke would be aimed at the whole block.
+{
+  const sel = await page.evaluate(() => {
+    const s = window.galleyEdit.editor.state.selection;
+    return { empty: s.empty, from: s.from, to: s.to };
+  });
+  check(
+    'sending the fence\u2019s comment leaves nothing selected',
+    sel.empty,
+    sel,
+  );
+}
+
 const filed = await pendingOn(PORT);
 {
   const list = filed.instructions || [];

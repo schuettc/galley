@@ -26,6 +26,7 @@ import { postJSON } from './net.ts';
 import { submitOnEnter, growOnInput, elide, AUTHOR } from './rail.ts';
 import { literalHit } from './suggestions.ts';
 import type { LiteralHit } from './suggestions.ts';
+import { TextSelection } from '@tiptap/pm/state';
 import type { EditorState } from '@tiptap/pm/state';
 import type { ResolvedPos } from '@tiptap/pm/model';
 import type { AppShell } from './appshell.ts';
@@ -97,6 +98,9 @@ export interface Composer {
   block: ComposerBlock | null;
   range?: DocRange | null;
   sending?: boolean;
+  // gripFrom is where the selection a GRIP made starts, while its composer is
+  // up; null otherwise. See releaseGrip.
+  gripFrom?: number | null;
 }
 
 export const composerMethods = {
@@ -518,6 +522,23 @@ export const composerMethods = {
     if (c.block && c.block.region) {
       return;
     }
+    // NOR IS A GRIP'S, while its selection stands. The selection moves under
+    // it without the reviewer moving: the comment's own note arrives over the
+    // websocket INSIDE the section, often before the send's response, and the
+    // grown range used to re-place the composer as a range composer over the
+    // section, which dropped the block target and the grip's claim on the
+    // selection, so nothing collapsed it (see releaseGrip). Its start is what
+    // the reviewer would have to move to make a selection of their own.
+    const sel = this.editor.state.selection;
+    if (
+      !c.root.hidden &&
+      c.gripFrom !== null &&
+      c.gripFrom !== undefined &&
+      !sel.empty &&
+      sel.from === c.gripFrom
+    ) {
+      return;
+    }
     // A hidden composer has nothing to keep, so it always re-places.
     //
     // The guard is the KEY and nothing else — notably not the fence verdict,
@@ -545,6 +566,8 @@ export const composerMethods = {
     // new selection — and a block target left behind would file the next
     // comment against the previous section's heading.
     c.block = null;
+    // And the selection is the reviewer's own now, so hiding must keep it.
+    c.gripFrom = null;
     c.button.disabled = false;
     // A PLACEMENT OUTRANKS A DEFERRED DISMISSAL. See the blur handler: its
     // zero-timeout check can be queued behind the very selection that opens
@@ -638,6 +661,7 @@ export const composerMethods = {
   },
 
   hideComposer(this: AppShell) {
+    this.releaseGrip();
     this.composer.root.hidden = true;
     this.composer.form.hidden = true;
     this.composer.bar.hidden = false;
@@ -651,6 +675,43 @@ export const composerMethods = {
     this.composer.key = null;
     this.composer.block = null;
     this.composer.button.disabled = false;
+  },
+
+  // releaseGrip collapses the selection a GRIP made, when its composer goes —
+  // sent, cancelled, Esc, or dismissed by a click elsewhere.
+  //
+  // THE SECTION GRIP AND THE CODE GRIP SELECT THEIR WHOLE BLOCK so the reviewer
+  // can see what the comment will be about. Nobody swept that selection out by
+  // hand, and once the composer is gone it means nothing; left standing, the
+  // next keystroke replaced the section. Measured on 73ea80a in rounds-ux:
+  // send a section comment, click into the paragraph, type, and the file read
+  // `#  The budget is the subject.` — a click into a selection the editor
+  // regained focus with did not collapse it.
+  //
+  // THE CARET STAYS WHERE THE GRIP POINTED, at the selection's start: the
+  // section's heading or the fence's first line, which is the place on screen
+  // the reviewer was just looking at. Nothing scrolls.
+  //
+  // ONLY THE GRIP'S OWN SELECTION. `gripFrom` is cleared the moment a fresh
+  // placement takes over (the reviewer made a selection of their own), and the
+  // start is what is compared because the comment's own note lands INSIDE a
+  // section, after its heading, and moves the selection's end but not its
+  // start.
+  releaseGrip(this: AppShell) {
+    const c = this.composer;
+    const from = c.gripFrom;
+    c.gripFrom = null;
+    if (from === null || from === undefined) {
+      return;
+    }
+    const view = this.editor.view;
+    const sel = view.state.selection;
+    if (sel.empty || sel.from !== from) {
+      return;
+    }
+    view.dispatch(
+      view.state.tr.setSelection(TextSelection.create(view.state.doc, from)),
+    );
   },
 
   // (applyStrike lived here until the trail cut. The Strike button was a
