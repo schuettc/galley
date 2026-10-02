@@ -37,8 +37,21 @@ import (
 // would have to notice, and the whole point of the verb is that they should not
 // have to hold the document in their head. Three shapes are handled and
 // anything else is refused by name.
-func revertChange(before, after string, target ReviewerChange) (string, error) {
-	beforeBlocks, afterBlocks := diff.Blocks(before), diff.Blocks(after)
+//
+// IT REBUILDS FROM THE MARKED DOCUMENT, and finds its blocks through `clean`.
+// The change was found by comparing documents with every instruction mark
+// lifted (see plainText), so `before` and the change's words are clean; the
+// document it writes back is `afterMarked`, the live serialization with every
+// `{==…==}{>>@comment …<<}` and every ID note still in it. Rebuilding from the
+// clean side put the paragraph back and took every instruction's place with it
+// (bug 4). `clean` is applied one block at a time, to find a block by what it
+// says; the block written back is always its marked source.
+func revertChange(before, afterMarked string, target ReviewerChange, clean func(string) string) (string, error) {
+	beforeBlocks, afterBlocks := diff.Blocks(before), diff.Blocks(afterMarked)
+	said := make([]string, len(afterBlocks))
+	for i, b := range afterBlocks {
+		said[i] = strings.TrimSpace(clean(b.Text))
+	}
 	want := strings.TrimSpace(target.Before)
 	now := strings.TrimSpace(target.After)
 
@@ -54,13 +67,20 @@ func revertChange(before, after string, target ReviewerChange) (string, error) {
 		}
 		insert := len(afterBlocks)
 		for i := at - 1; i >= 0; i-- {
-			if j := blockIndex(afterBlocks, strings.TrimSpace(beforeBlocks[i].Text)); j >= 0 {
+			if j := saidIndex(said, strings.TrimSpace(beforeBlocks[i].Text)); j >= 0 {
 				insert = j + 1
 				break
 			}
 		}
 		if at == 0 {
 			insert = 0
+		}
+		// AFTER THE NEIGHBOUR'S OWN NOTES. A block comment's ID note sits on
+		// its own line under the block it is about, and says nothing once
+		// clean. Putting the restored block between the two would hand the
+		// comment to the wrong block.
+		for insert > 0 && insert < len(afterBlocks) && said[insert] == "" {
+			insert++
 		}
 		out := make([]diff.Block, 0, len(afterBlocks)+1)
 		out = append(out, afterBlocks[:insert]...)
@@ -69,7 +89,9 @@ func revertChange(before, after string, target ReviewerChange) (string, error) {
 		return joinBlocks(out), nil
 
 	case "added":
-		at := blockIndex(afterBlocks, now)
+		// The marked block goes whole: any mark inside it is on words the
+		// reviewer is taking back, which is what deleting them does anyway.
+		at := saidIndex(said, now)
 		if at < 0 {
 			return "", errors.New("that addition does not match a whole block, so it cannot be taken out on its own")
 		}
@@ -82,8 +104,8 @@ func revertChange(before, after string, target ReviewerChange) (string, error) {
 		// this function refuses rather than guesses at.
 		hits := 0
 		at := -1
-		for i, b := range afterBlocks {
-			if strings.Contains(b.Text, now) {
+		for i := range afterBlocks {
+			if strings.Contains(said[i], now) {
 				hits++
 				at = i
 			}
@@ -91,11 +113,42 @@ func revertChange(before, after string, target ReviewerChange) (string, error) {
 		if hits != 1 {
 			return "", errors.New("that edit's text appears " + plural(hits) + " in the document, so reverting it would have to guess which")
 		}
+		// THE WORDS MUST STAND IN THE MARKED SOURCE AS THEY STAND IN THE CLEAN.
+		// A highlight's markers inside the changed words leave no literal
+		// substitution that keeps the mark, and moving the mark to where it
+		// probably belongs is the guess this function does not make.
+		switch strings.Count(afterBlocks[at].Text, now) {
+		case 1:
+		case 0:
+			return "", errRevertThroughHighlight
+		default:
+			return "", errors.New("that edit's text appears more than once in the document, so reverting it would have to guess which")
+		}
 		out := append([]diff.Block{}, afterBlocks...)
 		out[at].Text = strings.Replace(out[at].Text, now, want, 1)
 		return joinBlocks(out), nil
 	}
 	return "", errors.New("galley does not know how to revert a " + target.Kind)
+}
+
+// errRevertThroughHighlight is the refusal for a change whose words an
+// instruction's highlight runs through.
+var errRevertThroughHighlight = errors.New("that edit runs through an instruction's highlight — delete the instruction or change the words by hand")
+
+// saidIndex is the ONE block whose clean text is `want`, or -1 if none is or
+// more than one is.
+func saidIndex(said []string, want string) int {
+	found := -1
+	for i, s := range said {
+		if s != want {
+			continue
+		}
+		if found >= 0 {
+			return -1
+		}
+		found = i
+	}
+	return found
 }
 
 // blockIndex is the ONE block whose whole text is `said`, or -1 if none is or
@@ -181,9 +234,13 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		// THE SAME COMPARISON THE RAIL MADE, or the key would not be found and
 		// the revert would be computed against a document that includes the
 		// instruction markup the rail deliberately strips. See plainText.
+		//
+		// THE MARKED SIDE IS SERIALIZED FIRST. ClearInstructions lifts marks in
+		// place, so after plainText the model no longer carries the marks this
+		// revert exists to keep.
+		marked := string(markdown.Serialize(model))
 		before = plainOf(before)
-		after := plainText(model)
-		changes, _ := summarise(diff.Diff(before, after))
+		changes, _ := summarise(diff.Diff(before, plainText(model)))
 		for i := range changes {
 			changes[i].Key = changeKey(changes[i])
 		}
@@ -197,7 +254,7 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		if target == nil {
 			return docmodel.Doc{}, nil, errUnknownChange
 		}
-		reverted, err := revertChange(before, after, *target)
+		reverted, err := revertChange(before, marked, *target, plainOf)
 		if err != nil {
 			return docmodel.Doc{}, nil, err
 		}

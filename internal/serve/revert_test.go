@@ -1,8 +1,14 @@
 package serve
 
 import (
+	"bytes"
+	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/reearth/ygo/crdt"
+	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/schuettc/galley/internal/review"
 )
 
 const beforeDoc = "# Title\n\nAlpha one here.\n\nBeta two here.\n\nGamma three here.\n"
@@ -12,7 +18,7 @@ const beforeDoc = "# Title\n\nAlpha one here.\n\nBeta two here.\n\nGamma three h
 // do that at any price — it is sequential, and this is targeted.
 func TestRevertingARemovalPutsTheBlockBackWhereItWas(t *testing.T) {
 	after := "# Title\n\nAlpha one here.\n\nGamma three, reworded.\n"
-	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "Beta two here."})
+	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "Beta two here."}, plainOf)
 	if err != nil {
 		t.Fatalf("refused: %v", err)
 	}
@@ -26,7 +32,7 @@ func TestRevertingARemovalPutsTheBlockBackWhereItWas(t *testing.T) {
 // find the place through, which is the one case the search cannot answer.
 func TestRevertingARemovalAtTheTop(t *testing.T) {
 	after := "Alpha one here.\n\nBeta two here.\n"
-	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "# Title"})
+	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "# Title"}, plainOf)
 	if err != nil {
 		t.Fatalf("refused: %v", err)
 	}
@@ -38,7 +44,7 @@ func TestRevertingARemovalAtTheTop(t *testing.T) {
 // TestRevertingAnAddition takes out a block the reviewer wrote.
 func TestRevertingAnAddition(t *testing.T) {
 	after := beforeDoc[:len(beforeDoc)-1] + "\n\nDelta four, new.\n"
-	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "added", After: "Delta four, new."})
+	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "added", After: "Delta four, new."}, plainOf)
 	if err != nil {
 		t.Fatalf("refused: %v", err)
 	}
@@ -54,7 +60,7 @@ func TestRevertingAnAddition(t *testing.T) {
 func TestRevertingAChangeRestoresTheOldWords(t *testing.T) {
 	after := "# Title\n\nAlpha one here.\n\nBeta two here.\n\nGamma three, reworded.\n"
 	got, err := revertChange(beforeDoc, after,
-		ReviewerChange{Kind: "changed", Before: "Gamma three here.", After: "Gamma three, reworded."})
+		ReviewerChange{Kind: "changed", Before: "Gamma three here.", After: "Gamma three, reworded."}, plainOf)
 	if err != nil {
 		t.Fatalf("refused: %v", err)
 	}
@@ -71,11 +77,11 @@ func TestRevertingAChangeRestoresTheOldWords(t *testing.T) {
 func TestAnAmbiguousRevertIsRefused(t *testing.T) {
 	before := "# T\n\nSame line.\n\nMiddle.\n\nSame line.\n"
 	after := "# T\n\nSame line.\n\nMiddle.\n\nSame line.\n\nSame line.\n"
-	if _, err := revertChange(before, after, ReviewerChange{Kind: "added", After: "Same line."}); err == nil {
+	if _, err := revertChange(before, after, ReviewerChange{Kind: "added", After: "Same line."}, plainOf); err == nil {
 		t.Error("an addition matching three blocks was reverted anyway — one of them at random")
 	}
 	if _, err := revertChange(before, after,
-		ReviewerChange{Kind: "changed", Before: "Middle.", After: "Same line."}); err == nil {
+		ReviewerChange{Kind: "changed", Before: "Middle.", After: "Same line."}, plainOf); err == nil {
 		t.Error("a change whose text appears three times was reverted anyway")
 	}
 }
@@ -84,7 +90,7 @@ func TestAnAmbiguousRevertIsRefused(t *testing.T) {
 // put back, and guessing where it went is the failure this refuses.
 func TestARemovalThatIsNotAWholeBlockIsRefused(t *testing.T) {
 	after := "# Title\n\nAlpha here.\n\nBeta two here.\n\nGamma three here.\n"
-	if _, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "one"}); err == nil {
+	if _, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "one"}, plainOf); err == nil {
 		t.Error("a partial removal was reverted, which means it was put back somewhere guessed")
 	}
 }
@@ -93,11 +99,131 @@ func TestARemovalThatIsNotAWholeBlockIsRefused(t *testing.T) {
 // rather than implied: two edits, revert the first, the second survives.
 func TestRevertingKeepsEveryOtherEdit(t *testing.T) {
 	after := "# Title\n\nAlpha one here.\n\nGamma three, reworded.\n"
-	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "Beta two here."})
+	got, err := revertChange(beforeDoc, after, ReviewerChange{Kind: "removed", Before: "Beta two here."}, plainOf)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(got, "Gamma three, reworded.") {
 		t.Errorf("reverting one edit undid another — that is what undo does, and the point of this is that it does not:\n%q", got)
+	}
+}
+
+// threeParas is a range comment's paragraph, a block comment's paragraph and
+// the paragraph the reviewer edits by hand, in that order.
+const threeParas = "# T\n\nAlpha one here.\n\nBeta two here.\n\nGamma three here.\n"
+
+// commentedServer files a range comment on paragraph 1 and a block comment on
+// paragraph 2, and returns the server with the two keys.
+func commentedServer(t *testing.T) (s *EditServer, text, block string) {
+	t.Helper()
+	s = editServerWith(t, threeParas)
+	instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 9, "text": "which one?"})
+	instructOK(t, s, map[string]any{
+		"op": "comment_block", "target": blockKeyOf(t, s, "paragraph", "Beta two here."), "text": "say more",
+	})
+	for _, c := range loadUnsent(t, s) {
+		switch {
+		case strings.HasPrefix(c.Key, "cm-"):
+			text = c.Key
+		case strings.HasPrefix(c.Key, "cb-"):
+			block = c.Key
+		}
+	}
+	if text == "" || block == "" {
+		t.Fatalf("the fixture filed %+v, want one text and one block comment", loadUnsent(t, s))
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	return s, text, block
+}
+
+// changeKeyOf is the key the rail offers for the one change of kind.
+func changeKeyOf(t *testing.T, s *EditServer, kind string) string {
+	t.Helper()
+	for _, c := range pendingView(t, s).Changes {
+		if c.Kind == kind {
+			return c.Key
+		}
+	}
+	t.Fatalf("no %s change is offered: %+v", kind, pendingView(t, s).Changes)
+	return ""
+}
+
+// TestRevertingOneEditKeepsEveryInstructionMark is bug 4. Revert rebuilt the
+// document from the plain text the rail compares, so putting back one
+// paragraph lifted every instruction's mark in the document with it.
+func TestRevertingOneEditKeepsEveryInstructionMark(t *testing.T) {
+	for _, tc := range []struct {
+		kind string
+		edit func(t *testing.T, s *EditServer)
+	}{
+		{"removed", func(t *testing.T, s *EditServer) { dropBlock(t, s, "Gamma three here.") }},
+		{"added", func(t *testing.T, s *EditServer) {
+			if _, err := s.mutate(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+				model.Blocks = append(model.Blocks, docmodel.Block{
+					Kind: docmodel.Paragraph, Inlines: []docmodel.Inline{{Text: "Delta four, new."}},
+				})
+				return model, nil, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"changed", func(t *testing.T, s *EditServer) { reviewerRewrites(t, s, "three", "3") }},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			s, text, block := commentedServer(t)
+			tc.edit(t, s)
+			if rec := postRec(t, s, "/_galley/revert", map[string]any{"key": changeKeyOf(t, s, tc.kind)}); rec.Code >= 300 {
+				t.Fatalf("revert: %d %s", rec.Code, rec.Body.String())
+			}
+			if err := s.Project(); err != nil {
+				t.Fatal(err)
+			}
+
+			md := readMD(t, s)
+			if !strings.Contains(md, "Gamma three here.") || strings.Contains(md, "Delta four") || strings.Contains(md, "Gamma 3") {
+				t.Errorf("the edit was not reverted:\n%s", md)
+			}
+			if !strings.Contains(md, "{==Alpha one==}{>>@comment "+text+"<<}") {
+				t.Errorf("the revert lifted the text comment's mark:\n%s", md)
+			}
+			if !strings.Contains(md, "Beta two here.\n\n{>>@comment "+block+"<<}\n") {
+				t.Errorf("the revert lifted or moved the block comment's note:\n%s", md)
+			}
+			view := pendingView(t, s)
+			if len(view.Instructions) != 2 {
+				t.Fatalf("after the revert the rail lists %+v, want both comments", view.Instructions)
+			}
+			for _, in := range view.Instructions {
+				if in.Run == "" && in.AnchorKey == "" {
+					t.Errorf("the revert left %s unplaced: %+v", in.Key, in)
+				}
+			}
+			if len(view.Changes) != 0 {
+				t.Errorf("the reverted edit is still listed: %+v", view.Changes)
+			}
+		})
+	}
+}
+
+// TestRevertRefusesAnEditThatRunsThroughAHighlight: the changed words are
+// split by an instruction's mark, so no literal substitution exists that
+// keeps the mark. Refused by name, and the document does not move.
+func TestRevertRefusesAnEditThatRunsThroughAHighlight(t *testing.T) {
+	s, _, _ := commentedServer(t)
+	reviewerRewrites(t, s, "one", "uno")
+	before := liveMarkdown(t, s)
+
+	rec := postRec(t, s, "/_galley/revert", map[string]any{"key": changeKeyOf(t, s, "changed")})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("revert answered %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	const want = "that edit runs through an instruction's highlight — delete the instruction or change the words by hand"
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("revert said %q, want %q", rec.Body.String(), want)
+	}
+	if got := liveMarkdown(t, s); !bytes.Equal(got, before) {
+		t.Errorf("a refused revert moved the document:\n--- was ---\n%s\n--- now ---\n%s", before, got)
 	}
 }
