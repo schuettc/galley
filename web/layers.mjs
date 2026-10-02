@@ -253,11 +253,12 @@ writeFileSync(
 //   the eight replies               a card carries no reply box, so §7c's cap
 //                                   has nothing to overflow.
 //
-// The anchorless thread survives and is built differently: a comment is filed
-// the ordinary way and the reviewer then deletes the text under it IN THE
-// EDITOR, which is what `threadPlacement`'s first anchorless case actually is
-// and what a reviewer does. That has to happen with the browser attached, so it
-// is done in-page at §9 rather than here.
+// The anchorless thread survives and is built differently: a BLOCK comment is
+// filed the ordinary way and the reviewer then deletes its mark IN THE EDITOR.
+// (Deleting the words under a TEXT comment retracts the comment instead —
+// lostanchor.go — so that gesture makes no unplaced card any more.) That has
+// to happen with the browser attached, so it is done in-page at §9 rather than
+// here.
 const galley = (...args) =>
   execFileSync(GALLEY, args, { encoding: 'utf8', stdio: 'pipe' });
 
@@ -1178,6 +1179,15 @@ console.log('\n--- §1d · the bar has one readout ---');
   //
   // Asserted here rather than left to probe's bundle strings, because a region
   // can be re-added in the source and a string check only sees the artifact.
+  //
+  // THE ROUND'S CHANGE CARDS ARE NOT THE LOG, and this check said they were.
+  // It counted `.gly-change`, which is also the class of `changeCard`: the
+  // reviewer's own edit as it will reach the agent, in `.gly-rail-changes`
+  // with its one verb, revert (cards.ts, "THE OTHER HALF OF THE ROUND";
+  // rounds-ux drives it). That card is in the round on purpose, so the hand
+  // edit made above puts exactly one there, and the old check went red on a
+  // page doing what it should. What is gone is the LOG's markup, and that is
+  // what is counted now; the change card is asserted as present.
   const logged = await page.evaluate(() => ({
     railChanged: document.querySelectorAll(
       '.gly-rail-changed, .gly-changed-head',
@@ -1185,11 +1195,21 @@ console.log('\n--- §1d · the bar has one readout ---');
     sheetChanged: document.querySelectorAll(
       '.gly-sheet-changed, .gly-changed-list',
     ).length,
-    rows: document.querySelectorAll('.gly-change, .gly-change-adrift').length,
+    rows: document.querySelectorAll('.gly-change-adrift').length,
+    roundCards: document.querySelectorAll('.gly-rail-changes .gly-change')
+      .length,
+    strayCards: document.querySelectorAll(
+      '.gly-change:not(.gly-rail-changes .gly-change)',
+    ).length,
   }));
   check(
-    'and the reviewer\u2019s hand is recorded in the prose alone — no log, on any surface',
+    'and the reviewer\u2019s hand is logged on no surface — no log, no log row',
     logged.railChanged === 0 && logged.sheetChanged === 0 && logged.rows === 0,
+    logged,
+  );
+  check(
+    'and the hand edit is in the round as a change card, and nowhere else',
+    logged.roundCards >= 1 && logged.strayCards === 0,
     logged,
   );
 
@@ -4319,9 +4339,9 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
   // OPEN now and the live document owns the file: an outside write is
   // overwritten by the next projection, and the fixture would be racing the
   // server for it. So the deletion is performed the way the product performs
-  // it — select the marked words in the editor and press Backspace — which is
-  // `threadPlacement`'s own first anchorless case and the gesture rounds-ux
-  // drives for the same state.
+  // it, in the editor. Deleting a TEXT comment's words now retracts the comment
+  // (asserted below), so the unplaced card is made from a BLOCK comment whose
+  // mark is deleted, which is the one way the product still makes one.
   //
   // ASSERTED, NOT ASSUMED. An editor that could not find the phrase would leave
   // this fixture quietly without an unplaced instruction, and every check below
@@ -4396,28 +4416,90 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
     withdrawn === true,
     { WITHDRAWN, withdrawn },
   );
-  await page.waitForTimeout(5000);
-  note(
-    'DIAG',
-    await page.evaluate(
-      (phrase) => ({
-        unplaced: document.querySelectorAll('.gly-rail-unplaced .gly-thread')
-          .length,
-        band: document.querySelectorAll('.gly-rail-band .gly-card').length,
-        adrift: document.querySelectorAll('.gly-card.gly-adrift').length,
-        stillThere:
-          window.galleyEdit.editor.state.doc.textContent.includes(phrase),
-        comments: (window.galleyEdit.app.comments || []).map((c) => [
-          c.quote,
-          c.run,
-          c.anchor,
-        ]),
-        marks: Array.from(
-          document.querySelectorAll('.ProseMirror .gly-hl'),
-        ).map((e) => e.textContent),
-      }),
-      WITHDRAWN,
-    ),
+  // DELETING THE WORDS RETRACTS THE COMMENT, so this deletion makes NO
+  // unplaced card. That is the product's rule (lostanchor.go, Court: "if we
+  // highlight a sentence and add an instruction and then delete the sentence,
+  // we should delete the instruction as well"), and rounds-ux asserts it on the
+  // CI side. This block used to wait here for the withdrawn comment to arrive
+  // in the unplaced section, which it never does: the wait timed out and every
+  // section after §10 went unrun. The retraction is asserted instead, and the
+  // unplaced card is made the one way the product still makes one, below.
+  //
+  // READ OFF THE APP'S LIST AND THE RAIL, NOT EVERY CARD ON THE PAGE. A closed
+  // sheet keeps the cards it last painted until it is opened again (sheet.ts
+  // `openSheet` repaints), so a page-wide card search finds the retracted
+  // comment's stale sheet card and waits forever on a page that is right.
+  await page.waitForFunction(
+    (q) =>
+      !(window.galleyEdit.app.comments || []).some((c) =>
+        (c.entries || []).some((e) => e.text === q),
+      ) &&
+      !Array.from(document.querySelectorAll('.gly-rail .gly-thread')).some(
+        (c) => (c.textContent || '').includes(q),
+      ),
+    'does this still apply?',
+    { timeout: 15000 },
+  );
+  check(
+    'deleting the highlighted words retracts the comment — it is not left as an unplaced card',
+    (await page.locator('.gly-rail-unplaced .gly-thread').count()) === 0,
+  );
+
+  // THE UNPLACED INSTRUCTION IS A BLOCK COMMENT WHOSE MARK WAS DELETED. A
+  // block comment's place is its `{>>@comment cb-…<<}` note, and a block
+  // comment whose note leaves the document STAYS, unplaced (lostanchor.go's
+  // first guard: only a text comment is retracted). The reviewer selects the
+  // amber box and deletes it; the transaction below is that deletion.
+  {
+    const blocks = (await pending()).blocks || [];
+    const eighth = blocks.find(
+      (b) => b && (b.label || '').includes('eighth paragraph'),
+    );
+    if (!eighth)
+      throw new Error(
+        'fixture: no block for the eighth paragraph to comment on',
+      );
+    await instruct({
+      op: 'comment_block',
+      target: eighth.key,
+      text: 'is this paragraph still needed?',
+    });
+  }
+  const unplacedKey = (
+    ((await pending()).instructions || []).find(
+      (i) => i && i.text === 'is this paragraph still needed?',
+    ) || {}
+  ).key;
+  if (!unplacedKey)
+    throw new Error('fixture: the block comment is not in /_galley/pending');
+  await page.waitForFunction(
+    (id) => {
+      let found = false;
+      window.galleyEdit.editor.state.doc.descendants((n) => {
+        if (n.type.name === 'note' && n.attrs.id === id) found = true;
+        return !found;
+      });
+      return found;
+    },
+    unplacedKey,
+    { timeout: 15000 },
+  );
+  const markGone = await page.evaluate((id) => {
+    const editor = window.galleyEdit.editor;
+    let at = null;
+    editor.state.doc.descendants((n, pos) => {
+      if (at === null && n.type.name === 'note' && n.attrs.id === id)
+        at = { from: pos, to: pos + n.nodeSize };
+      return at === null;
+    });
+    if (at === null) return false;
+    editor.view.dispatch(editor.state.tr.delete(at.from, at.to));
+    return true;
+  }, unplacedKey);
+  check(
+    'the fixture could delete a block comment’s mark from under it',
+    markGone === true,
+    { unplacedKey, markGone },
   );
   // ATTACHED, NOT VISIBLE. This block runs at the narrow viewport, where the
   // rail is `display: none` and the sheet is the surface — so playwright's
@@ -5955,11 +6037,20 @@ const placeComposer = (nth = 0) =>
   // still names WHICH selector went dead, which is worth reading when the
   // check above fails, and it no longer reports `ok` as though it had proved
   // something.
+  //
+  // `.gly-census-count`, NOT `.gly-census`. The strip stays on a sealed bar on
+  // purpose: it holds the History door, and a sealed review is exactly when
+  // somebody reads History (seal.ts `sealHides`, "THE COUNT GOES AND THE DOOR
+  // STAYS"). What the seal retires is the count, the strip's one live verb, so
+  // that is the selector; the strip's container read `flex` here and failed a
+  // page doing what it should.
   const retired = await page.evaluate(() =>
-    ['#gly-revise', '.gly-mode', '.gly-hold', '.gly-census'].map((sel) => {
-      const el = document.querySelector(sel);
-      return { sel, display: el ? getComputedStyle(el).display : 'absent' };
-    }),
+    ['#gly-revise', '.gly-mode', '.gly-hold', '.gly-census-count'].map(
+      (sel) => {
+        const el = document.querySelector(sel);
+        return { sel, display: el ? getComputedStyle(el).display : 'absent' };
+      },
+    ),
   );
   check(
     'the live controls are off the bar entirely — this bar is a record, and an absent selector is not a pass',

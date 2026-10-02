@@ -2780,6 +2780,15 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
     flex-wrap: wrap;
   }
 
+  /* The sealed readout wraps here for the same reason. Its sentence ends
+     `restart galley edit to reopen`, about 485px of `nowrap` mono, which left
+     a 390px window and scrolled the page sideways (layers §8 measured it).
+     The sealed bar has no verbs after it to push, so wrapping moves nothing. */
+  .gly-seal {
+    min-width: 0;
+    white-space: normal;
+  }
+
   /* The document's name truncates here rather than leaving the window. It is a
      readout, its text never changes, and `doc.md` fits anywhere — but a real
      filename is not `doc.md`, and the first item in the bar is the one item a
