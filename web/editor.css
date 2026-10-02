@@ -1540,16 +1540,8 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    textarea is inline-block by default and would sit on a text baseline,
    leaving a descender's worth of gap under it that no rule here asked for;
    `resize: vertical` because a reviewer writing a long note should be able to
-   see it, and the panel floats, so growing it displaces nothing.
-
-   THE BOUND OUTLIVED THE CAP IT WAS HALF OF, AND IS KEPT AS ITS OWN CLAIM.
-   It was HALF the floating panel's `min(40vh, 22rem)`, because dragging the
-   grip past that cap pushed the form out through the panel's bottom and over
-   the prose. The panel is deleted; the box is in the rail's own flow now and
-   can grow without painting over anything. What the bound still buys is that
-   a reviewer who drags the grip to the bottom of the window does not push
-   every instruction card off the screen — room for several lines is the point
-   of the textarea, room for the whole rail was never asked for. */
+   see it. Its type and its cap, half the window, are the composer's and the
+   edit box's: see the one rule for all three below. */
 .gly-overall-input {
   display: block;
   width: 100%;
@@ -1559,9 +1551,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   border-radius: 4px;
   background: var(--gly-bg);
   color: var(--gly-fg);
-  font: 12px/1.5 var(--gly-sans);
   resize: vertical;
-  max-height: min(20vh, 11rem);
 }
 /* Amber says HERE, and a focused input is here — so the colour is right and
    §6's "remove the idle ring" is a no-op: there is no idle ring. What was too
@@ -1750,39 +1740,38 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    reply to type. The rule is what the shared spelling was FOR — one box leaving
    the list costs one selector and changes nothing about the other two.
 
-   THE THIRD BOX IS NOT IN HERE AND THAT IS THE POINT of listing two. The
-   whole-document `.gly-overall-input` genuinely is a different box — a 4px
-   radius, the page's own ground rather than none, and a type of its own — and
-   folding it in would have meant either changing it or writing two exceptions,
-   which is the copy this rule deletes wearing a rule's clothes.
+   THE THIRD BOX IS NOT IN HERE. The whole-document `.gly-overall-input` has
+   a 4px radius and the page's own ground rather than none. Its type, padding,
+   rows and cap are the other two's, in the rule below this one, which is what
+   makes the three one design.
 
    Both selectors are (0,1,0) and stay so; `.gly-composer-text[disabled]` and
    the rest of the sealed-verbs list are (0,2,0) and beat this wherever they
    meet it, unchanged. */
 .gly-composer-text,
 .gly-thread-edit-text {
-  font: inherit;
   border: 1px solid var(--gly-line);
   border-radius: 6px;
   background: transparent;
   color: inherit;
   resize: vertical;
 }
-/* AND ITS CAP, WHICH IS WHAT MAKES THE GROWTH SAFE. `growOnInput` (web/rail.ts)
-   writes this box's height from what is typed into it and reads back what the
-   stylesheet allowed — so the number lives HERE, once, and not in the
-   TypeScript as a second cap that would disagree with this one the day either
-   moved. The claim is the whole-document box's own, restated for a popover:
-   room for several lines is the point of a textarea, room for the window was
-   never asked for, and this one floats over the prose it is about — a box that
-   grew to the height of the window would hide the passage the reviewer is
-   writing about. `box-sizing` because the height written is the BORDER box's
-   (`scrollHeight` plus the padding this rule adds) and a content-box would add
-   the padding twice, growing the box a little more on every keystroke. */
-.gly-composer-text {
-  padding: 0.4rem 0.5rem;
+/* THE THREE BOXES A COMMENT IS TYPED INTO ARE ONE DESIGN: the whole-document
+   box, the selected-text composer and the edit box. One type, one padding, so
+   five rows (each box's `rows`) open them at one height; and one cap, half the
+   window, past which the box scrolls. `growOnInput` (web/rail.ts) writes the
+   height from what is typed and reads this cap back, so the number lives
+   here once. `box-sizing` because the height written is the border box's, and
+   a content box would add the padding twice. Each box keeps its own radius and
+   ground above; what a reviewer types into them is the same. */
+.gly-overall-input,
+.gly-composer-text,
+.gly-thread-edit-text {
+  font: 13px/1.5 var(--gly-sans);
+  padding: 0.3rem 0.4rem;
   box-sizing: border-box;
-  max-height: min(30vh, 13rem);
+  max-height: 50vh;
+  overflow-y: auto;
 }
 /* THE ONE COLOUR ON THIS PAGE THAT IS IN NEITHER STYLESHEET WAS THE USER
    AGENT'S. This box declared a resting border and NO `:focus` rule at all, so
@@ -2813,7 +2802,14 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
 /* --- a comment is one card with one verb --- */
 .gly-thread { border-left: 3px solid var(--gly-hl); }
 .gly-thread-entry { margin-top: 0.4rem; }
-.gly-thread-entry p { margin: 0.15rem 0 0; }
+/* A COMMENT'S LINE BREAKS ARE ITS WORDS, so every surface that shows one —
+   rail, sheet, bubble and the whole-document panel all render this — keeps
+   them, and a long unbroken token wraps rather than widening the card. */
+.gly-thread-entry p {
+  margin: 0.15rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* `.gly-thread-who` is the chrome voice — see `.gly-card-head`, where the four
    spellings of it became one and this one's quieter opacity is its own line. */
 /* `.gly-thread-reply` AND `.gly-thread-resolve:hover` ARE DELETED, and the
@@ -2898,10 +2894,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    declared exemption in web/motion.mjs). */
 .gly-thread-editor { margin-top: 0.45rem; }
 .gly-thread-edit-text {
-  font-size: 13px;
   width: 100%;
-  box-sizing: border-box;
-  padding: 0.3rem 0.4rem;
 }
 .gly-thread-editor-actions { justify-content: flex-end; }
 /* The armed state is the only resting-adjacent red in the product, which is
@@ -3372,6 +3365,13 @@ body.gly-history-mode > main {
    a second hover treatment here would be two answers to one question. */
 .gly-versions .gly-card:hover {
   border-color: var(--gly-line);
+}
+/* History shows each instruction as it was typed, line breaks and all, and
+   the agent's answer and notes the same way. */
+.gly-versions-ask,
+.gly-versions-answer,
+.gly-versions-note {
+  white-space: pre-wrap;
 }
 .gly-versions-ask {
   margin: 0 0 6px;

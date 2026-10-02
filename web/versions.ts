@@ -208,20 +208,23 @@ export function roundFoot(round: RoundView): string {
 // says whether the agent understood you, and no git log of a document can tell
 // you that.
 //
-// A round carries its own instruction when it IS the ask, and points at one
-// when it is the answer. One copy of the words, in the round that carried them,
-// ALREADY MIDDOT-JOINED BY THE SERVER (`reviewerInstruction`) — this renders
-// that string and never re-joins it, because two joiners are two spellings of
-// one rule and the day they disagree the rail says something the record does
-// not.
-export function askedOf(round: RoundView): string {
+// A round carries its own instructions when it IS the ask, and points at them
+// when it is the answer. EACH INSTRUCTION SEPARATELY, as the server lists them
+// (`instructions`, from the round's recorded asks), so each is its own line in
+// History with its own line breaks. A round written before asks were recorded
+// has only the server's `·`-joined sentence, `instruction` or `asked`, and that
+// one string is the list; it is never split or re-joined here.
+export function askedOf(round: RoundView): string[] {
+  if (round.instructions && round.instructions.length > 0) {
+    return round.instructions;
+  }
   if (round.instruction) {
-    return round.instruction;
+    return [round.instruction];
   }
   if (round.asked) {
-    return round.asked;
+    return [round.asked];
   }
-  return '';
+  return [];
 }
 
 // askOn and answerOn split what one field was carrying two of.
@@ -257,14 +260,28 @@ const NO_ROUND: RoundView = {
   changed: 0,
 };
 
-function askOn(rounds: RoundView[], card: RoundView): string {
+function askOn(rounds: RoundView[], card: RoundView): string[] {
   if (card.answers > 0) {
     const asked = rounds.find((r) => r.n === card.answers);
     if (asked) {
       return askedOf(asked);
     }
+    if (card.askedInstructions && card.askedInstructions.length > 0) {
+      return card.askedInstructions;
+    }
   }
   return askedOf(card);
+}
+
+// askLines is a round card's asks: one line per instruction, each with its own
+// arrow, or the one line that says there was none.
+function askLines(said: string[]): HTMLElement[] {
+  return (said.length > 0 ? said : ['']).map((words) => {
+    const ask = document.createElement('p');
+    ask.className = 'gly-versions-ask';
+    ask.textContent = words ? `→ ${words}` : '→ no instruction was attached';
+    return ask;
+  });
 }
 
 // answerOn is the agent's own sentence about the round, and it is the only
@@ -1022,11 +1039,7 @@ export class VersionsPanel {
       head.textContent = roundHead(i + 1, round, now);
 
       const body = cardBody(el);
-      const ask = document.createElement('p');
-      ask.className = 'gly-versions-ask';
-      const said = askOn(this.rounds, round);
-      ask.textContent = said ? `→ ${said}` : '→ no instruction was attached';
-      body.appendChild(ask);
+      body.append(...askLines(askOn(this.rounds, round)));
 
       const answered = answerOn(round);
       if (answered) {

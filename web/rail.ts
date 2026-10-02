@@ -625,15 +625,14 @@ export function submitOnEnter<
  * for the same reason `submitOnEnter` does: `rows` is a STARTING height, not a
  * size, and a field that keeps its starting height while the sentence grows
  * hides the beginning of what the reviewer is writing behind its own scrollbar.
- * Three surfaces set `rows` and none of them grew — the whole-document input
- * (`rows = 2`), the composer (`rows = 3`) and the instruction edit box — so the
+ * Three surfaces set `rows` and none of them grew — the whole-document input,
+ * the composer and the instruction edit box, all `rows = 5` now — so the
  * contract is spelled once here and each of the three calls it, exactly as they
  * each call `submitOnEnter`.
  *
  * THE CAP IS THE STYLESHEET'S, NOT THIS FUNCTION'S, and that is deliberate.
- * Every box this is attached to declares its own `max-height` as a stated
- * reserve (`.gly-overall-input`'s `min(20vh, 11rem)` is the one that already
- * carried the argument for why a box may not grow to the height of the rail).
+ * The three boxes share one `max-height`, half the window, in one rule in
+ * editor.css: room for many lines, never the whole window.
  * A number here would be a second cap, in a second language, disagreeing with
  * the first the day either moved — the twin-carrier defect this repository
  * records more than any other. So the height is written, the browser clamps
@@ -650,7 +649,11 @@ export function growOnInput(field: HTMLTextAreaElement): HTMLTextAreaElement {
   const fit = () => {
     field.style.height = 'auto';
     const want = field.scrollHeight;
-    field.style.height = `${want}px`;
+    // THE BORDER TOO. `scrollHeight` stops at the padding, and the boxes are
+    // `border-box`, so writing it alone made every fitted box its own border
+    // shorter than the rows it opened at, clipping the last line by 2px.
+    const edge = field.offsetHeight - field.clientHeight;
+    field.style.height = `${want + (edge > 0 ? edge : 0)}px`;
     // Read back what the stylesheet's own `max-height` allowed. Equal means the
     // clamp bit, so the box scrolls; otherwise nothing is hidden and a
     // scrollbar would be furniture.

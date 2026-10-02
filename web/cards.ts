@@ -564,10 +564,12 @@ export const cardMethods = {
     capture.note.textContent = '';
     capture.input.disabled = !!this.sealed;
     capture.input.value = '';
-    // Assigning `value` fires no `input` event, so without this the box keeps
-    // the height the LAST instruction grew it to. See growOnInput.
-    capture.input.dispatchEvent(new Event('input'));
     capture.root.hidden = false;
+    // Assigning `value` fires no `input` event, so without this the box keeps
+    // the height the LAST instruction grew it to. See growOnInput. AFTER the
+    // card is shown: a hidden box measures zero, and fitting it then opened
+    // the box one padding tall.
+    capture.input.dispatchEvent(new Event('input'));
     // The card just entered the flow and pushed the band down; the anchored
     // cards have to re-floor on their marks. paintAnchors re-reads the band's
     // top per pass, so one repaint is the whole of it — the repaint the old
@@ -614,15 +616,17 @@ export const cardMethods = {
     // single-line <input> this field filed on Enter only through the browser's
     // implicit form submission, and Shift-Enter could not break a line at all
     // — so the one surface galley asks for prose about the WHOLE document was
-    // the one surface that could not hold a second sentence. Two rows, the
-    // same as every reply box, and the same submitOnEnter contract.
+    // the one surface that could not hold a second sentence. The same rows as
+    // the other two comment boxes, and the same submitOnEnter contract.
     //
     // AND IT GROWS, which is §6 of the live review: `rows` is where it starts
     // and was also where it ended. The cap is this box's own `max-height` — see
     // growOnInput for why the number is not in the TypeScript.
     const input = document.createElement('textarea');
     input.className = 'gly-overall-input';
-    input.rows = 2;
+    // FIVE ROWS, THE SAME START AS THE COMPOSER AND THE EDIT BOX: the three
+    // boxes a comment is typed into are one design (editor.css).
+    input.rows = 5;
     // §11 fixes this string verbatim.
     input.placeholder = 'add an instruction on the whole doc…';
     growOnInput(input);
@@ -670,18 +674,10 @@ export const cardMethods = {
     // implicitly, so that listener is kept for what it actually still does,
     // refusing a navigation should anything ever submit this form.
     const fileNote = () => {
-      // FLATTEN NEWLINES TO A SPACE BEFORE FILING. A whole-document note is
-      // stored inline as `{>>@document …<<}`, and CriticMarkup has no way to
-      // hold a newline — checkNote (internal/suggest/anchor.go) refuses one
-      // rather than write a note that reads back cut short. But this box is a
-      // multi-line textarea that invites paragraphs, so the reviewer's own
-      // affordance produced input the format bounced. A blank line between two
-      // sentences of an instruction is spacing, not structure the agent parses:
-      // joining on a single space keeps every word and every order, and the
-      // instruction reaches the agent the same. `<<}` is left to the server —
-      // genuinely unwritable and vanishingly rare, it earns a refusal, not a
-      // silent rewrite.
-      const text = input.value.replace(/\s*\n\s*/g, ' ').trim();
+      // THE WORDS AS TYPED, LINE BREAKS AND ALL. A comment's words live in
+      // pending.json, not in the file, so nothing about the file's syntax
+      // limits what a reviewer may type here.
+      const text = input.value.trim();
       if (!text) {
         return;
       }
@@ -1190,7 +1186,17 @@ export const cardMethods = {
     box.className = 'gly-thread-editor';
     const text = document.createElement('textarea');
     text.className = 'gly-thread-edit-text';
-    text.rows = 2;
+    // Five rows and growing, like the other two boxes a comment is typed into,
+    // and FITTED ONCE IT IS ON THE PAGE, as they are when they open: the box is
+    // not in the document yet here, and a box measured off the page is zero
+    // tall. Fitting is also what opens a long instruction at its own height.
+    text.rows = 5;
+    growOnInput(text);
+    window.requestAnimationFrame(() => {
+      if (text.isConnected) {
+        text.dispatchEvent(new Event('input'));
+      }
+    });
     text.dataset.draft = `edit:${thread.key}`;
     const opened =
       (thread.entries || []).find((e) => e.author === AUTHOR) ||

@@ -191,6 +191,20 @@ async function addOverallInstruction(page, text, want) {
   );
 }
 
+// The section grip on the document's title, then its bar's button: the form
+// that files a block comment on the section, open and ready to type in.
+async function openSectionForm(page) {
+  await page.hover('.ProseMirror h1');
+  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
+    timeout: 5000,
+  });
+  await page.click('.gly-grip:not(.gly-code-grip)');
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])', {
+    timeout: 5000,
+  });
+}
+
 // What the right-click menu is offering, as the labels a reviewer reads. One
 // reader because the check is made twice — once with nothing selected and once
 // with a passage selected — and the whole claim is that the SAME gesture reads
@@ -782,12 +796,11 @@ try {
   // TWO INSTRUCTIONS ON THE PAGE AT ONCE IS THE STATE THE GLUED-CARD BUG NEEDS.
   // With one there is nothing for a missing border to run into, and every
   // reading of the rail is arithmetic rather than evidence.
-  // TYPED ACROSS TWO LINES ON PURPOSE. The composer still flattens runs of
-  // whitespace to a single space before filing (see web/cards.ts fileNote), so
-  // the words pending.json holds are the one-line sentence — and
-  // `addOverallInstruction` waits for the pending count, which never reaches 2
-  // if the server rejects the note, so this filing IS the flatten contract's
-  // end-to-end proof.
+  // TYPED ACROSS TWO LINES ON PURPOSE, the way a reviewer types them: a line,
+  // Shift-Enter, a line, Enter. The box used to flatten every line break to a
+  // space before filing, because the words were once written into the file
+  // where a newline could not go. They live in pending.json now, so the words
+  // the reviewer typed are the words that are kept, line break and all.
   //
   // A WHOLE-DOCUMENT COMMENT HAS NO MARK IN THE FILE. The range instruction
   // just above has reached the disk first (its ID mark is the proof), so the
@@ -795,10 +808,19 @@ try {
   const beforeDocumentComment = await waitForDisk(
     /\{>>@comment cm-[0-9a-f]{16}<<\}/,
   );
-  await addOverallInstruction(
+  if (!(await page.locator('.gly-capture').isVisible())) {
+    await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  }
+  await page.locator('.gly-overall-input').click();
+  await page.keyboard.type('Open with the decision,');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('not the background.');
+  await page.keyboard.press('Enter');
+  await waitForWire(
     page,
-    'Open with the decision,\nnot the background.',
-    2,
+    async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.length ===
+      2,
   );
   await page.waitForSelector('.gly-overall-entries .gly-thread');
   const documentComment = await (async () => {
@@ -809,11 +831,20 @@ try {
     }
     return null;
   })();
+  const documentCard = await page.evaluate(
+    () =>
+      document.querySelector('.gly-overall-entries .gly-thread-entry p')
+        ?.innerText || '',
+  );
+  // innerText, NOT textContent: textContent holds the `\n` whatever the paint
+  // does with it, and innerText is the RENDERED text, so it carries a line
+  // break only when the card shows one.
   check(
-    'a multi-line whole-document instruction files — newlines flattened, not rejected',
+    'a multi-line whole-document instruction keeps its lines — in pending.json and on its card',
     !!documentComment &&
-      documentComment.text === 'Open with the decision, not the background.',
-    JSON.stringify(readUnsent()),
+      documentComment.text === 'Open with the decision,\nnot the background.' &&
+      documentCard === 'Open with the decision,\nnot the background.',
+    JSON.stringify({ unsent: readUnsent(), card: documentCard }),
   );
   // A projection is debounced; wait out more than one before reading.
   await page.waitForTimeout(1500);
@@ -893,7 +924,7 @@ try {
       readUnsent().some(
         (c) =>
           c.kind === 'document' &&
-          c.text === 'Open with the decision, not the background.',
+          c.text === 'Open with the decision,\nnot the background.',
       ),
     JSON.stringify({ inProse, unsent: readUnsent() }),
   );
@@ -1220,6 +1251,16 @@ try {
       (await (await fetch('/_galley/pending')).json()).instructions.length ===
       2,
   );
+  // AND OFF THE RAIL BEFORE ANYTHING ELSE IS PRESSED. The delete went over
+  // the wire, not through the card, so the rail drops the card on its next
+  // refresh; until then the band's first card is the deleted comment's, and
+  // the edit below pressed ITS edit and saved onto a key that no longer
+  // exists, while the check after it waited on a promise and passed.
+  await page.waitForFunction(
+    (key) => !document.querySelector(`.gly-thread[data-key="${key}"]`),
+    blockKey,
+    { timeout: 10000 },
+  );
   check(
     'deleting the block comment takes its mark out of the .md',
     removed === 200 &&
@@ -1229,15 +1270,7 @@ try {
 
   // AND A CANCELLED GRIP LEAVES NOTHING SELECTED EITHER: the same selection,
   // the same keystroke waiting to replace it, with no comment sent at all.
-  await page.hover('.ProseMirror h1');
-  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
-    timeout: 5000,
-  });
-  await page.click('.gly-grip:not(.gly-code-grip)');
-  await page.click('.gly-comment-button');
-  await page.waitForSelector('.gly-composer-form:not([hidden])', {
-    timeout: 5000,
-  });
+  await openSectionForm(page);
   const gripHeld = await page.evaluate(
     () => !window.galleyEdit.editor.state.selection.empty,
   );
@@ -1297,14 +1330,129 @@ try {
     'Make the retry policy concrete, with numbers.',
   );
   await page.click('.gly-rail-band .gly-thread .gly-thread-edit-save');
-  await page.waitForFunction(async () =>
-    (await (await fetch('/_galley/pending')).json()).instructions.some(
-      (i) => i.text === 'Make the retry policy concrete, with numbers.',
-    ),
-  );
+  // POLLED: `waitForFunction(async …)` resolves on its first poll whatever the
+  // fetch says (a promise is truthy), and this check was `true` behind it.
+  let editReached = false;
+  for (let i = 0; i < 40 && !editReached; i++) {
+    editReached = await page.evaluate(async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.some(
+        (i) => i.text === 'Make the retry policy concrete, with numbers.',
+      ),
+    );
+    if (!editReached) await page.waitForTimeout(100);
+  }
   check(
     'and the edit reaches the instruction the agent will actually be handed',
-    true,
+    editReached,
+  );
+
+  // AN EDITED INSTRUCTION KEEPS A TYPED LINE BREAK: Shift-Enter breaks the
+  // line, Enter saves, and the words saved are the words typed.
+  // The save repaints the rail; wait for the card to carry the saved words
+  // before pressing its edit again, or the press lands on a card being rebuilt.
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(
+        '.gly-rail-band .gly-thread .gly-thread-edit-text',
+      ) &&
+      (
+        document.querySelector('.gly-rail-band .gly-thread .gly-thread-entry p')
+          ?.textContent || ''
+      ).includes('with numbers.'),
+  );
+  await page.waitForTimeout(300);
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
+  await page.waitForSelector(
+    '.gly-rail-band .gly-thread .gly-thread-edit-text',
+    { timeout: 5000 },
+  );
+  await page
+    .locator('.gly-rail-band .gly-thread .gly-thread-edit-text')
+    .click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('Say how many.');
+  await page.keyboard.press('Enter');
+  const editedTo =
+    'Make the retry policy concrete, with numbers.\nSay how many.';
+  let editedOK = false;
+  for (let i = 0; i < 40 && !editedOK; i++) {
+    editedOK = await page.evaluate(
+      async (want) =>
+        (await (await fetch('/_galley/pending')).json()).instructions.some(
+          (i) => i.text === want,
+        ),
+      editedTo,
+    );
+    if (!editedOK) await page.waitForTimeout(100);
+  }
+  await page.waitForTimeout(300);
+  const editedCard = await page.evaluate(
+    () =>
+      document.querySelector('.gly-rail-band .gly-thread .gly-thread-entry p')
+        ?.innerText || '',
+  );
+  check(
+    'an edited instruction keeps a typed line break — saved, and shown on its card',
+    editedOK && editedCard === editedTo,
+    JSON.stringify({ editedOK, editedCard }),
+  );
+
+  // THE THREE COMMENT BOXES ARE ONE DESIGN. The whole-document box, the
+  // selected-text composer and the edit box each open at the same height and
+  // the same type size, grow with what is typed, and stop at half the window,
+  // where they scroll. Each is measured the moment it opens, then filled with
+  // sixty lines.
+  const boxNow = (sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      return {
+        h: +el.getBoundingClientRect().height.toFixed(1),
+        font: getComputedStyle(el).fontSize,
+        scroll: el.scrollHeight,
+        client: el.clientHeight,
+        half: window.innerHeight / 2,
+      };
+    }, sel);
+  const sixty = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join(
+    '\n',
+  );
+  const boxes = {};
+  const measureBox = async (name, sel) => {
+    // A frame after it opens, which is when a reviewer first sees it.
+    await page.waitForTimeout(100);
+    const opened = await boxNow(sel);
+    await page.fill(sel, sixty);
+    await page.waitForTimeout(100);
+    boxes[name] = { opened, full: await boxNow(sel) };
+  };
+  await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  await page.waitForSelector('.gly-overall-input:not([disabled])');
+  await measureBox('document', '.gly-overall-input');
+  await page.click('.gly-capture-cancel');
+  await selectPhrase(page, 'Nothing else in the pipeline');
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])');
+  await measureBox('selection', '.gly-composer-text');
+  await page.click('.gly-composer-cancel');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
+  await page.waitForSelector(
+    '.gly-rail-band .gly-thread .gly-thread-edit-text',
+  );
+  await measureBox('edit', '.gly-rail-band .gly-thread .gly-thread-edit-text');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit-cancel');
+  const all = Object.values(boxes);
+  check(
+    'the three comment boxes open at one height and one font size, and none grows past half the window',
+    all.length === 3 &&
+      all.every((b) => b.opened && b.full) &&
+      all.every((b) => Math.abs(b.opened.h - all[0].opened.h) <= 1) &&
+      all.every((b) => b.opened.font === all[0].opened.font) &&
+      all.every(
+        (b) => b.full.h <= b.full.half + 1 && b.full.scroll > b.full.client,
+      ),
+    JSON.stringify(boxes),
   );
 
   // Back to one, so the count checks below read the state they were written
@@ -1687,8 +1835,12 @@ try {
     await page.waitForTimeout(900);
   }
   async function sendRound(asks) {
+    const already = await page.evaluate(
+      async () =>
+        (await (await fetch('/_galley/pending')).json()).instructions.length,
+    );
     for (const [i, ask] of asks.entries()) {
-      await addOverallInstruction(page, ask, i + 1);
+      await addOverallInstruction(page, ask, already + i + 1);
     }
     // BY TEXT, NEVER BY POSITION. `/_galley/pending` sorts threads by key, so
     // the order an instruction was typed in is not the order it comes back in
@@ -1751,6 +1903,45 @@ try {
   // claims, which is the ask-only card: nothing the reviewer sent may ever
   // disappear, and a fixture where everything was answered certifies that it
   // does not.
+  // A BLOCK INSTRUCTION WITH A BLANK LINE, filed through the section grip and
+  // sent in the next round: two paragraphs on its card, in the amber box under
+  // its heading, and in History once the round is sent.
+  const blockSaid = 'Say who the review is for.\n\nAnd why it matters now.';
+  await openSectionForm(page);
+  await page.fill('.gly-composer-text', blockSaid);
+  await page.click('.gly-composer-send');
+  await waitForWire(
+    page,
+    async (want) =>
+      (await (await fetch('/_galley/pending')).json()).instructions.some(
+        (i) => i.text === want,
+      ),
+    blockSaid,
+  );
+  await page.waitForTimeout(600);
+  const blockShown = await page.evaluate(async (want) => {
+    const key = (
+      (await (await fetch('/_galley/pending')).json()).instructions.find(
+        (i) => i.text === want,
+      ) || {}
+    ).key;
+    const card = [...document.querySelectorAll('.gly-rail .gly-thread')].find(
+      (c) => c.dataset.key === key,
+    );
+    const words = document.querySelector(
+      `.gly-note[data-comment-id="${key}"] .gly-note-words`,
+    );
+    return {
+      key,
+      card: card?.querySelector('.gly-thread-entry p')?.innerText || '',
+      amber: words ? words.innerText : '',
+    };
+  }, blockSaid);
+  check(
+    'a block instruction with a blank line shows two paragraphs on its card and in the amber box',
+    blockShown.card === blockSaid && blockShown.amber === blockSaid,
+    JSON.stringify(blockShown),
+  );
   const ask2 = await sendRound([
     'Say what the default budget is, in numbers.',
     'Name the queue and its retention.',
@@ -1943,7 +2134,12 @@ try {
       cards: [...rail.querySelectorAll('.gly-versions-round')].map((b) => ({
         round: b.dataset.round,
         head: b.querySelector('.gly-card-head').textContent,
-        ask: b.querySelector('.gly-versions-ask').textContent,
+        ask: [...b.querySelectorAll('.gly-versions-ask')]
+          .map((p) => p.textContent)
+          .join('\n'),
+        asks: [...b.querySelectorAll('.gly-versions-ask')].map(
+          (p) => p.innerText,
+        ),
         answer:
           (b.querySelector('.gly-versions-answer') || {}).textContent || '',
         foot: b.querySelector('.gly-versions-foot').textContent,
@@ -2005,6 +2201,20 @@ try {
       // after a → as though the reviewer had said them.
       landing?.cards.every((c) => /^v\d+ · /.test(c.foot)),
     JSON.stringify(landing?.cards),
+  );
+  // EACH INSTRUCTION IS ITS OWN LINE IN HISTORY, with its own line breaks.
+  // The server used to hand History one `·`-joined sentence per round, which
+  // ran every instruction together and every line of each into one.
+  const round2 = landing?.cards.find((c) =>
+    c.asks.some((a) => a.includes('Say what the default budget is')),
+  );
+  check(
+    'History lists each instruction of a round separately, and keeps a blank line inside one',
+    !!round2 &&
+      round2.asks.length === 4 &&
+      round2.asks.every((a) => a.startsWith('→ ') && !a.includes(' · ')) &&
+      round2.asks.includes(`→ ${blockSaid}`),
+    JSON.stringify(round2),
   );
   // THE TWO ARROWS MEAN WHAT THEY SAY. `Round.Instruction` is the ask on the
   // reviewer's cut and the agent's sentence on the landing, and roundCards

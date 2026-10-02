@@ -5628,6 +5628,53 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   );
 }
 
+// AND THE CAP IS ONE RULE FOR ALL THREE BOXES. The whole-document box, the
+// composer and the edit box are one design: one type, one padding and one cap,
+// half the window, read off the BUILT stylesheet (a separate esbuild output the
+// binary embeds). No other rule may give any of them a cap of its own, or the
+// three grow to three different heights again.
+{
+  let css = '';
+  try {
+    css = readFileSync(
+      new URL('../internal/serve/assets/editor.css', import.meta.url),
+      'utf8',
+    );
+  } catch {
+    css = '';
+  }
+  const boxes = [
+    '.gly-overall-input',
+    '.gly-composer-text',
+    '.gly-thread-edit-text',
+  ];
+  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({
+    sel: m[1].split(',').map((x) => x.trim()),
+    body: m[2],
+  }));
+  const shared = rules.find(
+    (r) =>
+      boxes.every((b) => r.sel.includes(b)) &&
+      /max-height:\s*50vh/.test(r.body),
+  );
+  check(
+    'the three comment boxes share one rule: one font, one cap at half the window',
+    !!shared && /font:\s*13px\/1\.5/.test(shared.body),
+    shared,
+  );
+  const ownCaps = rules.filter(
+    (r) =>
+      r !== shared &&
+      r.sel.some((x) => boxes.includes(x)) &&
+      /max-height/.test(r.body),
+  );
+  check(
+    'and none of the three carries a cap of its own',
+    !!css && ownCaps.length === 0,
+    ownCaps,
+  );
+}
+
 // --- the overall thread ---
 //
 // R7: there was nowhere to say anything about the file as a whole. The rail
@@ -8123,23 +8170,36 @@ function bindsContentField(src) {
       changedSaid(3) === '3 changes' &&
       changedSaid(0) === 'no changes',
   );
-  // ONE COPY OF THE WORDS, AND THE SERVER JOINED THEM. The ask carries the
-  // instruction; the answer points at it. Both arrive middot-joined by
-  // reviewerInstruction and are RENDERED, never re-joined — two joiners are two
-  // spellings of one rule.
+  // EACH INSTRUCTION SEPARATELY. The ask carries its instructions as the
+  // server lists them, one per ask with its own line breaks; the answer points
+  // at it. A round written before asks were recorded has only the server's
+  // middot-joined sentence, which is RENDERED as the one entry and never split
+  // or re-joined — two joiners are two spellings of one rule.
   check(
-    'the round that asked carries the instruction',
-    askedOf({ n: 4, instruction: 'shorten the second paragraph · say why' }) ===
-      'shorten the second paragraph · say why',
+    'askedOf returns each instruction separately, and old rounds fall back to the single string',
+    JSON.stringify(
+      askedOf({
+        n: 4,
+        instruction: 'shorten it · say why',
+        instructions: ['shorten it', 'say why\n\nwith numbers'],
+      }),
+    ) === JSON.stringify(['shorten it', 'say why\n\nwith numbers']) &&
+      JSON.stringify(
+        askedOf({
+          n: 4,
+          instruction: 'shorten the second paragraph · say why',
+        }),
+      ) === JSON.stringify(['shorten the second paragraph · say why']),
   );
   check(
     'and the round that answered reaches the one it is answering',
-    askedOf({ n: 5, answers: 4, asked: 'shorten the second paragraph' }) ===
-      'shorten the second paragraph',
+    JSON.stringify(
+      askedOf({ n: 5, answers: 4, asked: 'shorten the second paragraph' }),
+    ) === JSON.stringify(['shorten the second paragraph']),
   );
   check(
     'a round with nothing asked of it says nothing',
-    askedOf({ n: 1 }) === '',
+    askedOf({ n: 1 }).length === 0,
   );
   // THE FILE AS GALLEY OPENED IT IS NOT A ROUND ANYBODY HAD, so it is not in
   // the list and it does not take an ordinal. It is the landing's dashed foot

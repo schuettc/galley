@@ -75,6 +75,8 @@ export interface RoundView {
   instruction: string;
   answers: number;
   asked: string;
+  instructions?: string[];
+  askedInstructions?: string[];
   changed: number;
 }
 

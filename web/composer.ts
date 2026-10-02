@@ -331,9 +331,9 @@ export const composerMethods = {
     head.className = 'gly-composer-head';
     const input = document.createElement('textarea');
     input.className = 'gly-composer-text';
-    input.rows = 3;
+    input.rows = 5;
     input.placeholder = 'what about it?';
-    // AND IT GROWS. Three rows is where it starts; §6 of the live review is
+    // AND IT GROWS. Five rows is where it starts; §6 of the live review is
     // that it was also where it ended. See growOnInput — the cap is this box's
     // own `max-height`, not a number here.
     growOnInput(input);

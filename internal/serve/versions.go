@@ -533,6 +533,13 @@ type roundView struct {
 	// has one implementation and the list has one shape.
 	Answers int    `json:"answers"`
 	Asked   string `json:"asked"`
+	// Instructions is the round's asks, one entry each, in order and
+	// unclipped, and AskedInstructions is the same list for the round this one
+	// answers. History shows each instruction on its own, with its line breaks;
+	// Instruction and Asked are the `·`-joined sentence, kept for rounds written
+	// before asks were recorded, which have nothing else.
+	Instructions      []string `json:"instructions,omitempty"`
+	AskedInstructions []string `json:"askedInstructions,omitempty"`
 	// Changed is how many regions this round moved against the one before it.
 	// A count, not a diff: it is recomputed on every request from the two
 	// documents, and nothing about it is stored.
@@ -564,17 +571,22 @@ func (s *EditServer) handleVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asked := map[int]string{}
+	asks := map[int][]string{}
 	for _, x := range rounds {
 		if x.Instruction != "" {
 			asked[x.N] = x.Instruction
 		}
+		asks[x.N] = askTexts(x.Asks)
 	}
 	view := versionsView{Doc: s.docName(), Rounds: []roundView{}}
 	for i, x := range rounds {
 		rv := roundView{
 			N: x.N, At: x.At.UTC().Format(time.RFC3339), Authors: versions.Authors(x.Authors),
 			Reason: x.Reason, Instruction: x.Instruction, Answers: x.Answers,
-			Asked: asked[x.Answers],
+			Asked: asked[x.Answers], Instructions: asks[x.N],
+		}
+		if x.Answers > 0 {
+			rv.AskedInstructions = asks[x.Answers]
 		}
 		if i > 0 {
 			rv.Changed = s.changedRegions(rounds[i-1].N, x.N)
@@ -582,6 +594,19 @@ func (s *EditServer) handleVersions(w http.ResponseWriter, r *http.Request) {
 		view.Rounds = append(view.Rounds, rv)
 	}
 	writeJSON(w, view)
+}
+
+// askTexts is a round's asks as History shows them: the words of each, in
+// order, verbatim. Nil for a round with none, so the field is left out.
+func askTexts(asks []versions.Ask) []string {
+	if len(asks) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(asks))
+	for _, a := range asks {
+		out = append(out, a.Text)
+	}
+	return out
 }
 
 // changedRegions is the count the history shows beside a round. COMPUTED, NEVER

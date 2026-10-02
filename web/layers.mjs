@@ -5074,6 +5074,79 @@ console.log('\n--- §8a · a live page owns its own disabled flags ---');
   );
 }
 
+// --- §8b · the three comment boxes are one design --------------------------
+//
+// THE WHOLE-DOCUMENT BOX, THE COMPOSER AND THE EDIT BOX take the same words, so
+// they are one box: one type, five rows to start, and one cap at half the
+// window, past which each scrolls rather than growing over everything. Read
+// off the real page, each the frame after it opens, because three rules that
+// agree in the stylesheet can still disagree on screen (the edit box is built
+// off the page and fitted later; the other two are fitted as they open).
+console.log('\n--- §8b · the three comment boxes are one design ---');
+{
+  await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
+  await page.waitForTimeout(400);
+  const box = (sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return {
+        h: +el.getBoundingClientRect().height.toFixed(1),
+        font: cs.fontSize,
+        family: cs.fontFamily,
+        cap: cs.maxHeight,
+      };
+    }, sel);
+  const boxes = {};
+  await page.locator('.gly-bar .gly-capture-open').click();
+  await page.waitForTimeout(150);
+  boxes.document = await box('.gly-overall-input');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const editor = window.galleyEdit.editor;
+    let at = null;
+    editor.state.doc.descendants((n, pos) => {
+      if (
+        at === null &&
+        n.isTextblock &&
+        n.type.name === 'paragraph' &&
+        n.textContent.length > 12
+      )
+        at = pos + 1;
+      return at === null;
+    });
+    editor.commands.focus();
+    editor.commands.setTextSelection({ from: at, to: at + 8 });
+  });
+  await page
+    .locator('.gly-comment-button')
+    .waitFor({ state: 'visible', timeout: 5000 });
+  await page.click('.gly-comment-button');
+  await page.waitForTimeout(150);
+  boxes.selection = await box('.gly-composer-text');
+  await page.keyboard.press('Escape');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
+  await page.waitForTimeout(150);
+  boxes.edit = await box('.gly-rail-band .gly-thread .gly-thread-edit-text');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit-cancel');
+  await page.waitForTimeout(150);
+  const all = Object.values(boxes);
+  check(
+    'the three comment boxes are equal — one height when opened, one type, one cap at half the window',
+    all.length === 3 &&
+      all.every((b) => b !== null) &&
+      all.every(
+        (b) =>
+          Math.abs(b.h - all[0].h) <= 1 &&
+          b.font === all[0].font &&
+          b.family === all[0].family &&
+          b.cap === `${WIDE.height / 2}px`,
+      ),
+    boxes,
+  );
+}
+
 // --- §12 · the rounds -------------------------------------------------------
 //
 // THE SURFACE THE RECORD LIVES ON, read at the two states that can be wrong.
