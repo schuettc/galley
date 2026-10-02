@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1853,7 +1854,14 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		// round being sent, and anything that rewrites pending.json from the
 		// map before the cut (a comment filed in this window, a save from
 		// inside project) would drop it. See saveUnsentLocked.
-		s.sending = sendingOf(review.Read(s.doc), keys)
+		//
+		// MERGED, NEVER ASSIGNED, and released by this send's own keys: a
+		// Revise press and a live settle can be in here at once, and either
+		// one assigning or nil-ing the whole map would drop the other's round.
+		if s.sending == nil {
+			s.sending = map[string]unsent.Comment{}
+		}
+		maps.Copy(s.sending, sendingOf(review.Read(s.doc), keys))
 		return suggest.ClearInstructions(model), func(doc *crdt.Doc, tx review.Tx) {
 			session := review.Bind(doc, tx)
 			for _, key := range keys {
@@ -1864,7 +1872,7 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		// Nothing was sent: whatever the clear did not delete is still in the
 		// map, and nothing is in flight.
 		s.mu.Lock()
-		s.sending = nil
+		s.releaseSendingLocked(keys)
 		s.mu.Unlock()
 		return reviewerRound{}, code, err
 	}
@@ -1911,7 +1919,7 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		testHookBeforeUnsentCleared()
 	}
 	s.mu.Lock()
-	s.sending = nil
+	s.releaseSendingLocked(keys)
 	err = s.saveUnsentLocked()
 	s.mu.Unlock()
 	if err != nil && s.Log != nil {

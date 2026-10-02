@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/reearth/ygo/crdt"
 	"github.com/schuettc/galley/internal/docmodel"
@@ -408,6 +409,28 @@ func TestACommentFiledWhileARoundIsSentKeepsTheSentRoundInPendingJSON(t *testing
 	got := loadUnsent(t, s)
 	if len(got) != 1 || got[0].Text != "filed mid-send" {
 		t.Errorf("pending.json after the send = %+v, want only the comment filed mid-send", got)
+	}
+}
+
+// Two sends can overlap (a Revise press and a live settle), so one send
+// finishing must not release another's in-flight round.
+func TestOneSendDoesNotReleaseAnotherSendsRound(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	s.OnRevise = "true"
+	fileThreeComments(t, s)
+	other := unsent.Comment{Key: "cd-00000000000000aa", Kind: unsent.KindDocument,
+		Text: "another send's round", Author: review.AuthorCourt, At: time.Now()}
+	s.mu.Lock()
+	s.sending = map[string]unsent.Comment{other.Key: other}
+	s.mu.Unlock()
+
+	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 {
+		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
+	}
+	got := loadUnsent(t, s)
+	if len(got) != 1 || got[0].Key != other.Key {
+		t.Errorf("pending.json after one send = %+v, want only the other send's in-flight %s", got, other.Key)
 	}
 }
 

@@ -71,6 +71,14 @@ func (s *EditServer) saveUnsentLocked() error {
 
 // sendingOf is the unsent comments for keys, read off the review map before
 // Revise deletes them.
+// releaseSendingLocked drops ONE send's comments from the in-flight set, and
+// only its own: another send still holding its round keeps it. Caller holds mu.
+func (s *EditServer) releaseSendingLocked(keys []string) {
+	for _, key := range keys {
+		delete(s.sending, key)
+	}
+}
+
 func sendingOf(threads []review.Thread, keys []string) map[string]unsent.Comment {
 	want := make(map[string]bool, len(keys))
 	for _, k := range keys {
