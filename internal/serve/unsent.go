@@ -164,10 +164,10 @@ func replayUnsent(doc *crdt.Doc, threads []review.Thread) {
 }
 
 // liveInstructions is the live server's instruction list: the review map,
-// through the one builder, with retracted range comments hidden.
+// through the one builder.
 func (s *EditServer) liveInstructions(model docmodel.Doc) []InstructionView {
 	threads := review.Read(s.doc)
-	return instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads), s.retracted)
+	return instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads))
 }
 
 // anchorKeysOf maps each thread to the block it sits on. A block comment's
@@ -189,16 +189,14 @@ func anchorKeysOf(threads []review.Thread) map[string]string {
 // pending` all list instructions through it, so none of them can disagree
 // about which instructions there are. There were three, and the wait builder
 // had no retraction filter: the agent was handed comments the reviewer had
-// taken back by deleting their words.
-//
-// hide drops a comment the live server watched lose its place (see
-// noteAnchored); offline it is nil.
+// taken back by deleting their words. A comment whose words were deleted is
+// now deleted from the review map and pending.json by the projection (see
+// sweepRetracted), so there is nothing left here to filter.
 //
 // ONE INSTRUCTION PER THREAD, not one per reviewer entry: a thread is one
 // comment, unsent.FromThreads keeps its first reviewer entry, and galley
 // itself only ever writes one (edit replaces it via SetComment).
-func instructionsOf(comments []unsent.Comment, model docmodel.Doc, anchorKeys map[string]string,
-	hide func(th review.Thread, paired bool) bool) []InstructionView {
+func instructionsOf(comments []unsent.Comment, model docmodel.Doc, anchorKeys map[string]string) []InstructionView {
 	pending := suggest.List(model)
 	threads := unsent.ToThreads(comments)
 	out := make([]InstructionView, 0, len(comments))
@@ -206,14 +204,8 @@ func instructionsOf(comments []unsent.Comment, model docmodel.Doc, anchorKeys ma
 		th := threads[i]
 		th.AnchorKey = anchorKeys[c.Key]
 		run := ""
-		p, paired := suggest.PairFor(pending, th)
-		if paired {
+		if p, ok := suggest.PairFor(pending, th); ok {
 			run = p.Run
-		}
-		// DELETE THE SENTENCE, DELETE THE INSTRUCTION ABOUT IT. See
-		// noteAnchored.
-		if hide != nil && hide(th, paired) {
-			continue
 		}
 		out = append(out, InstructionView{
 			Key: c.Key, Text: strings.TrimSpace(c.Text), Quote: strings.TrimSpace(c.Quote),
@@ -253,5 +245,5 @@ func OfflineInstructions(mdPath string) ([]InstructionView, error) {
 	for _, n := range orphans {
 		threads = append(threads, suggest.NewNoteThread(n, review.AuthorCourt, now))
 	}
-	return instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads), nil), nil
+	return instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads)), nil
 }

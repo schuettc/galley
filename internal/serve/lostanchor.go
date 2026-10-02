@@ -1,6 +1,10 @@
 package serve
 
 import (
+	"context"
+
+	"github.com/reearth/ygo/crdt"
+
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/suggest"
@@ -15,104 +19,59 @@ import (
 // under an AGENT's pending mark has always been the verdict by hand — the
 // proposal vanishes and `suggest.ReplayAttribution` tolerates the absent mark by
 // design. An instruction is the reviewer's own mark over their own words, and
-// until now removing those words left the instruction behind, orphaned, in a
-// section headed "unplaced · their words were removed". That heading describes
-// the mechanism; what the reviewer did was retract the note.
+// removing those words retracts it.
 //
-// ONLY A RANGE INSTRUCTION, and `Anchor` is what says so. A block or
-// whole-document instruction has no anchor text by construction — that is what
-// docmodel.Note exists for — so it has no mark to lose and nothing here may
-// touch it.
+// A TEXT COMMENT'S PLACE IS ITS ID ON A HIGHLIGHT, and nothing else. Editing a
+// word inside the highlight keeps the ID, so the comment stays; deleting every
+// highlighted word deletes every mark carrying the ID, and that is the one
+// event this sweeps.
 //
-// THAT CHECK IS CURRENTLY SUBSUMED BY `seenAnchored` AND IS KEPT ANYWAY, which
-// is worth stating because it means no test can distinguish it: a block thread
-// never pairs with a mark, so it never enters `seenAnchored`, so removing the
-// `Anchor` clause changes no outcome today — measured, by deleting it and
-// watching the whole-document test stay green. It is kept because it is the
-// RULE and the other is a mechanism: the day anything makes a block thread pair
-// transiently, this is the clause that already says no. Do not remove it as
-// dead on the strength of a green suite, and do not remove `seenAnchored` on
-// the strength of this one — they guard different things and only one of them
-// is currently reachable.
+// TWO GUARDS, and they guard different things:
 //
-// ONLY AN ANCHOR THIS SERVER HAS SEEN. `suggest.PairFor` failing means "there is
-// no mark for this thread NOW", which is not the same claim as "the reviewer
-// deleted it". A sidecar written by an older galley, a legacy key, a pairing
-// this build cannot reproduce — each of those also has no mark, and deleting on
-// that evidence would destroy instructions nobody touched, at startup, silently.
-// `seenAnchored` records the keys that HAVE paired, so the predicate is the one
-// actually wanted: the anchor was there, and now it is gone.
-//
-// The cost of that guard is stated rather than hidden: an instruction whose
-// anchor was already missing before this process started is never swept. It
-// stays an unplaced card, which is the honest rendering — this server cannot
-// know it was ever anchored.
+//   - ONLY A TEXT COMMENT. `Anchor` is what says so: a block or whole-document
+//     comment has no highlight by construction, so it has no mark to lose, and
+//     sweeping one would delete every whole-document instruction at the first
+//     projection. A block comment whose note disappears stays, unplaced.
+//   - ONLY A PLACE THIS SERVER HAS SEEN. "There is no mark now" is not "the
+//     reviewer deleted it". A comment restored from pending.json whose mark the
+//     .md no longer carries — an edit made while galley was stopped, a file
+//     restored from git — also has no mark, and deleting on that evidence
+//     would destroy comments nobody touched, at startup, silently.
+//     `seenAnchored` records the IDs that HAVE been placed, so the predicate is
+//     the one actually wanted: the place was there, and now it is gone. It is
+//     per process, and the cost is stated rather than hidden: a comment whose
+//     place was already gone before this process started is never swept. It
+//     stays an unplaced card, which is the honest rendering.
 //
 // IT RUNS FROM `project`, which is where the server first learns the reviewer
 // moved: a browser edit reaches the CRDT, `doc.OnUpdate` fires, `touch`
 // schedules the debounced projection. There is no HTTP hook for typing, and the
-// browser must NOT decide this — a thread is transiently anchorless on its first
+// browser must NOT decide this — a thread is transiently unplaced on its first
 // paint there, every time, because the projection reaches `/_galley/pending`
 // before the websocket reaches the document, and a browser-side sweep would
 // delete instructions as they arrived.
 //
 // IT CHANGES NO TEXT. The highlight went with the words the reviewer deleted, so
-// there is nothing left to detach from the document — this removes the thread
-// from the review map and nothing else. That is why it can sit inside `project`
-// without touching the bytes `project` is about to write.
-// noteAnchored records which range instructions currently have a real mark, and
-// retractLost drops the ones whose mark has GONE from what the reviewer is
-// shown. Together they are Court's rule — delete the sentence, delete the
-// instruction about it — with NO document write of their own.
+// there is nothing left to detach from the document. It deletes the thread from
+// the review map and rewrites pending.json, before `project` writes the .md.
 //
-// EAGER DELETION WAS BUILT FIRST AND BACKED OUT, and the measurements are why.
-// Deleting the thread from inside `project` cut spurious rounds:
-// `web/rounds-ux.mjs` showed the arrival strip naming `round 3 answered · v6`
-// while the record had already run on to v8. Moving the write out to a
-// goroutine that went through `mutate`, exactly as the reviewer's own delete
-// button does, made it WORSE — three failures in five runs, then five in five.
-// Seeding the notifier after each retraction, the idiom `sendReviewerRound`
-// uses for precisely this ("part of THIS send, not a new live edit"), left one
-// run in four still red.
-//
-// The reason is structural rather than a race to be tuned out: IN LIVE MODE A
-// SETTLE IS A SEND. Any document mutation can become a round, and a retraction
-// is a document mutation. Making one class of write exempt means teaching
-// `wakeSettle`/`cutIfSending` about it — and CLAUDE.md's entry on that code
-// says in terms not to re-add a mode test there, because the digest clause it
-// replaced was exactly that mistake.
-//
-// SO NOTHING IS WRITTEN. The instruction leaves the rail because it leaves the
-// PENDING VIEW, which is what every surface renders from, and the thread itself
-// is cleared by the send that already clears every instruction thread
-// (`sendReviewerRound`). There is no window in which the reviewer sees a card
-// for words that are gone.
-//
-// THE ONE HONEST COST, stated rather than hidden: a retracted instruction is
-// filtered for the life of this server and not deleted from the review map, so
-// a session that never sends and is then reopened shows the card again — the
-// new process has never seen that anchor paired, and cannot know it was ever
-// there. Making that consistent is what the eager deletion was for, and it
-// needs the round-cutting question answered first.
-//
-// ONLY A RANGE INSTRUCTION. `Anchor` is what says so: a block or
-// whole-document instruction has no anchor text by construction — that is what
-// docmodel.Note exists for — so it has no mark to lose. Getting this wrong
-// would hide every whole-document instruction on the first projection.
-//
-// ONLY AN ANCHOR THIS SERVER HAS SEEN. `suggest.PairFor` failing means "there
-// is no mark for this thread NOW", which is not "the reviewer deleted it". A
-// sidecar written by an older galley, a legacy key, a pairing this build cannot
-// reproduce — each has no mark, and filtering on that evidence would hide
-// instructions nobody touched, at startup, silently.
+// AN EARLIER EAGER DELETION HERE CUT SPURIOUS ROUNDS, measured in
+// `web/rounds-ux.mjs`, and was backed out for a filter that hid the comment and
+// left it in the review map, so a restart brought it back. What is different
+// now: the notify fingerprint is taken after this sweep, from the one builder
+// every surface uses, so the projection that sweeps already announces the
+// comment as gone, and the review-map write moves nothing the notifier
+// compares. Re-measured with this write in place: rounds-ux's retraction
+// checks (§5.4) pass.
+
+// noteAnchored records which text comments are placed in model: a thread whose
+// key is a comment ID on a highlight. Callers hold mu.
 func (s *EditServer) noteAnchored(model docmodel.Doc) {
 	threads := review.Read(s.doc)
 	if len(threads) == 0 {
 		return
 	}
 	pending := suggest.List(model)
-	s.anchorMu.Lock()
-	defer s.anchorMu.Unlock()
 	if s.seenAnchored == nil {
 		s.seenAnchored = map[string]bool{}
 	}
@@ -126,12 +85,40 @@ func (s *EditServer) noteAnchored(model docmodel.Doc) {
 	}
 }
 
-// retracted reports whether this thread's anchor was seen and has since gone.
-func (s *EditServer) retracted(th review.Thread, paired bool) bool {
-	if th.Anchor != "" || paired {
-		return false
+// sweepRetracted deletes every text comment this server saw placed whose ID is
+// on no mark in model, and rewrites pending.json without it. It writes the
+// review map only, through Apply, so peers see the thread go; the fragment is
+// untouched. Callers hold mu, and call it before the .md is written.
+func (s *EditServer) sweepRetracted(model docmodel.Doc) error {
+	if len(s.seenAnchored) == 0 {
+		return nil
 	}
-	s.anchorMu.Lock()
-	defer s.anchorMu.Unlock()
-	return s.seenAnchored[th.Key]
+	pending := suggest.List(model)
+	var gone []string
+	for _, th := range review.Read(s.doc) {
+		if th.Resolved || th.Anchor != "" || !s.seenAnchored[th.Key] {
+			continue
+		}
+		if _, ok := suggest.PairFor(pending, th); !ok {
+			gone = append(gone, th.Key)
+		}
+	}
+	if len(gone) == 0 {
+		return nil
+	}
+	s.serverWrites.Add(1)
+	defer s.serverWrites.Add(-1)
+	if err := s.yjs.Apply(context.Background(), s.Room,
+		func(doc *crdt.Doc, transact func(func(*crdt.Transaction))) {
+			sess := review.Bind(doc, transact)
+			for _, key := range gone {
+				_ = sess.Delete(key)
+			}
+		}); err != nil {
+		return err
+	}
+	for _, key := range gone {
+		delete(s.seenAnchored, key)
+	}
+	return s.saveUnsentLocked()
 }

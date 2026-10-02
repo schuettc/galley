@@ -1,8 +1,6 @@
 package suggest
 
 import (
-	"time"
-
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/review"
 )
@@ -14,9 +12,9 @@ import (
 // A thread leaves exactly one trace in the document, and which one depends on
 // its anchor:
 //
-//   - RANGE: a Highlight mark on the prose it covers. Deleting drops the mark
-//     and keeps the text, which is precisely what resolving a range comment
-//     already does — so it is the same transform, not a second spelling of it.
+//   - RANGE: a Highlight mark on the prose it covers, on every piece that
+//     carries the comment's ID. Deleting drops the mark from each piece and
+//     keeps the text.
 //   - BLOCK or DOCUMENT: a docmodel.Note block, which IS the note. There is no
 //     mark to lift; the file is where those words live, and removing the block
 //     is the only way to take them out of it. This is the one path in galley
@@ -26,129 +24,37 @@ import (
 // The sidecar half — dropping the conversation itself — is review.Session.
 // Delete, and every caller does both.
 
-// PairFor reports the pending mark a thread is the conversation about, for
-// EVERY kind: a comment thread's highlight, and equally a proposal thread's
-// insert, delete or replace — the thread whose heading is that proposal's
-// Text. It is what lets a reply reach a proposal and the proposal's card
-// render its conversation, and it is ONE RULE, NOT A SECOND ONE THAT AGREES
-// FOR NOW: MarkFor below is this rule restricted to comment kinds, so the mark
-// a card jumps to and the mark a delete lifts cannot drift from the mark a
-// proposal thread pairs with.
+// PairFor reports the comment highlight a text comment's thread is about: the
+// comment span whose ID is the thread's key.
 //
-// AMBIGUITY IS REPORTED, NEVER RESOLVED BY GUESSING. Attaching a conversation
-// to the wrong text is the failure this whole line of work exists to remove, so
-// a thread that two marks fit equally well has none.
+// THE ID AND NOTHING ELSE. The key is minted once (unsent.NewID), stamped on
+// every piece of the highlight and written into the file after each one, so
+// pairing is equality. It used to recompute a digest of the highlighted words
+// and then fall back to matching the thread's heading against them, which lost
+// a comment the moment the reviewer edited a word inside its own highlight
+// (bug 3) and could hand one comment's conversation to another's identical
+// words.
 //
-// THE KEY GOES FIRST. A proposal thread's key is derived from the proposal by
-// formula — CommentKey over its Text, Author and At, exactly what a reply-by-
-// run mints — so recomputing that formula over the candidates finds THE pair
-// without touching the entries at all. That matters because a reply-by-run
-// thread's entries carry the REPLIER's author and at, which the strict pass
-// below can never match against the proposal's, and because two proposals can
-// carry the same text, which the loose pass must then refuse. The key digests
-// all three identity parts, so it selects exactly; two candidates deriving one
-// key means one (text, author, at) triple made twice, and picking between them
-// would be a guess.
+// A thread whose key is no span's ID has no place in this document, and the
+// honest answer is "unplaced", whatever its heading says.
 //
-// The heading passes remain for every thread whose key does NOT recompute:
-// comment threads keyed at nanosecond precision where the mark keeps whole
-// seconds, and legacy keys that predate or drifted from the formula (see
-// MigrateCommentKeys — keys have drifted before). The first pairs on
-// (anchored text, author, second) — the three things a suggest-created
-// comment thread and its mark genuinely share, since the endpoint writes the
-// thread's first entry and the mark from one `at`, and both round to whole
-// seconds through RFC3339. The second pairs on the TEXT alone, and only when
-// exactly one mark in the whole list carries it: that is the case of a mark
-// that was never attributed, which is every span typed into the file by hand,
-// and "must match exactly once" is the same standard `--on TARGET` already
-// holds a caller to. A cross-kind coincidence — a comment and a proposal
-// sharing text, or even text+author+second — is residual ambiguity these
-// passes tolerate by refusing to pair, deliberately.
-//
-// RANGE anchors only. A block or document comment has no mark — its trace is a
-// docmodel.Note, and notes pair through matchNotes on the note's own words,
-// not here on a heading.
+// RANGE anchors only. A block or document comment's trace is a docmodel.Note,
+// paired through matchNotes, not here.
 //
 // It is a function over the pending LIST rather than over the document because
-// every caller already has one — the serve layer's pending view, Detach below
-// — and listing twice is the per-item rescan this package has paid for before.
+// every caller already has one — the serve layer's instruction builder and its
+// lost-anchor record — and listing twice is the per-item rescan this package
+// has paid for before.
 func PairFor(pending []Pending, t review.Thread) (Pending, bool) {
-	var keyed []Pending
+	if t.Key == "" {
+		return Pending{}, false
+	}
 	for _, p := range pending {
-		if p.Anchor != AnchorRange {
-			continue
+		if p.Kind == KindComment && p.Anchor == AnchorRange && p.CommentID == t.Key {
+			return p, true
 		}
-		if CommentKey(p.Text, p.Author, p.At) == t.Key {
-			keyed = append(keyed, p)
-		}
-	}
-	if len(keyed) == 1 {
-		return keyed[0], true
-	}
-	if len(keyed) > 1 {
-		return Pending{}, false
-	}
-
-	var opened review.Entry
-	if len(t.Entries) > 0 {
-		opened = t.Entries[0]
-	}
-	// AN INLINE NOTE HAS NOTHING IN THE DOCUMENT TO PAIR WITH, EVER. A
-	// {>>…<<} at a position in prose is LIFTED out at parse and never
-	// serialized again (markdown/note.go), so there is no mark, no highlight
-	// and no run — whatever its heading happens to say.
-	//
-	// This used to be asked as `t.Heading == ""`, which was true of exactly
-	// this population and for the wrong reason: the import minted no heading,
-	// so the proxy held. It stopped being a proxy the moment the thread was
-	// given a name — an inline note in a short paragraph now carries that
-	// paragraph's text, and the loose pass below matches a range mark on TEXT
-	// ALONE, so the note would have claimed a stranger's highlight and `galley
-	// delete md-…` would have lifted it out of the author's file. Ask the fact.
-	if IsInlineNoteKey(t.Key) {
-		return Pending{}, false
-	}
-	if t.Heading == "" {
-		// Nothing to pair on: the passes below match on the heading, and a
-		// thread with none has nothing to offer them.
-		return Pending{}, false
-	}
-	exact := func(p Pending) bool {
-		return p.Author == opened.Author &&
-			p.At.Truncate(time.Second).Equal(opened.At.Truncate(time.Second))
-	}
-	var loose []Pending
-	var strict []Pending
-	for _, p := range pending {
-		if p.Anchor != AnchorRange || p.Text != t.Heading {
-			continue
-		}
-		loose = append(loose, p)
-		if exact(p) {
-			strict = append(strict, p)
-		}
-	}
-	if len(strict) == 1 {
-		return strict[0], true
-	}
-	if len(strict) == 0 && len(loose) == 1 {
-		return loose[0], true
 	}
 	return Pending{}, false
-}
-
-// MarkFor reports the comment highlight a range thread is anchored to: PairFor
-// over the comment-kind marks alone. Detach resolves a range thread's
-// highlight through it, so a delete can only ever lift a highlight — a
-// proposal's ins/del marks are not candidates, whatever text they carry.
-func MarkFor(pending []Pending, t review.Thread) (Pending, bool) {
-	var comments []Pending
-	for _, p := range pending {
-		if p.Kind == KindComment {
-			comments = append(comments, p)
-		}
-	}
-	return PairFor(comments, t)
 }
 
 // Detach removes from d whatever trace the thread named by key left there, and
@@ -183,18 +89,44 @@ func Detach(d docmodel.Doc, threads []review.Thread, key string) (docmodel.Doc, 
 		return d, false
 	}
 
-	p, ok := MarkFor(List(d), t)
-	if !ok {
+	return liftComment(d, key)
+}
+
+// liftComment drops the comment highlight carrying id from EVERY inline of
+// every block, and reports whether there was one. One comment can be several
+// pieces — a selection across paragraphs, or around a code span — and every
+// piece carries the ID, so lifting by the ID takes them all and nothing else.
+// The words stay: the highlight is over the author's prose.
+func liftComment(d docmodel.Doc, id string) (docmodel.Doc, bool) {
+	if id == "" {
 		return d, false
 	}
-	// applyDecision, not a local mark-dropping walk: mutateSpan is where what
-	// "lift a highlight" means is decided, and resolving a range comment already
-	// goes through it. One implementation, reached two ways.
-	out, err := Accept(d, p.ID)
-	if err != nil {
+	clone := cloneDoc(d)
+	lifted := false
+	docmodel.Walk(clone, func(_ []int, b *docmodel.Block) {
+		if b.Kind == docmodel.Note {
+			return
+		}
+		for i := range b.Inlines {
+			in := &b.Inlines[i]
+			if in.Attr(docmodel.Highlight, docmodel.CommentIDAttr) != id {
+				continue
+			}
+			var kept []docmodel.Mark
+			for _, m := range in.Marks {
+				if m.Kind == docmodel.Highlight && m.Attrs[docmodel.CommentIDAttr] == id {
+					continue
+				}
+				kept = append(kept, m)
+			}
+			in.Marks = kept
+			lifted = true
+		}
+	})
+	if !lifted {
 		return d, false
 	}
-	return out, true
+	return clone, true
 }
 
 // Reword rewrites the words of the note the thread named by key left in the

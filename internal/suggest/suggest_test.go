@@ -2,7 +2,6 @@ package suggest
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -424,58 +423,24 @@ func TestInsertAfter_ZeroMatches_Errors(t *testing.T) {
 
 // --- CommentOn ---
 
-func TestCommentOn_HighlightsAndReturnsAStableThreadKey(t *testing.T) {
+func TestCommentOn_HighlightsAndStampsTheGivenID(t *testing.T) {
+	const id = "cm-0123456789abcdef"
 	d := doc(para(plain("Hello world")))
-	got, key, err := CommentOn(d, "world", "alice", tAlice)
+	got, err := CommentOn(d, "world", id, "alice", tAlice)
 	if err != nil {
 		t.Fatalf("CommentOn: %v", err)
 	}
-	want := doc(para(plain("Hello "), highlight("world", "alice", tAlice)))
+	mark := highlight("world", "alice", tAlice)
+	mark.Marks[0].Attrs[docmodel.CommentIDAttr] = id
+	want := doc(para(plain("Hello "), mark))
 	if !docmodel.Equal(got, want) {
 		t.Fatalf("want %+v, got %+v", want, got)
 	}
-	// The key is CommentKey's, not the ordinal List reports for the highlight
-	// — the ordinal renumbers on the next edit, so it is not identity.
-	if key != CommentKey("world", "alice", tAlice) {
-		t.Fatalf("key = %q, want CommentKey's", key)
-	}
+	// The ID is the comment's identity, not the ordinal List reports for the
+	// highlight: the ordinal renumbers on the next edit.
 	pending := List(got)
-	if len(pending) != 1 || pending[0].ID != "c1" {
-		t.Fatalf("want one highlight listed as c1, got %+v", pending)
-	}
-	if pending[0].ID == key {
-		t.Fatal("the thread key must not be the ordinal")
-	}
-}
-
-// The whole point of CommentKey: the same comment keeps its key no matter how
-// many suggestions appear before it and renumber its ordinal.
-func TestCommentKeyDoesNotMoveWithTheOrdinal(t *testing.T) {
-	first := doc(para(plain("Alpha")), para(plain("Bravo")))
-	withBravo, bravoKey, err := CommentOn(first, "Bravo", "alice", tAlice)
-	if err != nil {
-		t.Fatalf("CommentOn bravo: %v", err)
-	}
-	both, alphaKey, err := CommentOn(withBravo, "Alpha", "alice", tCourt)
-	if err != nil {
-		t.Fatalf("CommentOn alpha: %v", err)
-	}
-	if alphaKey == bravoKey {
-		t.Fatalf("two comments produced one key %q", alphaKey)
-	}
-	// Bravo's ordinal moved from c1 to c2; its key did not move at all.
-	var ordinals []string
-	for _, p := range List(both) {
-		if p.Kind == KindComment {
-			ordinals = append(ordinals, p.ID+"="+p.Text)
-		}
-	}
-	want := []string{"c1=Alpha", "c2=Bravo"}
-	if !reflect.DeepEqual(ordinals, want) {
-		t.Fatalf("ordinals = %v, want %v", ordinals, want)
-	}
-	if got := CommentKey("Bravo", "alice", tAlice); got != bravoKey {
-		t.Fatalf("bravo's key moved: %q, want %q", got, bravoKey)
+	if len(pending) != 1 || pending[0].ID != "c1" || pending[0].CommentID != id {
+		t.Fatalf("want one highlight listed as c1 carrying %s, got %+v", id, pending)
 	}
 }
 
@@ -512,7 +477,7 @@ func TestMigrateCommentKeysRekeysOrdinalsAndLeavesTheRestAlone(t *testing.T) {
 
 func TestCommentOn_TwoMatches_Errors(t *testing.T) {
 	d := doc(para(plain("world world")))
-	if _, _, err := CommentOn(d, "world", "alice", tAlice); err == nil || !strings.Contains(err.Error(), "2") {
+	if _, err := CommentOn(d, "world", "cm-000000000000000b", "alice", tAlice); err == nil || !strings.Contains(err.Error(), "2") {
 		t.Fatalf("want error naming a count of 2, got %v", err)
 	}
 }
@@ -641,7 +606,7 @@ func TestReplace_AllowsStackingOntoAHighlightedRange(t *testing.T) {
 func TestCommentOn_RefusesToStackOntoAnExistingComment(t *testing.T) {
 	d := doc(para(highlight("word", "alice", tAlice)))
 
-	_, _, err := CommentOn(d, "word", "bob", tBob)
+	_, err := CommentOn(d, "word", "cm-000000000000000c", "bob", tBob)
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -753,7 +718,7 @@ func TestSuggestCannotTargetANote(t *testing.T) {
 	if _, err := Replace(doc, "out of date", "stale", "reviewer", time.Now().UTC()); err == nil {
 		t.Error("a suggestion was allowed to target a note's text")
 	}
-	if _, _, err := CommentOn(doc, "out of date", "reviewer", time.Now().UTC()); err == nil {
+	if _, err := CommentOn(doc, "out of date", "cm-000000000000000d", "reviewer", time.Now().UTC()); err == nil {
 		t.Error("a comment was allowed to target a note's text")
 	}
 	// And the same words in real prose still work, so the guard is about the

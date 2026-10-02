@@ -100,6 +100,21 @@ func TestTheUnsentRoundSurvivesARestart(t *testing.T) {
 	if err := s.Flush(); err != nil {
 		t.Fatal(err)
 	}
+	// THE FILE CARRIES THE PLACE, pending.json THE WORDS. The text comment is an
+	// ID mark after its highlight and nothing else.
+	var textKey string
+	for _, c := range loadUnsent(t, s) {
+		if c.Kind == unsent.KindText {
+			textKey = c.Key
+		}
+	}
+	md := readMD(t, s)
+	if want := "{==Cognito==}{>>@comment " + textKey + "<<}"; textKey == "" || !strings.Contains(md, want) {
+		t.Errorf("the file does not carry the text comment's ID mark %q: %q", want, md)
+	}
+	if strings.Contains(md, "name the issuer") {
+		t.Errorf("the text comment's words are in the file: %q", md)
+	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}

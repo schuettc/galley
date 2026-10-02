@@ -260,16 +260,11 @@ type EditServer struct {
 	// it beside the live threads, so pending.json holds a sent comment until a
 	// round does. Under mu. See sendReviewerRound.
 	sending map[string]unsent.Comment
-	// seenAnchored is every range instruction this server has seen paired with
-	// a real mark. See sweepLostAnchors: "there is no mark now" and "the
-	// reviewer deleted the words" are different claims, and only this set tells
-	// them apart. Under mu with the projection that writes it.
+	// seenAnchored is every text comment this server has seen placed: its ID on
+	// a mark in the live document. See sweepRetracted: "there is no mark now"
+	// and "the reviewer deleted the words" are different claims, and only this
+	// set tells them apart. Under mu, with the projection that writes it.
 	seenAnchored map[string]bool
-	// retracting single-flights the goroutine sweepLostAnchors hands the
-	// deletion to. See there.
-	// anchorMu guards seenAnchored: it is written under mu by the projection
-	// and read by `pending`, which deliberately does not take mu.
-	anchorMu sync.Mutex
 
 	// The exception, in the agent's own words — see handleCannot. Under reviseMu
 	// with the ack for the same reason the ack is: the window opens on a press
@@ -726,11 +721,14 @@ func (s *EditServer) project() error {
 
 	// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM. This is
 	// the one place the server learns the reviewer moved — typing has no HTTP
-	// hook — and the call WRITES NOTHING: it records which anchors it has seen,
-	// and `instructionsOf` drops the ones that have since gone. An eager
-	// deletion was built here first and cut spurious rounds; see noteAnchored,
-	// which carries the measurements and why the write is not worth having.
+	// hook. It records which text comments are placed, deletes the ones whose
+	// place has since gone, and rewrites pending.json, all before the .md is
+	// written below, so the unsent round still reaches disk first. See
+	// lostanchor.go.
 	s.noteAnchored(model)
+	if err := s.sweepRetracted(model); err != nil {
+		return err
+	}
 
 	// A CODE FENCE IS NEVER REWRITTEN. Its text is literal by definition, so
 	// {--…--} inside one is characters, not a suggestion — a shell script that
@@ -1194,29 +1192,6 @@ func (s *EditServer) editFingerprint(model docmodel.Doc) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-func anchoredText(model docmodel.Doc, path []int, author string) (string, bool) {
-	found, n := "", 0
-	for _, p := range suggest.List(model) {
-		if p.Kind != suggest.KindComment || p.Author != author || !samePath(p.Path, path) {
-			continue
-		}
-		found, n = p.Text, n+1
-	}
-	return found, n == 1
-}
-
-func samePath(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func threadByKey(doc *crdt.Doc, key string) (review.Thread, bool) {
 	for _, thread := range review.Read(doc) {
 		if thread.Key == key {
@@ -1570,35 +1545,24 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 	code, err := s.mutateUnsent(requesterFor(author), func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		switch in.Op {
 		case "comment":
-			var (
-				out docmodel.Doc
-				key string
-				err error
-			)
-			out, key, err = commentRanged(model, in, author, at)
+			// A comment is a highlight in the document, carrying the comment's
+			// ID on every piece, PLUS a thread carrying what was actually said.
+			// The ID is minted here, once, and is the thread's key for its whole
+			// life: the file's mark and pending.json's comment are linked by it
+			// and by nothing else. The highlight's ordinal is a display
+			// coordinate and is never persisted (see suggest.Pending.ID).
+			key := unsent.NewID(unsent.KindText)
+			out, err := commentRanged(model, in, key, author, at)
 			if err != nil {
 				return docmodel.Doc{}, nil, err
 			}
-			// A comment is a highlight in the document PLUS a thread carrying
-			// what was actually said — the highlight alone has nowhere to put
-			// the words. The thread's key is suggest.CommentKey's, derived from
-			// what the comment is anchored to and stable for its whole life;
-			// the highlight's ordinal is a display coordinate and is never
-			// persisted (see suggest.Pending.ID). The highlighted text is the
-			// heading, so the panel and `galley pending` name what the comment
-			// is about instead of a hash.
-			if strings.TrimSpace(in.Text) == "" {
-				return out, nil, nil
-			}
 			// The heading is what the highlight actually covers, not what the
-			// browser called it. The two differ whenever the selection had
-			// whitespace on it, and anchorThreads pairs on this string — a
-			// trimmed heading is a thread that silently loses its jump.
+			// browser called it: the two differ whenever the selection had
+			// whitespace on it, and a cross-paragraph comment's pieces are
+			// joined the way List joins them.
 			heading := in.Target
-			if in.Path != nil {
-				if anchored, ok := anchoredText(out, in.Path, author); ok {
-					heading = anchored
-				}
+			if anchored, ok := suggest.CommentText(out, key); ok {
+				heading = anchored
 			}
 			text := in.Text
 			return out, func(doc *crdt.Doc, tx review.Tx) {
@@ -1768,18 +1732,23 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 // selected and says so in coordinates; the CLI knows only some words and asks
 // the server to find them. Asking the server to search when the page already
 // knew is what made commenting on a word that occurs twice fail.
-func commentRanged(model docmodel.Doc, in instructionRequest, author string, at time.Time) (docmodel.Doc, string, error) {
+func commentRanged(model docmodel.Doc, in instructionRequest, id, author string, at time.Time) (docmodel.Doc, error) {
+	// A COMMENT WITH NO WORDS IS REFUSED, not filed as a bare highlight: its ID
+	// mark would sit in the .md with no comment in pending.json for it to name.
+	if strings.TrimSpace(in.Text) == "" {
+		return docmodel.Doc{}, errors.New("an instruction needs words")
+	}
 	switch {
 	case in.Path != nil && in.ToPath != nil:
 		// A SELECTION THAT CROSSES A BLOCK BOUNDARY. It used to fall to the
 		// Target branch below, where `findUnique` searches block by block for a
 		// string that is the concatenation of two — zero matches, every time,
 		// and only after the reviewer had finished typing their instruction.
-		return suggest.CommentAcross(model, in.Path, in.From, in.ToPath, in.To, author, at)
+		return suggest.CommentAcross(model, in.Path, in.From, in.ToPath, in.To, id, author, at)
 	case in.Path != nil:
-		return suggest.CommentOnRange(model, in.Path, in.From, in.To, author, at)
+		return suggest.CommentOnRange(model, in.Path, in.From, in.To, id, author, at)
 	default:
-		return suggest.CommentOn(model, in.Target, author, at)
+		return suggest.CommentOn(model, in.Target, id, author, at)
 	}
 }
 

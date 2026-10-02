@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -64,10 +65,19 @@ func TestTheLiveWireCarriesTheKeyIntoTheCLI(t *testing.T) {
 // is running. A key that only exists live is a key an agent cannot rely on.
 func TestTheOfflinePathCarriesTheKeyToo(t *testing.T) {
 	at := time.Date(2026, 8, 22, 15, 2, 17, 0, time.UTC)
-	doc := writeDoc(t, t.TempDir(), "d.md", "# T\n\nHello.\n")
+	// A text comment's key is a minted ID, never a digest of its words: the
+	// file carries it after the highlight, and pending.json carries the words.
+	textKey := unsent.NewID(unsent.KindText)
+	if !regexp.MustCompile(`^cm-[0-9a-f]{16}$`).MatchString(textKey) {
+		t.Fatalf("a text comment's key %q is not cm- and 16 hex digits", textKey)
+	}
+	doc := writeDoc(t, t.TempDir(), "d.md", "# T\n\n{==Hello.==}{>>@comment "+textKey+"<<}\n")
 	// A whole-document comment has no mark in the file: pending.json is the
 	// only place it is, and offline it is read from there.
 	if err := unsent.Save(unsent.Path(doc), unsent.File{Comments: []unsent.Comment{{
+		Key: textKey, Kind: unsent.KindText, Author: review.AuthorCourt, At: at,
+		Text: "say more", Quote: "Hello.",
+	}, {
 		Key: "cd-dbdcfb4746a99476", Kind: unsent.KindDocument, Author: review.AuthorCourt, At: at,
 		Text: "in general this is good, but too many places where we're vague",
 	}}}); err != nil {
@@ -79,12 +89,14 @@ func TestTheOfflinePathCarriesTheKeyToo(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := view.Instructions
-	if len(got) != 1 {
-		t.Fatalf("built %d instructions, want 1", len(got))
+	if len(got) != 2 {
+		t.Fatalf("built %d instructions, want 2: %+v", len(got), got)
 	}
-	if got[0].Key != "cd-dbdcfb4746a99476" {
-		t.Errorf("the offline path dropped the key: got %q — live and offline would disagree",
-			got[0].Key)
+	for i, want := range []string{textKey, "cd-dbdcfb4746a99476"} {
+		if got[i].Key != want {
+			t.Errorf("the offline path dropped the key: got %q, want %q — live and offline would disagree",
+				got[i].Key, want)
+		}
 	}
 }
 

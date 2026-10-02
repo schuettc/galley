@@ -102,10 +102,16 @@ type Pending struct {
 	// ordinal is the only coordinate anyone uses. Emitting "run": "" there
 	// would advertise an identity that does not exist, and any consumer that
 	// believed it would address the wrong mark.
-	Run    string    `json:"run,omitempty"`
-	Kind   Kind      `json:"kind"`
-	Author string    `json:"author"`
-	At     time.Time `json:"at"`
+	Run string `json:"run,omitempty"`
+	// CommentID is the comment ID a comment span carries in the file
+	// (docmodel.CommentIDAttr): the `cm-` ID on a highlight's pieces, or the
+	// ID on a note. It IS the comment's key, so pairing a comment with its
+	// place is this equality and nothing else. Empty for every proposal, and
+	// for a highlight or note typed by hand with no ID.
+	CommentID string    `json:"commentId,omitempty"`
+	Kind      Kind      `json:"kind"`
+	Author    string    `json:"author"`
+	At        time.Time `json:"at"`
 	// Text is the plain text the suggestion covers: inserted, deleted, or
 	// highlighted, with any of the block's other formatting stripped. For a
 	// "replace" it is both halves joined — "brown → red" — because a
@@ -210,7 +216,10 @@ type span struct {
 	atRaw string
 	// run is docmodel.RunAttr: this mark's stable in-session identity. Part
 	// of the span grouping key, not decoration — see listSpans.
-	run        string
+	run string
+	// commentID is the comment ID the span's mark or note carries; see
+	// Pending.CommentID.
+	commentID  string
 	text       string
 	start, end int // inline index range [start, end) within the block's Inlines
 	// parts is set only for a span that crosses BLOCKS — one entry per block
@@ -263,6 +272,7 @@ func List(d docmodel.Doc) []Pending {
 		p := Pending{
 			ID:        sp.id,
 			Run:       sp.run,
+			CommentID: sp.commentID,
 			Kind:      sp.kind,
 			Author:    sp.author,
 			At:        sp.at,
@@ -415,12 +425,18 @@ func (sp span) allParts() []spanPart {
 // An empty run never joins anything. A mark read from a file has no run until
 // MintRuns gives it one, and folding those together would merge unrelated
 // comments that happen to be adjacent.
+//
+// NOR DOES A DIFFERENT COMMENT ID. Pieces that share an ID share a run (the
+// parser draws that boundary from the file), so two IDs under one run are two
+// comments however the runs came to agree, and joining them would delete one
+// comment's place.
 func coalesceRuns(spans []span) []span {
 	out := make([]span, 0, len(spans))
 	for _, sp := range spans {
 		last := len(out) - 1
 		if last >= 0 && sp.run != "" && out[last].run == sp.run &&
-			out[last].markKind == sp.markKind && !out[last].note && !sp.note {
+			out[last].markKind == sp.markKind && !out[last].note && !sp.note &&
+			(out[last].commentID == "" || sp.commentID == "" || out[last].commentID == sp.commentID) {
 			if len(out[last].parts) == 0 {
 				out[last].parts = []spanPart{{path: out[last].path, start: out[last].start, end: out[last].end}}
 			}
@@ -531,20 +547,21 @@ func InsertAfter(d docmodel.Doc, anchor, text, author string, at time.Time) (doc
 	return clone, nil
 }
 
-// CommentOn finds the one place target occurs in d's text, highlights it
-// (preserving its existing marks) and returns the new comment's THREAD KEY —
-// see CommentKey. target must occur exactly once, or CommentOn fails naming
+// CommentOn finds the one place target occurs in d's text and highlights it
+// (preserving its existing marks), stamping id on the highlight: the comment's
+// identity, minted by the caller (unsent.NewID) and written into the file as
+// the mark's ID. target must occur exactly once, or CommentOn fails naming
 // how many times it actually matched.
-func CommentOn(d docmodel.Doc, target, author string, at time.Time) (docmodel.Doc, string, error) {
+func CommentOn(d docmodel.Doc, target, id, author string, at time.Time) (docmodel.Doc, error) {
 	m, err := findUnique(d, target)
 	if err != nil {
-		return docmodel.Doc{}, "", err
+		return docmodel.Doc{}, err
 	}
-	return commentAtMatch(d, m, target, author, at)
+	return commentAtMatch(d, m, target, id, author, at)
 }
 
 // CommentOnRange highlights the rune range [from, to) within the block at path
-// and opens a thread on it, returning the document and the thread key.
+// and stamps id on it.
 //
 // This is the editor's path, and the difference from CommentOn is the whole
 // point: the browser already knows exactly what the reviewer selected, so
@@ -556,48 +573,74 @@ func CommentOn(d docmodel.Doc, target, author string, at time.Time) (docmodel.Do
 // Offsets are runes into the block's concatenated inline text — the same
 // coordinates plainText, findUnique and markdown.InlineComment.Offset all
 // already use.
-func CommentOnRange(d docmodel.Doc, path []int, from, to int, author string, at time.Time) (docmodel.Doc, string, error) {
+func CommentOnRange(d docmodel.Doc, path []int, from, to int, id, author string, at time.Time) (docmodel.Doc, error) {
 	block, ok := blockAt(d, path)
 	if !ok || block == nil {
-		return docmodel.Doc{}, "", fmt.Errorf("suggest: no block at path %v", path)
+		return docmodel.Doc{}, fmt.Errorf("suggest: no block at path %v", path)
 	}
 	n := len([]rune(plainText(block.Inlines)))
 	if from < 0 || to > n || from >= to {
-		return docmodel.Doc{}, "", fmt.Errorf(
+		return docmodel.Doc{}, fmt.Errorf(
 			"suggest: range [%d,%d) is not inside the block at %v (%d runes)", from, to, path, n)
 	}
 	m := match{path: append([]int(nil), path...), start: from, end: to}
 	target := string([]rune(plainText(block.Inlines))[from:to])
-	return commentAtMatch(d, m, target, author, at)
+	return commentAtMatch(d, m, target, id, author, at)
 }
 
 // commentAtMatch is what both comment paths do once the span is known: refuse
-// to double-comment it, highlight it, and derive the thread key. One
-// implementation, so a fix to either caller's addressing cannot drift from the
-// other's semantics.
-func commentAtMatch(d docmodel.Doc, m match, target, author string, at time.Time) (docmodel.Doc, string, error) {
+// to double-comment it and highlight it under id. One implementation, so a fix
+// to either caller's addressing cannot drift from the other's semantics.
+func commentAtMatch(d docmodel.Doc, m match, target, id, author string, at time.Time) (docmodel.Doc, error) {
 	if _, cAuthor, cAt, found := conflictingMark(d, m, docmodel.Highlight); found {
-		return docmodel.Doc{}, "", fmt.Errorf("suggest: %q already has a pending comment by %s (at %s)", target, cAuthor, cAt)
+		return docmodel.Doc{}, fmt.Errorf("suggest: %q already has a pending comment by %s (at %s)", target, cAuthor, cAt)
 	}
+	run := newRun()
 	clone := cloneDoc(d)
 	docmodel.Walk(clone, func(path []int, b *docmodel.Block) {
 		if !pathEqual(path, m.path) {
 			return
 		}
 		before, matched, after := sliceByRuneRange(b.Inlines, m.start, m.end)
-		highlighted := addSuggestionMark(matched, docmodel.Highlight, author, at)
-		b.Inlines = concatInlines(before, highlighted, after)
+		b.Inlines = concatInlines(before, commentMarked(matched, id, author, at, run), after)
 	})
 
-	// The ordinal is discarded on purpose — it is a display coordinate that
-	// renumbers whenever an earlier comment appears — but the lookup is kept
-	// as an invariant check: if List cannot see the highlight this call just
-	// created, the transform is wrong and the caller must not go on to open a
-	// thread against text that has no anchor.
-	if _, err := commentID(clone, m.path, target, author, at); err != nil {
-		return docmodel.Doc{}, "", err
+	// An invariant check: if List cannot see the highlight this call just
+	// created under its ID, the transform is wrong and the caller must not go
+	// on to open a thread against text that has no mark.
+	if _, ok := commentByID(clone, id); !ok {
+		return docmodel.Doc{}, fmt.Errorf("suggest: internal error: could not locate the comment just created")
 	}
-	return clone, CommentKey(target, author, at), nil
+	return clone, nil
+}
+
+// commentMarked is matched with a comment highlight added to every inline: one
+// run, so one span, and one ID, so one comment.
+func commentMarked(matched []docmodel.Inline, id, author string, at time.Time, run string) []docmodel.Inline {
+	out := make([]docmodel.Inline, len(matched))
+	for i, in := range matched {
+		mk := authoredMark(docmodel.Highlight, author, at, run)
+		mk.Attrs[docmodel.CommentIDAttr] = id
+		out[i] = docmodel.Inline{Text: in.Text, Marks: append(cloneMarks(in.Marks), mk)}
+	}
+	return out
+}
+
+// commentByID is the comment span carrying id, as List reports it.
+func commentByID(d docmodel.Doc, id string) (Pending, bool) {
+	for _, p := range List(d) {
+		if p.Kind == KindComment && p.CommentID == id {
+			return p, true
+		}
+	}
+	return Pending{}, false
+}
+
+// CommentText is the text the comment named id highlights, every piece joined
+// as List joins them, and whether there is one.
+func CommentText(d docmodel.Doc, id string) (string, bool) {
+	p, ok := commentByID(d, id)
+	return p.Text, ok
 }
 
 // CommentKey is a comment thread's identity: stable for the life of the
@@ -618,6 +661,11 @@ func commentAtMatch(d docmodel.Doc, m match, target, author string, at time.Time
 // Nothing recomputes this after creation. The key is written into the sidecar
 // and matched literally thereafter, so it cannot drift when the mark's
 // attribution is later filled in or the surrounding text changes.
+//
+// A SELECTED-TEXT COMMENT NO LONGER TAKES THIS KEY. It is keyed by an ID the
+// server mints (unsent.NewID) and writes into the file after the highlight, and
+// it is paired with its place by that ID alone (PairFor). This stays for
+// CommentKeyFor and MigrateCommentKeys.
 func CommentKey(quote, author string, at time.Time) string {
 	return digestKey("cm-", quote, author, at.UTC().Format(time.RFC3339Nano))
 }
@@ -764,20 +812,6 @@ func MigrateCommentKeys(model docmodel.Doc, threads []review.Thread) ([]review.T
 		changed = true
 	}
 	return out, changed
-}
-
-// commentID re-lists the freshly built document and returns the ID of the
-// comment span we just created, identified by the properties that make it
-// unique: its block path, text, author and formatted timestamp.
-func commentID(d docmodel.Doc, path []int, text, author string, at time.Time) (string, error) {
-	atStr := at.Format(time.RFC3339)
-	for _, p := range List(d) {
-		if p.Kind == KindComment && pathEqual(p.Path, path) && p.Text == text &&
-			p.Author == author && p.At.Format(time.RFC3339) == atStr {
-			return p.ID, nil
-		}
-	}
-	return "", fmt.Errorf("suggest: internal error: could not locate the comment just created")
 }
 
 // UnknownIDError is what every path returns for an id that names no pending
@@ -1069,9 +1103,12 @@ func spansForMark(d docmodel.Doc, mk docmodel.MarkKind) []span {
 				at:       at,
 				atRaw:    atStr,
 				run:      key.run,
-				text:     plainText(b.Inlines[i:j]),
-				start:    i,
-				end:      j,
+				// The first inline's: every inline of one span is one mark, and
+				// a highlight's ID rides on it.
+				commentID: b.Inlines[i].Attr(mk, docmodel.CommentIDAttr),
+				text:      plainText(b.Inlines[i:j]),
+				start:     i,
+				end:       j,
 			})
 			i = j
 		}

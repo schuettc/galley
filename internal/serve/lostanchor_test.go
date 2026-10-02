@@ -5,36 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/reearth/ygo/crdt"
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/review"
 )
 
-// waitForKeys polls until the live instructions match `want`, or gives up. The
-// retraction is deliberately ASYNCHRONOUS — sweepLostAnchors detects inside the
-// projection and hands the deletion to a goroutine that goes through `mutate`,
-// because a write inside a projection cuts spurious rounds — so a test that
-// read straight after Project would be racing the fix rather than testing it.
-func waitForKeys(t *testing.T, s *EditServer, want int) []string {
-	t.Helper()
-	var got []string
-	for i := 0; i < 100; i++ {
-		got = keysOf(t, s)
-		if len(got) == want {
-			return got
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return got
-}
-
-// keysOf reads THE PENDING VIEW, which is what every surface renders from, and
-// deliberately not the review map. The retraction writes nothing — see
-// noteAnchored for the measurements that ruled an eager deletion out — so the
-// claim being made is about what the reviewer is SHOWN. The thread itself is
-// cleared by the send that already clears every instruction thread.
+// keysOf reads THE PENDING VIEW, which is what every surface renders from.
 func keysOf(t *testing.T, s *EditServer) []string {
 	t.Helper()
 	view, err := s.pending()
@@ -112,8 +89,13 @@ func TestDeletingTheSentenceDeletesTheInstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := waitForKeys(t, s, 0); len(got) != 0 {
+	if got := keysOf(t, s); len(got) != 0 {
 		t.Errorf("the instruction outlived the words it was about: %v — it would sit in the rail as work the reviewer already retracted", got)
+	}
+	// AND IT IS GONE, not hidden: the review map no longer holds it, so a
+	// restart cannot bring it back.
+	if threads := review.Read(s.doc); len(threads) != 0 {
+		t.Errorf("the retracted thread is still in the review map: %+v", threads)
 	}
 }
 
@@ -122,10 +104,10 @@ func TestDeletingTheSentenceDeletesTheInstruction(t *testing.T) {
 // mark to lose and must never be swept.
 //
 // IT DOES NOT PROVE THE `Anchor` CLAUSE, and that is recorded rather than
-// implied. Measured by deleting that clause: this test stays green, because
-// `seenAnchored` catches the same threads for a different reason — one that
-// never paired is never a candidate. Both guards are kept (see sweepLostAnchors
-// for why); only one of them is reachable, so only one of them has a red proof.
+// implied: `seenAnchored` catches the same threads for a different reason — one
+// that never paired is never a candidate. Both guards are kept (see
+// lostanchor.go for why); only one of them is reachable, so only one of them
+// has a red proof.
 func TestAWholeDocumentInstructionIsNeverSwept(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "d.md")
@@ -157,10 +139,9 @@ func TestAWholeDocumentInstructionIsNeverSwept(t *testing.T) {
 	}
 }
 
-// TestAnInstructionWithNoMarkAtStARTUPSurvives holds the guard honest. A
-// sidecar this build cannot pair — an older galley's, a legacy key — also has
-// no mark, and sweeping on that evidence would destroy instructions nobody
-// touched, at startup, with no keystroke.
+// TestAnInstructionNeverSeenAnchoredSurvives holds the guard honest. A comment
+// whose mark this process never saw also has no mark, and sweeping on that
+// evidence would destroy instructions nobody touched, with no keystroke.
 func TestAnInstructionNeverSeenAnchoredSurvives(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "d.md")

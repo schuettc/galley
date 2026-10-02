@@ -61,32 +61,40 @@ func TestStartingVersionIsRenderedAsABaseline(t *testing.T) {
 }
 
 func TestLegacyInstructionCarriersAreNotDocumentChanges(t *testing.T) {
-	s := newEditServer(t, t.TempDir(), "doc.md", "# Title\n\nPressing **Revise** sends the round.\n")
-	defer func() { _ = s.Close() }()
+	for name, legacy := range map[string]string{
+		"a bare highlight": "# Title\n\nPressing {==**Revise**==} sends the round.\n",
+		// The carrier galley writes now: the highlight AND its ID mark.
+		"a highlight with its ID mark": "# Title\n\nPressing {==**Revise**==}{>>@comment cm-0123456789abcdef<<} sends the round.\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newEditServer(t, t.TempDir(), "doc.md", "# Title\n\nPressing **Revise** sends the round.\n")
+			defer func() { _ = s.Close() }()
 
-	legacy := "# Title\n\nPressing {==**Revise**==} sends the round.\n"
-	round, err := s.Versions().Commit(legacy, versions.Round{
-		Reason: versions.ReasonSettled, Instruction: "remove bold",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if changed := s.changedRegions(1, round.N); changed != 0 {
-		t.Fatalf("legacy instruction anchor reports %d document changes, want 0", changed)
-	}
+			round, err := s.Versions().Commit(legacy, versions.Round{
+				Reason: versions.ReasonSettled, Instruction: "remove bold",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if changed := s.changedRegions(1, round.N); changed != 0 {
+				t.Fatalf("legacy instruction anchor reports %d document changes, want 0", changed)
+			}
 
-	req := httptest.NewRequest(http.MethodGet, "/_galley/versions/view?to=2&view=inplace", nil)
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("view answered %d: %s", rec.Code, rec.Body.String())
-	}
-	var got diffView
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Regions != 0 || strings.Contains(got.HTML, "{==") || strings.Contains(got.HTML, "==}") {
-		t.Fatalf("legacy instruction syntax leaked into History: %+v", got)
+			req := httptest.NewRequest(http.MethodGet, "/_galley/versions/view?to=2&view=inplace", nil)
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("view answered %d: %s", rec.Code, rec.Body.String())
+			}
+			var got diffView
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Regions != 0 || strings.Contains(got.HTML, "{==") || strings.Contains(got.HTML, "==}") ||
+				strings.Contains(got.HTML, "@comment") {
+				t.Fatalf("legacy instruction syntax leaked into History: %+v", got)
+			}
+		})
 	}
 }
 

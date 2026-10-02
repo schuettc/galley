@@ -90,7 +90,7 @@ func TestReplaceAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
 // The same for a comment: one reviewer selection across a code span is one
 // highlight to decide, not three cards.
 func TestCommentOnAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
-	edited, _, err := CommentOn(codeSpanDoc(), codeSpanTarget, "court", testAt())
+	edited, err := CommentOn(codeSpanDoc(), codeSpanTarget, "cm-0000000000000005", "court", testAt())
 	if err != nil {
 		t.Fatalf("CommentOn: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCommentOnAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
 // drags a selection — and it splits for the same reason. No agent is involved
 // here at all, which is why no prompt could ever have mitigated this.
 func TestCommentOnRangeAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
-	edited, _, err := CommentOnRange(codeSpanDoc(), []int{0}, 0, len([]rune(codeSpanTarget)), "court", testAt())
+	edited, err := CommentOnRange(codeSpanDoc(), []int{0}, 0, len([]rune(codeSpanTarget)), "cm-00000000000000ff", "court", testAt())
 	if err != nil {
 		t.Fatalf("CommentOnRange: %v", err)
 	}
@@ -290,13 +290,13 @@ func TestTwoSeparatelyAuthoredEditsStayTwoDecisions(t *testing.T) {
 		Inlines: []docmodel.Inline{{Text: "ageage"}},
 	}}}
 
-	first, _, err := CommentOnRange(d, []int{0}, 0, 3, "court", testAt())
+	first, err := CommentOnRange(d, []int{0}, 0, 3, "cm-0000000000000006", "court", testAt())
 	if err != nil {
 		t.Fatalf("first comment: %v", err)
 	}
 	// The second "age", butted straight against the first and authored in the
 	// same second — indistinguishable by author and instant alone.
-	second, _, err := CommentOnRange(first, []int{0}, 3, 6, "court", testAt())
+	second, err := CommentOnRange(first, []int{0}, 3, 6, "cm-0000000000000007", "court", testAt())
 	if err != nil {
 		t.Fatalf("second comment: %v", err)
 	}

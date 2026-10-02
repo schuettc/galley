@@ -653,10 +653,11 @@ func noteSpans(d docmodel.Doc) []span {
 			return
 		}
 		spans = append(spans, span{
-			path: append([]int(nil), path...),
-			kind: KindComment,
-			note: true,
-			text: markdown.NoteText(*b),
+			path:      append([]int(nil), path...),
+			kind:      KindComment,
+			note:      true,
+			commentID: b.Attrs[docmodel.CommentIDAttr],
+			text:      markdown.NoteText(*b),
 		})
 	})
 	return spans

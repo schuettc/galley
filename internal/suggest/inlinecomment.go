@@ -52,24 +52,8 @@ func InlineCommentKey(c markdown.InlineComment) string {
 	return fmt.Sprintf("%s%s-%d", inlineKeyPrefix, strings.Join(parts, "-"), c.Offset)
 }
 
-// inlineKeyPrefix marks a thread as an inline note's, and IsInlineNoteKey is
-// how anything else asks. One constant rather than a `md-` literal in each
-// reader, since the mint above is the only thing that can define it.
+// inlineKeyPrefix marks a thread as an inline note's.
 const inlineKeyPrefix = "md-"
-
-// IsInlineNoteKey reports whether a thread key names an inline {>>note<<}.
-//
-// It exists because "this thread has nothing in the document to pair with" was
-// being asked as "this thread has no heading" — see PairFor. That proxy held
-// only while the heading was empty, which was itself the defect next door: a
-// thread with no name printed a blank line where every other one says what it
-// is about. Two facts under one test, and fixing either alone breaks the other.
-//
-// A key, not an Anchor: an inline note's Anchor is "" because it is anchored
-// to a POSITION in prose, which is not one of the three anchor kinds and
-// cannot become one — the marker is lifted out of the document at parse and
-// never written back, so there is nothing there to anchor TO.
-func IsInlineNoteKey(key string) bool { return strings.HasPrefix(key, inlineKeyPrefix) }
 
 // InlineCommentHeading names what an inline note is ABOUT: the block it sits
 // in, through the same blockLabel every other anchored thread is named by.
