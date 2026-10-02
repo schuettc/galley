@@ -2073,3 +2073,67 @@ func TestSerialize_ThematicBreakFlipKeepsSiblingListsApart(t *testing.T) {
 		t.Errorf("did not settle on the first write:\n out1: %q\n out2: %q", out, got)
 	}
 }
+
+// TestSerialize_CommentIDsAreAFixedPoint: every spelling of an ID mark the
+// serializer writes reads back to the model that wrote it — a single piece, a
+// highlight crossing emphasis (two pieces, two marks), one ID over two
+// paragraphs, block marks after a heading, a figure and a fence, and one
+// inside a table cell.
+func TestSerialize_CommentIDsAreAFixedPoint(t *testing.T) {
+	src := mustRead(t, "testdata/comment-ids.md")
+	doc, comments, err := markdown.Parse(src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(comments) != 0 {
+		t.Errorf("comments = %#v, want none — every note in the fixture is an ID mark", comments)
+	}
+	if got := string(markdown.Serialize(doc)); got != string(src) {
+		t.Errorf("Serialize(Parse(comment-ids.md)) mismatch:\n got:  %q\n want: %q", got, src)
+	}
+	ids := map[string]int{}
+	docmodel.Walk(doc, func(_ []int, b *docmodel.Block) {
+		if id := b.Attrs[docmodel.CommentIDAttr]; id != "" {
+			ids[id]++
+		}
+		for _, in := range b.Inlines {
+			if id := in.Attr(docmodel.Highlight, docmodel.CommentIDAttr); id != "" {
+				ids[id]++
+			}
+		}
+	})
+	want := map[string]int{
+		"cm-0123456789abcdef": 1,
+		"cm-1111111111111111": 2,
+		"cm-2222222222222222": 2,
+		"cb-3333333333333333": 1,
+		"cb-4444444444444444": 1,
+		"cb-5555555555555555": 1,
+		"cb-6666666666666666": 1,
+	}
+	for id, n := range want {
+		if ids[id] != n {
+			t.Errorf("id %s is carried by %d pieces, want %d (all: %v)", id, ids[id], n, ids)
+		}
+	}
+}
+
+// TestSerialize_EveryPieceGetsItsOwnMark: one comment whose highlight is
+// interrupted by an unhighlighted code span is two pieces in the file, and the
+// ID mark follows EACH closing "==}". A highlight whose own text holds "==}"
+// has no spelling, so it is written without markers and therefore without its
+// ID mark: the comment then reads as unplaced, and the words stay.
+func TestSerialize_EveryPieceGetsItsOwnMark(t *testing.T) {
+	hl := docmodel.Mark{Kind: docmodel.Highlight, Attrs: map[string]string{
+		docmodel.CommentIDAttr: "cm-abc", docmodel.RunAttr: "r1",
+	}}
+	doc := docmodel.Doc{Blocks: []docmodel.Block{
+		para(marked("a", hl), marked("c", mark(docmodel.Code)), marked("b", hl)),
+		para(text("then "), marked("x==}y", hl)),
+	}}
+	got := string(markdown.Serialize(doc))
+	want := "{==a==}{>>@comment cm-abc<<}`c`{==b==}{>>@comment cm-abc<<}\n\nthen x==}y\n"
+	if got != want {
+		t.Errorf("Serialize =\n %q\nwant\n %q", got, want)
+	}
+}

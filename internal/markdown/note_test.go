@@ -1,6 +1,7 @@
 package markdown_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -398,4 +399,69 @@ func blockExistsAt(d docmodel.Doc, path []int) bool {
 		blocks = blocks[idx].Children
 	}
 	return false
+}
+
+// TestParse_AStandaloneCommentIDIsANoteWithNoWords: a block comment's mark in
+// the file is "{>>@comment cb-…<<}" on its own line. Its words live in the
+// unsent round, so the Note it parses to carries the id and no text at all —
+// after a paragraph, after a fence and inside a table cell alike.
+func TestParse_AStandaloneCommentIDIsANoteWithNoWords(t *testing.T) {
+	const id = "cb-0123456789abcdef"
+	want := map[string]string{"anchor": docmodel.AnchorBlock, docmodel.CommentIDAttr: id}
+	check := func(t *testing.T, b docmodel.Block) {
+		t.Helper()
+		if b.Kind != docmodel.Note {
+			t.Fatalf("block is a %q, want a note: %#v", b.Kind, b)
+		}
+		if !reflect.DeepEqual(b.Attrs, want) {
+			t.Errorf("note attrs = %v, want %v", b.Attrs, want)
+		}
+		if len(b.Inlines) != 0 {
+			t.Errorf("note inlines = %#v, want none — the words are not in the file", b.Inlines)
+		}
+	}
+	cases := []struct {
+		name string
+		src  string
+		pick func(docmodel.Doc) docmodel.Block
+	}{
+		{"after a paragraph", "para\n\n{>>@comment " + id + "<<}\n",
+			func(d docmodel.Doc) docmodel.Block { return d.Blocks[1] }},
+		{"after a fence", "```go\nx := 1\n```\n\n{>>@comment " + id + "<<}\n",
+			func(d docmodel.Doc) docmodel.Block { return d.Blocks[1] }},
+		{"in a table cell", "| a | b |\n| --- | --- |\n| x | {>>@comment " + id + "<<} |\n",
+			func(d docmodel.Doc) docmodel.Block { return d.Blocks[0].Children[1].Children[1].Children[0] }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, comments, err := markdown.Parse([]byte(tc.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if len(comments) != 0 {
+				t.Errorf("comments = %#v, want none", comments)
+			}
+			check(t, tc.pick(doc))
+			if got := string(markdown.Serialize(doc)); got != tc.src {
+				t.Errorf("Serialize = %q, want the source back %q", got, tc.src)
+			}
+		})
+	}
+}
+
+// TestParse_AWordNoteIsReadAsBefore pins what a hand-typed note with words
+// still parses to: the spec drops this case, and this is the default
+// behaviour it gets, not a feature.
+func TestParse_AWordNoteIsReadAsBefore(t *testing.T) {
+	doc, _, err := markdown.Parse([]byte("para\n\n{>>legacy words<<}\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	b := doc.Blocks[1]
+	if b.Kind != docmodel.Note || markdown.NoteText(b) != "legacy words" {
+		t.Fatalf("block = %#v, want a note reading %q", b, "legacy words")
+	}
+	if _, ok := b.Attrs[docmodel.CommentIDAttr]; ok {
+		t.Errorf("a word note carries an id: %v", b.Attrs)
+	}
 }

@@ -3,10 +3,12 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { Node as PMNode } from '@tiptap/pm/model';
 
-// A block note — docmodel.Note. It is a COMMENT that lives in the document
-// tree, because a comment on an image or on the whole file has no text range
-// to hang a Highlight on, and being a block is the only way it survives into
-// the .md (the zero-tooling promise).
+// A block note — docmodel.Note. It is a block comment's MARK in the document
+// tree, because a comment on an image or a section has no text range to hang a
+// Highlight on. galley writes it as <note anchor id> with no text run: the
+// comment's words live in the unsent round, and the file carries only
+// "{>>@comment cb-…<<}". A hand-typed {>>note<<} on its own line is a note
+// with words and no id, and still builds here.
 //
 // It must exist in this schema even though nothing here edits it. An element
 // whose nodeName the schema does not know is not skipped by y-prosemirror — it
@@ -14,13 +16,14 @@ import type { Node as PMNode } from '@tiptap/pm/model';
 // disk. Registering the node is what stops a reviewer's note from vanishing
 // the first time the document is opened.
 //
-// NOT an atom, and the content is `text*`. The Go side writes a note as
+// NOT an atom, and the content is `text*`. A word-bearing note arrives as
 // <note anchor="…"> with one unmarked YXmlText run inside it (ydoc.writeBlock's
 // `len(b.Inlines) > 0` branch), and y-prosemirror builds the ProseMirror node
 // from the element's children — so a node declared with no content would have
 // nowhere to put that run, and the same catch that deletes an unknown NODE
-// deletes it for an invalid content match. The schema has to describe what the
-// fragment actually holds, not what the editor wishes it held.
+// deletes it for an invalid content match. `text*` holds both shapes: an ID
+// note with no run, and a word note with one. The schema has to describe what
+// the fragment actually holds, not what the editor wishes it held.
 //
 // contenteditable="false" on the rendered aside is what keeps it read-only:
 // the note's words are authored through the composer and the rail, never by
@@ -42,6 +45,17 @@ export const NoteBlock = Node.create({
         default: 'block',
         parseHTML: (el) => el.getAttribute('data-anchor') || 'block',
         renderHTML: (attrs) => ({ 'data-anchor': attrs.anchor }),
+      },
+      // The block comment's ID (docmodel.CommentIDAttr), which is the only
+      // thing linking this note to its words. DECLARED, not merely tolerated:
+      // an attribute the schema does not declare is dropped when the node is
+      // built, and the browser's next write takes it out of the fragment and
+      // the projection out of the file.
+      id: {
+        default: '',
+        parseHTML: (el) => el.getAttribute('data-comment-id') || '',
+        renderHTML: (attrs) =>
+          attrs.id ? { 'data-comment-id': attrs.id } : {},
       },
     };
   },

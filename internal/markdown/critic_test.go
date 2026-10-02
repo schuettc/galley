@@ -7,6 +7,7 @@ import (
 
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
+	"github.com/schuettc/galley/internal/suggest"
 )
 
 // suggestion builds a suggestion mark carrying the author/at attrs a real
@@ -930,5 +931,81 @@ func TestParse_Comment_SeamWhitespaceCollapses(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestParse_ACommentIDBindsToTheHighlightBeforeIt: a "{>>@comment id<<}" that
+// sits flush against a highlight's closing "==}" is that highlight's ID mark.
+// It names the comment the words belong to, it is not a comment of its own, so
+// nothing is lifted out of the block and the id lands on the highlight.
+func TestParse_ACommentIDBindsToTheHighlightBeforeIt(t *testing.T) {
+	const id = "cm-0123456789abcdef"
+	doc, comments, err := markdown.Parse([]byte("a {==b==}{>>@comment " + id + "<<} c\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(comments) != 0 {
+		t.Errorf("comments = %#v, want none — an ID mark is not a comment", comments)
+	}
+	if got := blockPlainText(doc.Blocks[0]); got != "a b c" {
+		t.Errorf("paragraph text = %q, want %q", got, "a b c")
+	}
+	var found bool
+	for _, in := range doc.Blocks[0].Inlines {
+		if in.Text != "b" {
+			continue
+		}
+		found = true
+		if got := in.Attr(docmodel.Highlight, docmodel.CommentIDAttr); got != id {
+			t.Errorf("highlight id = %q, want %q (inline %#v)", got, id, in)
+		}
+	}
+	if !found {
+		t.Fatalf("no inline %q in %#v", "b", doc.Blocks[0].Inlines)
+	}
+}
+
+// TestParse_PiecesWithOneIDShareOneRun: one comment whose highlight crosses a
+// formatting boundary or a paragraph is several pieces in the file, each with
+// its own ID mark. The file's ID is the boundary, so every piece gets the same
+// run, and the suggestion layer sees ONE comment span.
+func TestParse_PiecesWithOneIDShareOneRun(t *testing.T) {
+	src := "{==x==}{>>@comment cm-1<<} and **{==y==}{>>@comment cm-1<<}**\n\n" +
+		"{==z==}{>>@comment cm-1<<} next\n"
+	doc, comments, err := markdown.Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(comments) != 0 {
+		t.Errorf("comments = %#v, want none", comments)
+	}
+	runs := map[string]bool{}
+	pieces := 0
+	docmodel.Walk(doc, func(_ []int, b *docmodel.Block) {
+		for _, in := range b.Inlines {
+			if !in.Has(docmodel.Highlight) {
+				continue
+			}
+			pieces++
+			if got := in.Attr(docmodel.Highlight, docmodel.CommentIDAttr); got != "cm-1" {
+				t.Errorf("piece %q id = %q, want cm-1", in.Text, got)
+			}
+			runs[in.Attr(docmodel.Highlight, docmodel.RunAttr)] = true
+		}
+	})
+	if pieces != 3 {
+		t.Fatalf("found %d highlight pieces, want 3", pieces)
+	}
+	if len(runs) != 1 || runs[""] {
+		t.Errorf("runs = %v, want one non-empty run shared by every piece", runs)
+	}
+	var spans int
+	for _, p := range suggest.List(doc) {
+		if p.Kind == suggest.KindComment {
+			spans++
+		}
+	}
+	if spans != 1 {
+		t.Errorf("suggest.List reports %d comment spans, want 1", spans)
 	}
 }

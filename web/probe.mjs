@@ -422,6 +422,70 @@ for (const name of FRAGMENT_MARKS) {
   }
 }
 
+// A BLOCK COMMENT'S MARK is <note anchor id> with NO text run: its words live
+// in the unsent round, and the file carries only "{>>@comment cb-…<<}".
+// createChecked throws on an attribute the node does not declare, and the
+// catch deletes the note out of the fragment — so the id has to be declared in
+// the same commit Go starts writing it.
+{
+  let built = null;
+  try {
+    built = fragmentSchema.node(
+      'note',
+      { anchor: 'block', id: 'cb-0123456789abcdef' },
+      [],
+    );
+    built.check();
+  } catch (err) {
+    built = null;
+    check(
+      'a <note id> with no text builds against the schema',
+      false,
+      err.message,
+    );
+  }
+  if (built) {
+    check(
+      'a <note id> with no text builds against the schema',
+      built.childCount === 0,
+    );
+    check(
+      'a <note id> keeps attrs.id',
+      built.attrs.id === 'cb-0123456789abcdef',
+      built.attrs,
+    );
+  }
+}
+
+// A TEXT COMMENT'S ID rides on its highlight, beside the run. A mark attribute
+// the schema does not declare is dropped when y-prosemirror builds the mark,
+// and the next write from the browser removes it from the fragment and the
+// file — so it is declared on the highlight mark, in both probe schemas.
+for (const [label, s] of [
+  ['fragment', fragmentSchema],
+  ['suggestion-mode', schema],
+]) {
+  let m = null;
+  try {
+    m = s.mark('highlight', { run: 'r1', id: 'cm-0123456789abcdef' });
+    m.type.checkAttrs(m.attrs);
+  } catch (err) {
+    m = null;
+    check(
+      `a highlight carrying id keeps it through the ${label} schema`,
+      false,
+      err.message,
+    );
+  }
+  if (m) {
+    check(
+      `a highlight carrying id keeps it through the ${label} schema`,
+      m.attrs.id === 'cm-0123456789abcdef' && m.attrs.run === 'r1',
+      m.attrs,
+    );
+  }
+}
+
 const para = (text, marks) =>
   schema.node('paragraph', null, text ? [schema.text(text, marks)] : []);
 const docOf = (...nodes) => schema.node('doc', null, nodes);

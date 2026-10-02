@@ -246,6 +246,17 @@ function suggestionMark(name: string, className: string, label: string) {
           parseHTML: (element) => element.getAttribute('data-run') || '',
           renderHTML: (attrs) => (attrs.run ? { 'data-run': attrs.run } : {}),
         },
+        // A comment's ID (docmodel.CommentIDAttr). Only a highlight carries
+        // one, but the three marks share this factory. Unlike the run it is
+        // in the file — "{==…==}{>>@comment cm-…<<}" — so an undeclared
+        // attribute here would be dropped by y-prosemirror and the browser's
+        // next write would take the comment's mark out of the .md.
+        id: {
+          default: '',
+          parseHTML: (element) => element.getAttribute('data-comment-id') || '',
+          renderHTML: (attrs) =>
+            attrs.id ? { 'data-comment-id': attrs.id } : {},
+        },
       };
     },
     parseHTML() {

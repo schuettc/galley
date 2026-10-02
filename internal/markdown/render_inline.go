@@ -508,8 +508,16 @@ func onlySuggestion(in docmodel.Inline, kind docmodel.MarkKind) bool {
 // The suggestion's Attrs (author, at) are NOT written: CriticMarkup has
 // nowhere to carry them. They live in the sidecar; the file carries the
 // change itself.
+//
+// The one attr that IS written is a highlight's comment ID, as its ID mark
+// "{>>@comment id<<}" flush after the closing "==}" — the spelling
+// critic.go's stampCommentID binds back to the highlight. Every segment of
+// a highlight gets its own, so a comment crossing emphasis or a code span
+// writes one mark per piece. It is written only when the highlight's own
+// markers were: a highlight with no spelling (its text holds "==}") has no
+// "==}" to follow, and the comment then reads as unplaced.
 func wrapCritic(body []pchar, in docmodel.Inline) ([]pchar, bool) {
-	emitted := false
+	emitted, highlighted := false, false
 	for i := len(suggestionKinds) - 1; i >= 0; i-- {
 		kind := suggestionKinds[i]
 		if !in.Has(kind) {
@@ -517,6 +525,10 @@ func wrapCritic(body []pchar, in docmodel.Inline) ([]pchar, bool) {
 		}
 		wrapped, ok := wrapSuggestion(body, kind)
 		body, emitted = wrapped, emitted || ok
+		highlighted = highlighted || (ok && kind == docmodel.Highlight)
+	}
+	if id := in.Attr(docmodel.Highlight, docmodel.CommentIDAttr); highlighted && validCommentID(id) {
+		body = append(body, literalChars("{>>"+commentMark(id)+"<<}")...)
 	}
 	return body, emitted
 }

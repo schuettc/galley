@@ -468,3 +468,26 @@ func TestAppendingToASentenceDoesNotPanic(t *testing.T) {
 		}
 	}
 }
+
+// TestAnIDOnlyChangeIsATargetedMarkWrite: stamping or changing a highlight's
+// comment ID changes a mark's attributes and nothing else, so it must take
+// the targeted path rather than reloading the fragment — and the new id must
+// actually land.
+func TestAnIDOnlyChangeIsATargetedMarkWrite(t *testing.T) {
+	doc := crdt.New()
+	withID := func(id string) docmodel.Mark {
+		return docmodel.Mark{Kind: docmodel.Highlight, Attrs: map[string]string{
+			"author": "court", docmodel.CommentIDAttr: id,
+		}}
+	}
+	before, after := fmtPara("Revise", withID("cm-old")), fmtPara("Revise", withID("cm-new"))
+	ydoc.Load(doc, fmtTx(doc), before)
+
+	if !ydoc.Write(doc, fmtTx(doc), before, after) {
+		t.Fatal("an id-only change fell back to a full reload")
+	}
+	marks := fmtMarksOf(t, doc)
+	if len(marks) != 1 || marks[0].Attrs[docmodel.CommentIDAttr] != "cm-new" {
+		t.Errorf("marks after the id change = %#v, want one highlight with id cm-new", marks)
+	}
+}

@@ -547,6 +547,23 @@ var handSeeds = []string{
 	"{=={>>==}{==0<<}==}\n",
 	"{{>{>><<}><<}>><<}\n",
 	"{{>{>{>><<}><<}><<}>><<}>\n",
+	// COMMENT ID MARKS. testdata/comment-ids.md seeds the shapes the serializer
+	// writes; these are the near-misses either side of the binding rule: a
+	// space before the mark (an ordinary note), a malformed token, a mark in a
+	// heading, a highlight holding a code span that spells "==}" (no spelling,
+	// so its mark is not written back), and one ID over adjacent pieces.
+	"a {==b==}{>>@comment cm-0123456789abcdef<<} c\n",
+	"a {==b==} {>>@comment cm-1<<} c\n",
+	"a {==b==}{>>@comment two words<<} c\n",
+	"a {==b==}{>>@comment<<} c\n",
+	"# {==t==}{>>@comment cm-1<<}\n",
+	"{==`x==}`==}{>>@comment cm-1<<}\n",
+	"{==a==}{>>@comment cm-1<<}{==b==}{>>@comment cm-1<<}\n",
+	"**{==y==}{>>@comment cm-1<<}**\n",
+	"{>>@comment cb-1<<}\n",
+	"para\n{>>@comment cb-1<<}\n",
+	"{>>@block @comment cb-1<<}\n",
+	"- {>>@comment cb-1<<}\n",
 	// The splice shapes: text either side of a removed marker becoming a
 	// construct Parse refuses, which is the one failure mode that stops a
 	// file from loading.

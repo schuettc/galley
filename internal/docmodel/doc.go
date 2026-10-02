@@ -48,14 +48,14 @@ const (
 	// lives in Inlines as a single unmarked run — a comment is a note, not a
 	// document, so it carries no formatting.
 	//
-	// Unlike every other comment in galley, a Note is IN the document tree
-	// rather than lifted out of it. A range comment has a Highlight mark to
-	// hang on; a block or document comment has nowhere to attach, so the
-	// only way it can survive a round trip through the file — the zero-
-	// tooling promise, that any agent can read pending state from the .md
-	// alone — is to BE a block. markdown.Serialize therefore emits a Note as
-	// a "{>>…<<}" on its own line, which is the one place it emits comment
-	// syntax at all.
+	// A block comment's Note carries Attrs[CommentIDAttr] and no Inlines:
+	// its words live in the unsent round, and the file holds only its ID
+	// mark, "{>>@comment cb-…<<}" on a line of its own after the block it is
+	// about. A range comment has a Highlight mark to hang its ID on; a block
+	// comment has nowhere to attach, so its mark has to BE a block.
+	//
+	// A Note with words and no ID is a hand-typed "{>>…<<}" on its own line.
+	// It parses and round-trips as before, but nothing links it to a comment.
 	Note BlockKind = "note"
 
 	// FrontMatter is the YAML ("---") or TOML ("+++") metadata block a file may
@@ -101,6 +101,22 @@ const (
 	AnchorBlock    = "block"
 	AnchorDocument = "document"
 )
+
+// CommentIDAttr is the Attrs key carrying a reviewer comment's ID: on a
+// Highlight mark it names the comment that piece of highlighted text belongs
+// to, and on a Note block it names the block comment that note marks.
+//
+// Unlike RunAttr it IS serialized — it is the only thing the file carries for
+// a comment. The words live in the unsent round (internal/unsent), and the .md
+// holds a mark at the comment's place: "{>>@comment cm-…<<}" after each
+// highlighted piece, "{>>@comment cb-…<<}" on a line of its own after a block.
+// galley links a comment to its place by this ID and nothing else.
+//
+// The two keys are not the same identity. A comment's ID is minted once and
+// stored; a run is minted per session. Pieces that share an ID share a run
+// (markdown.Parse stamps it), so the run stays the session's grouping
+// coordinate and the ID is what survives the file.
+const CommentIDAttr = "id"
 
 // AlignAttr is the Attrs key carrying a table cell's column alignment:
 // "left", "right", "center", or absent for GFM's default.

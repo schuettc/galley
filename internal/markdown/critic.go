@@ -16,6 +16,11 @@ import (
 //	{==text==}        -> Highlight  {~~old~>new~~}    -> Del(old) Ins(new)
 //	{>>note<<}        -> extracted out-of-band as an InlineComment
 //
+//	{==text==}{>>@comment cm-…<<}  -> Highlight carrying the comment's ID
+//
+// The last is a comment ID mark, not a comment: see note.go for the grammar
+// and stampCommentID for the binding rule.
+//
 // The writer half lives in render_inline.go (wrapCritic, planSubstitution).
 //
 // It is a post-pass rather than a goldmark extension for one reason: the
@@ -34,8 +39,9 @@ import (
 
 // InlineComment is a {>>note<<} lifted OUT of the document. It is
 // deliberately not a docmodel mark: a comment mark would render back into
-// the file on the next Serialize, and per the editor spec comments live in
-// the sidecar, not in the markdown. Serialize never emits {>><<}.
+// the file on the next Serialize, and comments' words do not live in the
+// markdown. Serialize writes no inline note back; the only comment syntax it
+// emits is a Note block and a highlight's ID mark (note.go).
 //
 // BlockPath is the docmodel.Walk path of the block the note was anchored
 // in (the sequence of child indices from the document root). Offset is a
@@ -377,6 +383,9 @@ func scanCritic(cells []cell, lo, hi int) []pendingNote {
 	var notes []pendingNote
 	noCloser := make([]bool, len(criticSpans))
 	noSep := lo
+	// hl is the highlight span this level closed most recently, so a note
+	// that opens on the very next cell can be read as its ID mark.
+	var hl closedHighlight
 	for i := lo; i < hi; i++ {
 		k := openerAt(cells, i, hi)
 		if k < 0 || noCloser[k] {
@@ -394,7 +403,14 @@ func scanCritic(cells []cell, lo, hi int) []pendingNote {
 		body, bodyEnd := i+markerLen, j
 		switch {
 		case s.note:
-			notes = append(notes, pendingNote{at: i, end: j + markerLen, text: cellText(cells, body, bodyEnd)})
+			text := cellText(cells, body, bodyEnd)
+			if id, ok := commentID(text); ok && hl.run != "" && i == hl.end {
+				// The highlight's ID mark: it names the comment, it is not
+				// one, so nothing is lifted and the words stay in the text.
+				stampCommentID(cells, hl, id)
+			} else {
+				notes = append(notes, pendingNote{at: i, end: j + markerLen, text: text})
+			}
 			kill(cells, i, j+markerLen)
 		case s.sub:
 			sep := findMarker(cells, body, bodyEnd, subSep)
@@ -409,14 +425,57 @@ func scanCritic(cells []cell, lo, hi int) []pendingNote {
 			kill(cells, j, j+markerLen)
 			notes = append(notes, scanCritic(cells, body, bodyEnd)...)
 		default:
-			applyMark(cells, body, bodyEnd, s.kind)
+			run := applyMark(cells, body, bodyEnd, s.kind)
 			kill(cells, i, body)
 			kill(cells, j, j+markerLen)
 			notes = append(notes, scanCritic(cells, body, bodyEnd)...)
+			if s.kind == docmodel.Highlight {
+				hl = closedHighlight{lo: body, hi: bodyEnd, end: j + markerLen, run: run}
+			}
 		}
 		i = j + markerLen - 1
 	}
 	return notes
+}
+
+// closedHighlight is a highlight span scanCritic has just closed: its body is
+// cells [lo, hi), its closing "==}" ends at end, and run is the run applyMark
+// stamped on it, which is how its own mark is told apart from any other
+// highlight on the same cells.
+type closedHighlight struct {
+	lo, hi, end int
+	run         string
+}
+
+// stampCommentID binds a comment ID mark to the highlight it follows.
+//
+// THE MARK MUST SIT FLUSH AGAINST THE "==}", with nothing between them, and
+// that is the whole binding rule. The serializer only ever writes it there (see
+// wrapCritic), so anything else — a space, a word, a mark after some other
+// span — is not one of galley's marks, and it reads as the ordinary note it
+// looks like.
+//
+// The id goes onto the Highlight mark carrying THIS span's run on every cell
+// the span covered, so a span that crossed emphasis or a code span carries it
+// on every inline it became. Each mark is replaced rather than edited: the
+// Attrs map may be shared with cells that are not this span's.
+func stampCommentID(cells []cell, hl closedHighlight, id string) {
+	for i := hl.lo; i < hl.hi; i++ {
+		for k, m := range cells[i].marks {
+			if m.Kind != docmodel.Highlight || m.Attrs[docmodel.RunAttr] != hl.run {
+				continue
+			}
+			attrs := make(map[string]string, len(m.Attrs)+1)
+			for key, v := range m.Attrs {
+				attrs[key] = v
+			}
+			attrs[docmodel.CommentIDAttr] = id
+			marks := cloneMarks(cells[i].marks)
+			marks[k] = docmodel.Mark{Kind: m.Kind, Attrs: attrs}
+			cells[i].marks = marks
+			break
+		}
+	}
 }
 
 // openerAt returns the index into criticSpans of the delimiter pair whose
@@ -481,7 +540,10 @@ func findMarker(cells []cell, lo, hi int, s string) int {
 // separately; identical marks used to merge them into a single "ageage" that
 // one accept decided, which is the guarantee MintRuns' doc comment claims and
 // could not deliver for anything read from a file.
-func applyMark(cells []cell, lo, hi int, kind docmodel.MarkKind) {
+//
+// It returns the run it stamped, so the scanner can find this span's own mark
+// again when a comment ID mark follows it (stampCommentID).
+func applyMark(cells []cell, lo, hi int, kind docmodel.MarkKind) string {
 	run := docmodel.NewRun()
 	for i := lo; i < hi; i++ {
 		if cells[i].dead || cells[i].brk {
@@ -492,6 +554,7 @@ func applyMark(cells []cell, lo, hi int, kind docmodel.MarkKind) {
 		cells[i].marks = append(cloneMarks(cells[i].marks),
 			docmodel.Mark{Kind: kind, Attrs: map[string]string{docmodel.RunAttr: run}})
 	}
+	return run
 }
 
 func kill(cells []cell, lo, hi int) {
