@@ -222,6 +222,24 @@ async function waitForDisk(re, ms = 6000) {
   }
 }
 
+// THE UNSENT ROUND IS THE OTHER RECORD: a comment's words live in pending.json,
+// beside the document's versions, and the .md carries only its ID mark (none at
+// all for a whole-document comment). Read off disk for the same reason.
+const unsentPath = join(
+  dir,
+  '.galley',
+  'versions',
+  'history-ux.md',
+  'pending.json',
+);
+function readUnsent() {
+  try {
+    return JSON.parse(readFileSync(unsentPath, 'utf8')).comments || [];
+  } catch {
+    return [];
+  }
+}
+
 // POLLED, NOT `page.waitForFunction(async () => …)`: an async page function
 // returns a PROMISE, a promise is truthy, and such a wait resolves on its first
 // poll whatever the fetch said. See the note in the sweep check below.
@@ -764,25 +782,50 @@ try {
   // TWO INSTRUCTIONS ON THE PAGE AT ONCE IS THE STATE THE GLUED-CARD BUG NEEDS.
   // With one there is nothing for a missing border to run into, and every
   // reading of the rail is arithmetic rather than evidence.
-  // TYPED ACROSS TWO LINES ON PURPOSE. A whole-document note is stored inline
-  // as `{>>@document …<<}` and CriticMarkup cannot hold a newline, so the
-  // composer flattens runs of whitespace to a single space before filing (see
-  // web/cards.ts fileNote). The line break here is where a space belongs, so
-  // the flattened form is the one-line sentence the disk read further down
-  // already asserts — and `addOverallInstruction` waits for the pending count,
-  // which never reaches 2 if the server rejects the note, so this filing IS the
-  // flatten contract's end-to-end proof.
+  // TYPED ACROSS TWO LINES ON PURPOSE. The composer still flattens runs of
+  // whitespace to a single space before filing (see web/cards.ts fileNote), so
+  // the words pending.json holds are the one-line sentence — and
+  // `addOverallInstruction` waits for the pending count, which never reaches 2
+  // if the server rejects the note, so this filing IS the flatten contract's
+  // end-to-end proof.
+  //
+  // A WHOLE-DOCUMENT COMMENT HAS NO MARK IN THE FILE. The range instruction
+  // just above has reached the disk first (its ID mark is the proof), so the
+  // bytes read here are what the document comment must leave untouched.
+  const beforeDocumentComment = await waitForDisk(
+    /\{>>@comment cm-[0-9a-f]{16}<<\}/,
+  );
   await addOverallInstruction(
     page,
     'Open with the decision,\nnot the background.',
     2,
   );
   await page.waitForSelector('.gly-overall-entries .gly-thread');
+  const documentComment = await (async () => {
+    for (const until = Date.now() + 6000; Date.now() < until;) {
+      const found = readUnsent().find((c) => c.kind === 'document');
+      if (found) return found;
+      await page.waitForTimeout(100);
+    }
+    return null;
+  })();
   check(
     'a multi-line whole-document instruction files — newlines flattened, not rejected',
-    (
-      await waitForDisk(/Open with the decision, not the background\./)
-    ).includes('Open with the decision, not the background.'),
+    !!documentComment &&
+      documentComment.text === 'Open with the decision, not the background.',
+    JSON.stringify(readUnsent()),
+  );
+  // A projection is debounced; wait out more than one before reading.
+  await page.waitForTimeout(1500);
+  const afterDocumentComment = readFileSync(doc, 'utf8');
+  check(
+    'a whole-document instruction leaves the .md byte-identical, words and all',
+    /@comment cm-/.test(beforeDocumentComment) &&
+      afterDocumentComment === beforeDocumentComment,
+    JSON.stringify({
+      before: beforeDocumentComment,
+      after: afterDocumentComment,
+    }),
   );
   const anatomy = await page.evaluate(() => {
     const cards = [
@@ -828,13 +871,10 @@ try {
 
   // §2.2 — IT APPEARS IN THE RAIL AND NOWHERE ELSE. It used to render three
   // times: a rail card, an amber block in the prose, and the panel.
-  // IT DOES NOT PAINT, AND IT IS STILL THERE — which are two claims and the
-  // check has to make both. Counting DOM nodes and asserting zero would be the
-  // wrong test of the right idea: y-prosemirror DELETES a node this schema
-  // cannot build, and the projection writes that deletion to the author's file,
-  // so a rail branch that got its zero by dropping `note` from the schema would
-  // pass while destroying the document. The node is present, built, and drawn
-  // as nothing: no box, no room taken.
+  // IT IS NOT IN THE PROSE AT ALL, AND IT IS STILL KEPT — which are two claims.
+  // A whole-document comment has no mark in the file, so the fragment holds no
+  // node for it: nothing to paint, and nothing y-prosemirror could delete. Its
+  // words are in pending.json, which the filing check above already read.
   const inProse = await page.evaluate(() => {
     const notes = [
       ...document.querySelectorAll(
@@ -844,13 +884,18 @@ try {
     return {
       present: notes.length,
       painted: notes.filter((n) => n.getClientRects().length > 0).length,
-      area: notes.reduce((a, n) => a + n.getBoundingClientRect().height, 0),
     };
   });
   check(
-    'a whole-document instruction does not paint in the prose, and is still in the document',
-    inProse.present === 1 && inProse.painted === 0 && inProse.area === 0,
-    JSON.stringify(inProse),
+    'a whole-document instruction is not in the prose at all, and is still kept',
+    inProse.present === 0 &&
+      inProse.painted === 0 &&
+      readUnsent().some(
+        (c) =>
+          c.kind === 'document' &&
+          c.text === 'Open with the decision, not the background.',
+      ),
+    JSON.stringify({ inProse, unsent: readUnsent() }),
   );
   const firstCard = await page
     .locator('.gly-rail .gly-card.gly-thread')
@@ -1064,35 +1109,101 @@ try {
     !(await page.locator('.gly-menu').isVisible()),
   );
 
-  // THE INVARIANT, AND IT IS THE HALF THAT BREAKS SILENTLY. Only the RENDERING
-  // moved: the {>>…<<} block is still the record in the author's file. A node
-  // the browser's schema cannot build is not skipped by y-prosemirror — it is
-  // DELETED out of the Yjs document, and the next projection writes that
-  // deletion to disk. So NoteBlock has to stay registered and parsed and render
-  // as nothing visible, and this is read off the real path rather than off
-  // /_galley/pending, which would be green over a document already destroyed.
-  const filed = await waitForDisk(/\{>>\s*@document/);
+  // THE INVARIANT, AND IT IS THE HALF THAT BREAKS SILENTLY. A block comment's
+  // ID mark, {>>@comment cb-…<<}, is the record of its place in the author's
+  // file. A node the browser's schema cannot build is not skipped by
+  // y-prosemirror — it is DELETED out of the Yjs document, and the next
+  // projection writes that deletion to disk. So the note node has to stay
+  // registered and parsed and build with its id, and this is read off the real
+  // path rather than off /_galley/pending, which would be green over a
+  // document already destroyed. Filed by the section grip, the reviewer's own
+  // gesture, and taken back out at the end so the rest of this gate counts
+  // what it always counted.
+  await page.hover('.ProseMirror h1');
+  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
+    timeout: 5000,
+  });
+  await page.click('.gly-grip:not(.gly-code-grip)');
+  // The section grip selects the section and offers the bar; its button opens
+  // the form on the heading's block.
+  await page.waitForSelector(
+    '.gly-comment-button:not([hidden]):not([disabled])',
+    {
+      timeout: 5000,
+    },
+  );
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])', {
+    timeout: 5000,
+  });
+  await page.fill('.gly-composer-text', 'Say who the review is for.');
+  await page.click('.gly-composer-send');
+  await waitForWire(
+    page,
+    async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.length ===
+      3,
+  );
+  const blockKey = await page.evaluate(
+    async () =>
+      (
+        (await (await fetch('/_galley/pending')).json()).instructions.find(
+          (i) => i.anchor === 'block',
+        ) || {}
+      ).key || '',
+  );
+  const blockMark = `{>>@comment ${blockKey}<<}`;
+  const filed = await waitForDisk(
+    new RegExp(`\\{>>@comment ${blockKey || 'none'}<<\\}`),
+  );
   check(
-    'the {>>…<<} block with @document still persists in the .md',
-    /\{>>\s*@document[\s\S]*Open with the decision, not the background\.[\s\S]*<<\}/.test(
-      filed,
-    ),
-    JSON.stringify(filed),
+    'the block comment\u2019s ID mark is in the .md, and its words are not',
+    /^cb-[0-9a-f]{16}$/.test(blockKey) &&
+      filed.includes(`# A careful review\n\n${blockMark}\n`) &&
+      !filed.includes('Say who the review is for.') &&
+      readUnsent().some(
+        (c) => c.key === blockKey && c.text === 'Say who the review is for.',
+      ),
+    JSON.stringify({ blockKey, filed, unsent: readUnsent() }),
   );
   // AND IT SURVIVES A PROJECTION THE BROWSER DROVE, which is the half a POST-
   // then-read cannot see: the server writes the block, and it is the round trip
-  // through the editor's own schema that would take it back out again.
+  // through the editor's own schema that would take it back out again. The
+  // section grip left the whole section selected, and typing over it would
+  // replace the section: collapse it first, then click into the paragraph.
+  await page.evaluate(() =>
+    window.galleyEdit.editor.commands.setTextSelection(1),
+  );
   await page.locator('.ProseMirror p').first().click();
   await page.keyboard.press('End');
   await page.keyboard.type(' The budget is the subject.');
   const projected = await waitForDisk(/The budget is the subject\./);
   check(
-    'and it survives a projection the browser drove — the schema still builds the node',
+    'and it survives a projection the browser drove, with its id — the schema still builds the node',
     /The budget is the subject\./.test(projected) &&
-      /\{>>\s*@document[\s\S]*Open with the decision, not the background\.[\s\S]*<<\}/.test(
-        projected,
-      ),
+      !!blockKey &&
+      projected.includes(blockMark),
     JSON.stringify(projected),
+  );
+  const removed = await page.evaluate(async (key) => {
+    const response = await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    return response.status;
+  }, blockKey);
+  await waitForWire(
+    page,
+    async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.length ===
+      2,
+  );
+  check(
+    'deleting the block comment takes its mark out of the .md',
+    removed === 200 &&
+      !(await waitForDisk(/^(?![\s\S]*@comment cb-)/)).includes(blockMark),
+    String(removed),
   );
 
   // §2.3 — AN INSTRUCTION CAN BE REVISED, NOT ONLY DESTROYED.

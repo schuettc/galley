@@ -65,6 +65,8 @@ func TestLegacyInstructionCarriersAreNotDocumentChanges(t *testing.T) {
 		"a bare highlight": "# Title\n\nPressing {==**Revise**==} sends the round.\n",
 		// The carrier galley writes now: the highlight AND its ID mark.
 		"a highlight with its ID mark": "# Title\n\nPressing {==**Revise**==}{>>@comment cm-0123456789abcdef<<} sends the round.\n",
+		// A block comment's carrier: its ID mark on a line of its own.
+		"a block comment's ID mark": "# Title\n\nPressing **Revise** sends the round.\n\n{>>@comment cb-0123456789abcdef<<}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := newEditServer(t, t.TempDir(), "doc.md", "# Title\n\nPressing **Revise** sends the round.\n")

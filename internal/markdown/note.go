@@ -224,19 +224,6 @@ func NoteText(b docmodel.Block) string {
 	return out.String()
 }
 
-// NewNote builds a Note block — the constructor every producer outside this
-// package uses, so the attrs are spelled in exactly one place.
-func NewNote(anchor, text string) docmodel.Block {
-	if anchor != docmodel.AnchorDocument {
-		anchor = docmodel.AnchorBlock
-	}
-	b := docmodel.Block{Kind: docmodel.Note, Attrs: map[string]string{"anchor": anchor}}
-	if text != "" {
-		b.Inlines = []docmodel.Inline{{Text: text}}
-	}
-	return b
-}
-
 // NewCommentNote builds a block comment's mark: a Note carrying the comment's
 // ID and no words.
 func NewCommentNote(id string) docmodel.Block {
@@ -244,25 +231,6 @@ func NewCommentNote(id string) docmodel.Block {
 		"anchor":               docmodel.AnchorBlock,
 		docmodel.CommentIDAttr: id,
 	}}
-}
-
-// UnwritableNoteText reports whether text cannot be written inside a
-// {>>…<<} without corrupting it.
-//
-// CriticMarkup has no escape mechanism and its reader closes a span at the
-// FIRST matching closer, so a note whose own text contains "<<}" would be cut
-// short and the remainder would fall out into the document as prose. There is
-// no alternate spelling for a comment the way there is for a deletion (see
-// render_inline.go's wrapSuggestion), so the only honest answers are "refuse
-// it at the API" — which is what the suggest layer does with this — and
-// "write the words and lose the marker", which is what renderNote falls back
-// to for a note that got into a document some other way.
-//
-// A newline is refused for the same reason: the marker has to occupy ONE line
-// to be a block of its own, and a note broken across two lines would be read
-// back as a paragraph with a stray "<<}" in it.
-func UnwritableNoteText(text string) bool {
-	return strings.Contains(text, "<<}") || strings.ContainsAny(text, "\r\n")
 }
 
 // renderNote writes a Note block as "{>>body<<}" on a line of its own.
@@ -273,10 +241,10 @@ func UnwritableNoteText(text string) bool {
 // delimiter and simply disappears on the way back in. Escaping it is what
 // makes the note's text survive verbatim.
 //
-// A note whose text cannot be spelled at all (see UnwritableNoteText) is
-// written as PLAIN TEXT with the markers dropped. Same ruling as
-// wrapSuggestion's: losing the anchor is recoverable from the sidecar, losing
-// the author's words is not.
+// No producer writes words into a note any more: a comment's words live in the
+// unsent round, and the file holds only its ID mark. The words a note can
+// still carry are the ones a parse read out of a {>>…<<}, and a parse never
+// reads a "<<}" or a line break into one, so every note spells.
 func renderNote(b docmodel.Block) string {
 	return spellNote(b, lineContext{atLineStart: true})
 }
@@ -334,12 +302,8 @@ func spellNote(b docmodel.Block, ctx lineContext) string {
 	if id := b.Attrs[docmodel.CommentIDAttr]; validCommentID(id) && NoteAnchor(b) == docmodel.AnchorBlock {
 		return renderPlan(literalChars("{>>"+commentMark(id)+"<<}"), ctx)
 	}
-	text := NoteText(b)
-	if UnwritableNoteText(text) {
-		return renderInlines([]docmodel.Inline{{Text: text}}, ctx)
-	}
 	plan := literalChars("{>>")
-	plan = append(plan, contentChars(noteBody(NoteAnchor(b), text))...)
+	plan = append(plan, contentChars(noteBody(NoteAnchor(b), NoteText(b)))...)
 	plan = append(plan, literalChars("<<}")...)
 	return renderPlan(plan, ctx)
 }

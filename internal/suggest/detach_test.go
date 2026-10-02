@@ -13,34 +13,42 @@ import (
 // Detach is the DOCUMENT half of deleting a thread: the trace the conversation
 // left in the file. Everything else about a delete is the sidecar's business.
 //
-// Two identical notes on one anchor are the case that decides whether the
-// pairing is real or a coincidence — each thread has to take ITS OWN note, so
-// deleting one leaves the other's words exactly where they were.
-func TestDetachTakesTheRightOneOfTwoIdenticalNotes(t *testing.T) {
-	d := parseDoc(t, "# Spec\n\nThe build is slow.\n\n{>>look at this<<}\n\n{>>look at this<<}\n")
-	notes := suggest.Notes(d)
-	if len(notes) != 2 {
-		t.Fatalf("fixture has %d notes, want 2", len(notes))
-	}
-	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
+// Two block comments on one block are the case that decides whether the
+// pairing is real or a coincidence: each thread takes the note carrying ITS ID,
+// so deleting one leaves the other's mark exactly where it was.
+func TestDetachTakesTheRightOneOfTwoNotesOnOneBlock(t *testing.T) {
+	const first, second = "cb-0000000000000001", "cb-0000000000000002"
+	d := parseDoc(t, "# Spec\n\nThe build is slow.\n\n{>>@comment "+first+"<<}\n\n{>>@comment "+second+"<<}\n")
 	threads := []review.Thread{
-		suggest.NewNoteThread(notes[0], review.AuthorCourt, at),
-		suggest.NewNoteThread(notes[1], review.AuthorCourt, at),
-	}
-	if threads[0].Key == threads[1].Key {
-		t.Fatal("two identical notes were given one key — they are two conversations")
+		{Key: first, Anchor: string(suggest.AnchorBlock)},
+		{Key: second, Anchor: string(suggest.AnchorBlock)},
 	}
 
-	out, ok := suggest.Detach(d, threads, threads[1].Key)
+	out, ok := suggest.Detach(d, threads, second)
 	if !ok {
 		t.Fatal("Detach found nothing to remove")
 	}
 	got := string(markdown.Serialize(out))
-	if strings.Count(got, "look at this") != 1 {
-		t.Errorf("want exactly one note left, got %q", got)
+	if !strings.Contains(got, first) || strings.Contains(got, second) {
+		t.Errorf("want only %s left, got %q", first, got)
 	}
 	if !strings.Contains(got, "The build is slow.") {
 		t.Errorf("Detach took the prose with it: %q", got)
+	}
+}
+
+// A document comment has no mark in the file, so deleting one changes nothing
+// in it: not even a word note that says the same thing.
+func TestDetachingADocumentCommentChangesNothing(t *testing.T) {
+	d := parseDoc(t, "# Spec\n\n{>>@document look at this<<}\n")
+	threads := []review.Thread{{Key: "cd-0000000000000001", Anchor: string(suggest.AnchorDocument),
+		Entries: []review.Entry{{Author: review.AuthorCourt, Text: "look at this"}}}}
+	out, ok := suggest.Detach(d, threads, "cd-0000000000000001")
+	if ok {
+		t.Error("Detach claimed to remove a mark a document comment does not have")
+	}
+	if got := string(markdown.Serialize(out)); !strings.Contains(got, "look at this") {
+		t.Errorf("Detach removed a note by its words: %q", got)
 	}
 }
 
@@ -168,62 +176,5 @@ func TestDetachReportsNothingRatherThanGuessing(t *testing.T) {
 	}
 	if got := string(markdown.Serialize(out)); !strings.Contains(got, "a different note") {
 		t.Errorf("Detach removed the wrong note: %q", got)
-	}
-}
-
-// Reword is the DOCUMENT half of editing an instruction, and the two identical
-// notes are here for the reason they are in the delete test above: the pairing
-// has to be real, so rewording one may not touch the other's words.
-func TestRewordChangesOneNoteAndLeavesItsTwinAlone(t *testing.T) {
-	d := parseDoc(t, "# Spec\n\nThe build is slow.\n\n{>>look at this<<}\n\n{>>look at this<<}\n")
-	notes := suggest.Notes(d)
-	if len(notes) != 2 {
-		t.Fatalf("fixture has %d notes, want 2", len(notes))
-	}
-	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
-	threads := []review.Thread{
-		suggest.NewNoteThread(notes[0], review.AuthorCourt, at),
-		suggest.NewNoteThread(notes[1], review.AuthorCourt, at),
-	}
-
-	out, ok := suggest.Reword(d, threads, threads[1].Key, "say which build")
-	if !ok {
-		t.Fatal("Reword found no note to rewrite")
-	}
-	got := string(markdown.Serialize(out))
-	if strings.Count(got, "look at this") != 1 {
-		t.Errorf("the twin was rewritten too: %q", got)
-	}
-	if !strings.Contains(got, "{>>say which build<<}") {
-		t.Errorf("the new words never reached the file: %q", got)
-	}
-	if !strings.Contains(got, "The build is slow.") {
-		t.Errorf("Reword took the prose with it: %q", got)
-	}
-}
-
-// A RANGE INSTRUCTION HAS NO WORDS IN THE DOCUMENT, so there is nothing here to
-// reword and the honest answer is to change nothing and say so. The words are
-// the sidecar's; the file holds only a Highlight over prose the reviewer did
-// not write, and rewriting THAT would rewrite the author's own sentence.
-func TestRewordLeavesARangeInstructionsProseAlone(t *testing.T) {
-	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
-	d := parseDoc(t, "A picture and an age.\n")
-	d, err := suggest.CommentOn(d, "age", "cm-000000000000001a", review.AuthorCourt, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	threads := []review.Thread{{
-		Key:     "c-range",
-		Heading: "age",
-		Entries: []review.Entry{{Author: review.AuthorCourt, At: at, Text: "which age?"}},
-	}}
-	before := string(markdown.Serialize(d))
-	out, ok := suggest.Reword(d, threads, "c-range", "which age exactly?")
-	if ok {
-		t.Error("Reword claimed to have rewritten a document that holds no note")
-	}
-	if got := string(markdown.Serialize(out)); got != before {
-		t.Errorf("Reword changed the file anyway:\n got %q\nwant %q", got, before)
 	}
 }

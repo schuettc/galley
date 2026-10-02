@@ -2,7 +2,6 @@ package suggest_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
@@ -94,18 +93,16 @@ func onOpen(d docmodel.Doc) string {
 	return string(markdown.Serialize(asTheBrowserWouldBuildIt(d)))
 }
 
+// whyID is the block comment every fixture here carries, as its ID mark.
+const whyID = "cb-00000000000000aa"
+
 // deleteOnlyThread is the delete-thread verb: serve's editmode handler reaches
 // suggest.Detach with the thread's key, and the result goes through mutate ->
-// ydoc.Load into the live fragment.
+// ydoc.Load into the live fragment. The note is found by its ID.
 func deleteOnlyThread(t *testing.T, d docmodel.Doc) docmodel.Doc {
 	t.Helper()
-	notes := suggest.Notes(d)
-	if len(notes) != 1 {
-		t.Fatalf("fixture holds %d notes, want exactly 1", len(notes))
-	}
-	at := time.Date(2026, 8, 16, 9, 0, 0, 0, time.UTC)
-	threads := []review.Thread{suggest.NewNoteThread(notes[0], review.AuthorCourt, at)}
-	out, ok := suggest.Detach(d, threads, threads[0].Key)
+	threads := []review.Thread{{Key: whyID, Anchor: string(suggest.AnchorBlock)}}
+	out, ok := suggest.Detach(d, threads, whyID)
 	if !ok {
 		t.Fatal("Detach found nothing to remove")
 	}
@@ -125,17 +122,17 @@ func TestDeletingANoteOnlyCellKeepsEveryOtherColumnInPlace(t *testing.T) {
 	}{
 		{
 			name: "first column",
-			src:  head + "| {>>why<<} | mid | tail |\n",
+			src:  head + "| {>>@comment " + whyID + "<<} | mid | tail |\n",
 			want: head + "| | mid | tail |\n",
 		},
 		{
 			name: "middle column",
-			src:  head + "| lead | {>>why<<} | tail |\n",
+			src:  head + "| lead | {>>@comment " + whyID + "<<} | tail |\n",
 			want: head + "| lead | | tail |\n",
 		},
 		{
 			name: "last column",
-			src:  head + "| lead | mid | {>>why<<} |\n",
+			src:  head + "| lead | mid | {>>@comment " + whyID + "<<} |\n",
 			want: head + "| lead | mid | |\n",
 		},
 	}
@@ -157,7 +154,7 @@ func TestDeletingANoteOnlyCellKeepsEveryOtherColumnInPlace(t *testing.T) {
 // narrows the WHOLE table, and cellTexts then drops the last cell of every body
 // row as a long-row extra.
 func TestDeletingANoteOnlyHeaderCellKeepsTheTablesWidth(t *testing.T) {
-	src := "| {>>why<<} | note | unit |\n| --- | --- | --- |\n| a | b | c |\n"
+	src := "| {>>@comment " + whyID + "<<} | note | unit |\n| --- | --- | --- |\n| a | b | c |\n"
 	want := "| | note | unit |\n| --- | --- | --- |\n| a | b | c |\n"
 	d := parseDoc(t, src)
 	if got := onOpen(deleteOnlyThread(t, d)); got != want {
@@ -186,17 +183,17 @@ func TestDeletingANoteThatIsTheWholeOfALisItemOrABlockquote(t *testing.T) {
 	}{
 		{
 			name: "bullet item",
-			src:  "- one\n- {>>why<<}\n- three\n",
+			src:  "- one\n- {>>@comment " + whyID + "<<}\n- three\n",
 			want: "- one\n-\n- three\n",
 		},
 		{
 			name: "ordered item",
-			src:  "1. one\n2. {>>why<<}\n3. three\n",
+			src:  "1. one\n2. {>>@comment " + whyID + "<<}\n3. three\n",
 			want: "1. one\n2.\n3. three\n",
 		},
 		{
 			name: "blockquote",
-			src:  "Prose.\n\n> {>>why<<}\n",
+			src:  "Prose.\n\n> {>>@comment " + whyID + "<<}\n",
 			want: "Prose.\n\n>\n",
 		},
 	}
@@ -218,7 +215,7 @@ func TestDeletingANoteThatIsTheWholeOfALisItemOrABlockquote(t *testing.T) {
 // author has emptied; an empty Paragraph at the top level is a block markdown
 // cannot write, and renderedBlocks would drop it on the way out.
 func TestDeletingTheOnlyBlockLeavesAnEmptyFile(t *testing.T) {
-	d := parseDoc(t, "{>>why<<}\n")
+	d := parseDoc(t, "{>>@comment "+whyID+"<<}\n")
 	out := deleteOnlyThread(t, d)
 	// THE MODEL, not only the bytes: an empty Paragraph at the top level would
 	// serialize away to the same "\n" (renderedBlocks drops a block that renders
@@ -240,10 +237,10 @@ func TestDeletingTheOnlyBlockLeavesAnEmptyFile(t *testing.T) {
 // reads THAT, not the bytes.
 func TestNoRemovalLeavesAParentTheBrowserCannotBuild(t *testing.T) {
 	srcs := []string{
-		"| knob | note | unit |\n| --- | --- | --- |\n| {>>why<<} | mid | tail |\n",
-		"| {>>why<<} | note |\n| --- | --- |\n| a | b |\n",
-		"- one\n- {>>why<<}\n- three\n",
-		"Prose.\n\n> {>>why<<}\n",
+		"| knob | note | unit |\n| --- | --- | --- |\n| {>>@comment " + whyID + "<<} | mid | tail |\n",
+		"| {>>@comment " + whyID + "<<} | note |\n| --- | --- |\n| a | b |\n",
+		"- one\n- {>>@comment " + whyID + "<<}\n- three\n",
+		"Prose.\n\n> {>>@comment " + whyID + "<<}\n",
 	}
 	for _, src := range srcs {
 		out := deleteOnlyThread(t, parseDoc(t, src))

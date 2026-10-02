@@ -161,10 +161,8 @@ func extractCritic(d docmodel.Doc) (docmodel.Doc, []InlineComment) {
 //     KEEPS ITS MARKERS. The block's inlines are left exactly as the author
 //     typed them and the extraction is discarded, so the file round-trips
 //     byte-identically and the words stay where they were written. That is the
-//     same ruling spellNote's UnwritableNoteText path already makes ("losing
-//     the anchor is recoverable from the sidecar, losing the author's words is
-//     not") and the same one CLAUDE.md makes for a code fence: a {>>…<<} with
-//     no anchor to be given is not a comment, it is text.
+//     ruling CLAUDE.md makes for a code fence: a {>>…<<} with no anchor to be
+//     given is not a comment, it is text.
 //
 // Refusing the document was the third option and is wrong here: `unsupported`
 // is for constructs the MODEL cannot represent — raw HTML, footnotes — and this

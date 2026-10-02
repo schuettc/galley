@@ -737,7 +737,7 @@ func TestSuggestCannotTargetANote(t *testing.T) {
 // goldmark parses the paragraph before critic.go's scanner runs, so cellText
 // flattens the body to plain runes: a link's destination is deleted from the
 // author's own file. The write side is correct — note.go escapes a body so it
-// survives verbatim — but that only holds for text entering through NewNote.
+// survives verbatim — but only for words the note was built with.
 //
 // Not a regression (the same flattening always fed the sidecar), but this
 // branch promotes the flattened text to durable FILE content, so a reviewer

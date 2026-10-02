@@ -665,97 +665,13 @@ func CommentText(d docmodel.Doc, id string) (string, bool) {
 // A SELECTED-TEXT COMMENT NO LONGER TAKES THIS KEY. It is keyed by an ID the
 // server mints (unsent.NewID) and writes into the file after the highlight, and
 // it is paired with its place by that ID alone (PairFor). This stays for
-// CommentKeyFor and MigrateCommentKeys.
+// MigrateCommentKeys.
 func CommentKey(quote, author string, at time.Time) string {
 	return digestKey("cm-", quote, author, at.UTC().Format(time.RFC3339Nano))
 }
 
-// CommentKeyFor is CommentKey generalized over the three anchor kinds. For a
-// range anchor it returns EXACTLY what CommentKey returns for the same quote,
-// author and instant — bit for bit, not merely equivalent — because keys
-// already written into sidecars are matched literally and a key that moved
-// would be a thread nothing can reach.
-//
-// The other two get their own prefixes so a block key and a quote that
-// happened to hash alike could never name the same thread, and so a reader
-// can tell what kind of anchor a thread has from the key alone when the
-// thread's own Anchor field is missing (a sidecar written before this
-// existed).
-//
-// text is the note's OWN WORDS, and it is in the digest for the same reason
-// the quote is in a range key: it is what the comment was about at the moment
-// it was made, and it is what makes two comments on one block two threads.
-//
-// It used to be a parameter this function did not have, while this comment
-// already claimed it did. A block anchor digested (blockKey, author, at) and a
-// document anchor digested ("", author, at) — and importNotes stamps every
-// orphan with a single time.Now() and one author constant, so every note on an
-// anchor keyed IDENTICALLY and review.Session.Append upserted them into each
-// other. Two comments became one thread holding both their words, permanently:
-// after a restart ReconcileNotes matches at most one note per thread, the
-// other is orphaned and reopened, and the state settles there rather than
-// converging. The comment described the intended design; the code implemented
-// a different one. This is the code catching up.
-//
-// A document anchor takes no Target at all now. AnchorFor returned "" for one
-// and CommentOnDocument passed the note text, so the same conceptual anchor
-// had two spellings and two digests; the text has its own parameter, so there
-// is nothing left for Target to disagree about.
-//
-// A NOTE'S KEY MAY NOT DIGEST THE INSTANT, BECAUSE THE FILE DOES NOT CARRY
-// ONE — and the two other parts of this comment say why that is a different
-// question from the range key below.
-//
-// A range comment is minted ONCE, by the process that creates the highlight,
-// and is written to the sidecar in the same act; nothing ever derives it
-// again, so the instant is free to be in the digest and is load-bearing there
-// (two comments on the same quote by the same author are two threads). A
-// BLOCK or DOCUMENT note is the opposite: it lives in the .md as a
-// {>>…<<}, CriticMarkup has nowhere to write an author or a timestamp, and
-// EVERY reader re-derives its key from the bytes — `galley pending` offline,
-// serve.NewEdit's importNotes when the editor opens, cmd/galley's
-// seedFileThreads on the next reply. Digesting a value the file does not hold
-// means each of those readers mints a DIFFERENT key for one note, so:
-//
-//	$ galley pending d.md          → cb-f623f300a7b959b1
-//	$ galley reply d.md cb-f623… "an answer"
-//	no thread with key "cb-f623…" — run 'galley pending d.md' for the keys
-//
-// measured on the shipped binary, one command after the other, and the key
-// moved again (cb-5471dc2c8866196e) the moment a reviewer opened the document.
-// A KEY THAT IS NOT STABLE IS NOT A KEY — CLAUDE.md's ordinal-identity entry
-// one layer up: there an ordinal moved when the document changed, here a key
-// moved when nothing changed but who was looking.
-//
-// So a note's key digests exactly what the FILE carries: the anchor target,
-// and the note's own words (plus NewNoteThread's ordinal suffix, which is what
-// keeps two identical notes on one block two threads — the job the instant was
-// wrongly doing here). The author STAYS: every import path uses the same
-// constant, and an agent's own `--comment --on-block` is written to the sidecar
-// at creation and matched by ReconcileNotes thereafter, so it never re-derives.
-//
-// A KEY CHANGE IS A MIGRATION, and this one needs no rewrite. ReconcileNotes
-// pairs a file's notes to the sidecar's threads on Entries[0].Text, never on
-// the key, so a thread stored under the old instant-derived key is still
-// matched, still printed by `galley pending`, and still reachable by `reply`,
-// `resolve`, `approve` and `delete` — and, being matched, never orphaned into
-// a duplicate beside itself. Only a note the sidecar has NEVER seen mints
-// under the new rule. TestALegacyNoteKeyStaysReachable is that promise.
-//
-// Like every other key here it is computed once, at creation, and never
-// recomputed — editing the note afterwards does not move the thread.
-func CommentKeyFor(a Anchor, text, author string, at time.Time) string {
-	switch a.Kind {
-	case AnchorBlock:
-		return digestKey("cb-", a.Target, text, author)
-	case AnchorDocument:
-		return digestKey("cd-", text, author)
-	default:
-		return CommentKey(a.Target, author, at)
-	}
-}
-
-// digestKey is the shared key derivation: parts length-prefixed rather than
+// digestKey is the shared key derivation (CommentKey, and blockKeys' block
+// keys): parts length-prefixed rather than
 // delimiter-joined, so a part that happens to contain the delimiter cannot
 // spell a different tuple with the same digest.
 func digestKey(prefix string, parts ...string) string {

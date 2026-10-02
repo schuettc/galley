@@ -460,15 +460,3 @@ func TestACommentThatCannotBeStoredIsAnError(t *testing.T) {
 		t.Errorf("the 500 does not say what failed: %q", rec.Body.String())
 	}
 }
-
-// A note typed into the file by hand gets its thread at startup, and that
-// thread is mirrored at once: pending.json is the unsent round as the rail
-// shows it from the first moment, not from the first mutation after.
-func TestANoteImportedAtStartupIsInTheUnsentRound(t *testing.T) {
-	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc+"\n{>>@document tighten the whole thing<<}\n")
-	t.Cleanup(func() { _ = s.Close() })
-	got := loadUnsent(t, s)
-	if len(got) != 1 || got[0].Text != "tighten the whole thing" || got[0].Kind != unsent.KindDocument {
-		t.Fatalf("pending.json after opening a file with a hand-typed note = %+v, want the document comment", got)
-	}
-}

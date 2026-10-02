@@ -15,11 +15,9 @@ import (
 //   - RANGE: a Highlight mark on the prose it covers, on every piece that
 //     carries the comment's ID. Deleting drops the mark from each piece and
 //     keeps the text.
-//   - BLOCK or DOCUMENT: a docmodel.Note block, which IS the note. There is no
-//     mark to lift; the file is where those words live, and removing the block
-//     is the only way to take them out of it. This is the one path in galley
-//     that removes a {>>…<<} a human typed, and it exists precisely so that
-//     nothing else has to.
+//   - BLOCK: a docmodel.Note carrying the comment's ID, on its own line after
+//     the block. There is no mark to lift, so the note itself is removed.
+//   - DOCUMENT: nothing. A document comment has no mark in the file.
 //
 // The sidecar half — dropping the conversation itself — is review.Session.
 // Delete, and every caller does both.
@@ -38,8 +36,10 @@ import (
 // A thread whose key is no span's ID has no place in this document, and the
 // honest answer is "unplaced", whatever its heading says.
 //
-// RANGE anchors only. A block or document comment's trace is a docmodel.Note,
-// paired through matchNotes, not here.
+// A BLOCK comment pairs the same way, with the Note carrying its ID; the
+// Pending then names the block the note sits under (BlockKey), read off the
+// note's position, never stored. A document comment has no mark and never
+// pairs.
 //
 // It is a function over the pending LIST rather than over the document because
 // every caller already has one — the serve layer's instruction builder and its
@@ -49,8 +49,12 @@ func PairFor(pending []Pending, t review.Thread) (Pending, bool) {
 	if t.Key == "" {
 		return Pending{}, false
 	}
+	note := t.Anchor == string(AnchorBlock)
+	if !note && t.Anchor != "" && t.Anchor != string(AnchorRange) {
+		return Pending{}, false
+	}
 	for _, p := range pending {
-		if p.Kind == KindComment && p.Anchor == AnchorRange && p.CommentID == t.Key {
+		if p.Kind == KindComment && (p.Anchor != AnchorRange) == note && p.CommentID == t.Key {
 			return p, true
 		}
 	}
@@ -78,18 +82,32 @@ func Detach(d docmodel.Doc, threads []review.Thread, key string) (docmodel.Doc, 
 		return d, false
 	}
 
-	if t.Anchor == string(AnchorBlock) || t.Anchor == string(AnchorDocument) {
-		notes, paths := notesWithPaths(d)
-		matched := matchNotes(notes, threads)
-		for i, j := range matched {
-			if j >= 0 && threads[j].Key == key {
-				return removeBlockAt(d, paths[i]), true
-			}
-		}
+	switch t.Anchor {
+	case string(AnchorBlock):
+		return removeCommentNote(d, key)
+	case string(AnchorDocument):
 		return d, false
 	}
-
 	return liftComment(d, key)
+}
+
+// removeCommentNote removes the Note carrying id, at whatever depth it sits,
+// and reports whether there was one. removeBlockAt refills a parent the
+// removal would leave empty.
+func removeCommentNote(d docmodel.Doc, id string) (docmodel.Doc, bool) {
+	if id == "" {
+		return d, false
+	}
+	var at []int
+	docmodel.Walk(d, func(path []int, b *docmodel.Block) {
+		if at == nil && b.Kind == docmodel.Note && b.Attrs[docmodel.CommentIDAttr] == id {
+			at = append([]int(nil), path...)
+		}
+	})
+	if at == nil {
+		return d, false
+	}
+	return removeBlockAt(d, at), true
 }
 
 // liftComment drops the comment highlight carrying id from EVERY inline of
@@ -130,61 +148,4 @@ func liftComment(d docmodel.Doc, id string) (docmodel.Doc, bool) {
 		return d, false
 	}
 	return clone, true
-}
-
-// Reword rewrites the words of the note the thread named by key left in the
-// document, and reports whether it found one.
-//
-// It is Detach's sibling and shares its whole argument about where a thread's
-// words actually live. A RANGE thread keeps its words in the sidecar alone —
-// the document holds only a Highlight over prose the reviewer did not write —
-// so there is nothing here to reword and this answers false, correctly and
-// without changing anything. A BLOCK or DOCUMENT thread's words ARE a
-// docmodel.Note block in the file, and rewriting that block is the only way an
-// edit reaches the .md at all. Not finding a note is an ordinary outcome for
-// the same reasons Detach lists: it may have been deleted by hand, or the
-// thread may never have had one.
-//
-// THE THREAD'S KEY IS NOT RECOMPUTED, AND THAT IS DELIBERATE. A note's key
-// digests the note's own words (CommentKeyFor), so rewording one changes what
-// its key WOULD be — but the sidecar is upserted by the key it already has, and
-// ReconcileNotes pairs a note back onto its thread on Entries[0].Text, never on
-// the key. So as long as the caller writes the same new text into both halves
-// in ONE mutation, the pairing holds and the old key stays reachable, which is
-// exactly the migration story CLAUDE.md records for keys that have drifted
-// before. Re-keying here would orphan every reply already in the conversation.
-func Reword(d docmodel.Doc, threads []review.Thread, key, text string) (docmodel.Doc, bool) {
-	var t review.Thread
-	found := false
-	for _, th := range threads {
-		if th.Key == key {
-			t, found = th, true
-			break
-		}
-	}
-	if !found {
-		return d, false
-	}
-	if t.Anchor != string(AnchorBlock) && t.Anchor != string(AnchorDocument) {
-		return d, false
-	}
-	notes, paths := notesWithPaths(d)
-	matched := matchNotes(notes, threads)
-	for i, j := range matched {
-		if j < 0 || threads[j].Key != key {
-			continue
-		}
-		clone := cloneDoc(d)
-		b, ok := blockAt(clone, paths[i])
-		if !ok {
-			return d, false
-		}
-		// One unmarked inline, which is what every note this package writes
-		// holds: a note's words are prose the reviewer typed into a box, never
-		// marked-up document text, and ydoc.writeBlock crosses it as a single
-		// YXmlText run.
-		b.Inlines = []docmodel.Inline{{Text: text}}
-		return clone, true
-	}
-	return d, false
 }

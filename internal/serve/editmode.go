@@ -385,10 +385,7 @@ func newInstanceToken() (string, error) {
 
 // NewEdit builds an edit-mode server for a markdown document: the room named
 // from its basename and this run's instance token, the file's content loaded
-// live into the ygo fragment,
-// its CriticMarkup comments imported into threads, and — if a sidecar from a
-// previous session exists — suggestion authorship restored onto marks the
-// file format itself cannot carry.
+// live into the ygo fragment, and the unsent round replayed from pending.json.
 //
 // Room creation and the initial fragment load happen in one Apply so a peer
 // connecting mid-startup never observes an empty document followed by a full
@@ -415,28 +412,26 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	if err := claimDocument(DefaultRuntimePath(abs)); err != nil {
 		return nil, err
 	}
-	model, comments, err := markdown.Parse(src)
+	// THE INLINE NOTES THE PARSE LIFTS ARE DISCARDED, and that is a deletion:
+	// a hand-typed {>>words<<} inside a sentence leaves the .md at the first
+	// projection. Comments hand-typed into the .md are not imported (the
+	// comment design's "dropped" cases); a reviewer comment's words live in
+	// pending.json and its place is an ID mark, which the parse keeps.
+	model, _, err := markdown.Parse(src)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", abs, err)
 	}
 
-	// THE UNSENT ROUND, read before anything else looks at the comments. Its
-	// block and document comments are paired with their notes in the file
-	// here, so a note already in pending.json is not imported a second time as
-	// an orphan, and the pairing gives each its block's anchor key.
+	// THE UNSENT ROUND, and nothing else: every comment comes from
+	// pending.json, placed by the ID marks the parse kept. Nothing is imported
+	// from the file's words.
 	pendingComments, err := loadUnsentRound(abs)
 	if err != nil {
 		return nil, err
 	}
-	replayed, orphanNotes, _, _ := suggest.ReconcileNotes(model, unsent.ToThreads(pendingComments))
 	// Identity, before the document is ever served. A peer that connects
 	// during startup must see addressable marks on its first sync, not
 	// unaddressed ones corrected a moment later.
-	//
-	// LAST, after ReconcileNotes: a run names a MARK, and a note is a block
-	// with unmarked inlines, so minting runs can never change what a note
-	// anchors to — but the ordering is stated rather than accidental, because
-	// everything above wants the model exactly as the file spelled it.
 	model = suggest.MintRuns(model)
 
 	instance, err := newInstanceToken()
@@ -500,29 +495,9 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		Notify: &Notifier{},
 	}
 
-	// {>>note<<} markers extracted from THIS parse. Project never re-emits
-	// them (comments live in the sidecar, never the file), so on every
-	// restart after the first this finds nothing — the sidecar replay above
-	// already carries the conversation forward. It only ever fires for a
-	// file that still has raw markers Project hasn't had a chance to lift
-	// out yet.
-	replayUnsent(s.doc, replayed)
-	importInlineComments(s.doc, model, notReplayed(comments, replayed))
-	// Block and document comments live IN the file as {>>…<<} notes, and in
-	// the sidecar as threads carrying the conversation that grew around them.
-	// Both were just replayed, so this only opens threads for notes the
-	// sidecar has never seen — a note somebody typed into the file by hand,
-	// or one written by an offline `galley suggest --on-block`.
-	importNotes(s.doc, orphanNotes)
-	// ONE SAVE, AFTER EVERY IMPORT. A note typed into the file by hand, or an
-	// inline {>>…<<} the first projection will lift out of the .md, has a
-	// thread now and nowhere durable to live until something writes
-	// pending.json. Without this, a restart before the first comment lost the
-	// inline note's words entirely. No peer exists yet, so nothing races it.
-	if err := s.saveUnsentLocked(); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("could not store the unsent round: %w", err)
-	}
+	// The review map is pending.json's live state. Where each comment sits is
+	// not replayed: the one builder reads it off the ID marks every time.
+	replayUnsent(s.doc, unsent.ToThreads(pendingComments))
 
 	s.doc.OnUpdate(func(_ []byte, origin any) {
 		// ReadLive's own mutual-exclusion Transact fires this like any other
@@ -1603,27 +1578,21 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			if text == "" {
 				return docmodel.Doc{}, nil, fmt.Errorf("an instruction with no words is a delete — use it")
 			}
-			// A block or document instruction's WORDS ARE A NOTE IN THE FILE,
-			// so an edit that only touched the sidecar would leave the .md
-			// saying the old thing — and the .md is the document of record.
-			// Reword answers false for a range instruction, whose words were
-			// never in the document, and that is the correct no-op rather than
-			// a failure.
-			out, _ := suggest.Reword(model, threads, in.Key, text)
+			// THE WORDS ARE IN pending.json ALONE, for every kind, so an edit
+			// changes nothing in the document: the file holds only the
+			// comment's ID mark, which an edit does not move. The model goes
+			// back unchanged and applyModel's rev bump carries the review write.
 			key := in.Key
-			return out, func(doc *crdt.Doc, tx review.Tx) {
+			return model, func(doc *crdt.Doc, tx review.Tx) {
 				// The heading is left alone — an edit changes what was ASKED,
 				// never what it was asked ABOUT.
 				review.Bind(doc, tx).SetComment(key, "", text, at)
 			}, nil
 		case "comment_block", "comment_document":
-			// A block or document comment is the mirror image of a range one:
-			// the NOTE goes into the document (as a {>>…<<} on its own line —
-			// there is no mark to carry it) and the thread carries the
-			// conversation that grows around it. So unlike the range branch
-			// the text is not optional, and suggest refuses it up front rather
-			// than writing a marker with nothing in it.
-			out, key, err := commentAnchored(model, in, author, at)
+			// A block comment's ID mark goes into the document on its own line
+			// after the block; a document comment has no mark at all. The words
+			// and any rectangle live in pending.json alone, linked by the ID.
+			out, key, err := commentAnchored(model, in)
 			if err != nil {
 				return docmodel.Doc{}, nil, err
 			}
@@ -1638,9 +1607,7 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 				sess := review.Bind(doc, tx)
 				sess.Append(key, heading, author, text, at)
 				sess.SetAnchor(key, string(anchor.Kind), anchor.Target, suggest.BlockKindFor(out, anchor))
-				// The rectangle, when there is one. The WORDS are already in
-				// the document as an ordinary block note — this is the part
-				// that has no markdown spelling and so rides in the sidecar.
+				// The rectangle, when there is one.
 				if region != nil {
 					sess.SetRegion(key, region)
 				}
@@ -1758,12 +1725,20 @@ func commentRanged(model docmodel.Doc, in instructionRequest, id, author string,
 	}
 }
 
-// commentAnchored applies the block or document comment named by in.
-func commentAnchored(model docmodel.Doc, in instructionRequest, author string, at time.Time) (docmodel.Doc, string, error) {
-	if in.Op == "comment_block" {
-		return suggest.CommentOnBlock(model, in.Target, in.Text, author, at)
+// commentAnchored mints the block or document comment named by in and writes
+// its mark: an ID note after the block, or, for the whole document, nothing,
+// so the model comes back unchanged. A comment with no words is refused, as
+// for a range comment: its mark would name nothing in pending.json.
+func commentAnchored(model docmodel.Doc, in instructionRequest) (docmodel.Doc, string, error) {
+	if strings.TrimSpace(in.Text) == "" {
+		return docmodel.Doc{}, "", errors.New("an instruction needs words")
 	}
-	return suggest.CommentOnDocument(model, in.Text, author, at)
+	if in.Op != "comment_block" {
+		return model, unsent.NewID(unsent.KindDocument), nil
+	}
+	key := unsent.NewID(unsent.KindBlock)
+	out, err := suggest.CommentOnBlock(model, in.Target, key)
+	return out, key, err
 }
 
 // headingForAnchor names what a thread is about, for the panel and for
@@ -2946,80 +2921,3 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 		// The caller went away. Nothing to write to.
 	}
 }
-
-// importInlineComments turns a freshly-parsed file's {>>note<<} markers into
-// threads — the file's one-time on-ramp into the sidecar's conversation
-// model. See NewEdit for why this is a no-op on every restart after the
-// first.
-// The parsed model is taken beside the crdt document so the thread can be
-// NAMED — suggest.InlineCommentHeading, the same derivation the offline
-// on-ramp uses. The two sites share only the KEY otherwise, so a heading
-// spelled here and not there would be a divergence between a document that has
-// been opened and one that has not.
-func importInlineComments(doc *crdt.Doc, model docmodel.Doc, comments []markdown.InlineComment) {
-	if len(comments) == 0 {
-		return
-	}
-	s := review.Wrap(doc)
-	now := time.Now()
-	for _, c := range comments {
-		s.Append(suggest.InlineCommentKey(c), suggest.InlineCommentHeading(model, c),
-			review.AuthorCourt, c.Text, now)
-	}
-}
-
-// notReplayed drops the inline comments the unsent round already holds a
-// thread for: Append upserts by key, so importing one again would add its
-// words to that thread a second time.
-func notReplayed(comments []markdown.InlineComment, replayed []review.Thread) []markdown.InlineComment {
-	have := make(map[string]bool, len(replayed))
-	for _, th := range replayed {
-		have[th.Key] = true
-	}
-	var out []markdown.InlineComment
-	for _, c := range comments {
-		if !have[suggest.InlineCommentKey(c)] {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// importNotes opens a thread for every block or document comment in the file
-// that the sidecar has no thread for: one somebody typed in by hand, or one an
-// offline `galley suggest --on-block` wrote while no server was running.
-//
-// The author is the reviewer, not the agent: a note found in the file with no
-// thread behind it was written by whoever edited the file, and the agent's own
-// notes always arrive through /_galley/suggest, which opens the thread itself.
-func importNotes(doc *crdt.Doc, notes []suggest.NoteThread) {
-	if len(notes) == 0 {
-		return
-	}
-	s := review.Wrap(doc)
-	now := time.Now()
-	for _, n := range notes {
-		t := suggest.NewNoteThread(n, review.AuthorCourt, now)
-		s.Append(t.Key, t.Heading, review.AuthorCourt, n.Text, now)
-		s.SetAnchor(t.Key, t.Anchor, t.AnchorKey, t.BlockKind)
-	}
-}
-
-// The key this import mints lives in suggest.InlineCommentKey, NOT here. It
-// used to be a private function in this file, and the offline CLI — which has
-// to open the same thread for the same marker, since a note in the file must
-// become the same conversation whether or not a server was running when it was
-// read — had no way to reach it and no import at all. One spelling, exported
-// by the side that answers it; see suggest/inlinecomment.go.
-
-// legacyFenceMetas are "f"-prefixed sidecar entries left by an OLDER galley,
-// carried through every projection untouched.
-//
-// Nothing creates them any more — see project's comment on why a code fence
-// is never rewritten — but a sidecar written by a build that did is still a
-// record of text that build removed from a file, and dropping it silently
-// would be the same class of loss this whole change exists to close. They are
-// appended AFTER the ordinary suggestions for the same reason the fence pass
-// used to be: suggest.ReplayAttribution indexes metas positionally against
-// suggest.List's pendings, which never include code-block text, so an "f"
-// entry must never land inside that index range.

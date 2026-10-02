@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/reearth/ygo/crdt"
 
@@ -157,7 +156,7 @@ func loadUnsentRound(abs string) ([]unsent.Comment, error) {
 }
 
 // replayUnsent writes the unsent round's threads into the review map at
-// startup. review.Wrap, not Apply: no peer exists yet, as for importNotes.
+// startup. review.Wrap, not Apply: no peer exists yet.
 func replayUnsent(doc *crdt.Doc, threads []review.Thread) {
 	if len(threads) == 0 {
 		return
@@ -178,26 +177,11 @@ func replayUnsent(doc *crdt.Doc, threads []review.Thread) {
 // through the one builder, with every text comment whose words were deleted
 // hidden. Every live reader lists instructions through here. See lostanchor.go.
 func (s *EditServer) liveInstructions(model docmodel.Doc) []InstructionView {
-	threads := review.Read(s.doc)
-	all := instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads))
+	all := instructionsOf(unsent.FromThreads(review.Read(s.doc)), model)
 	out := all[:0]
 	for _, v := range all {
 		if !s.isRetracted(v) {
 			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// anchorKeysOf maps each thread to the block it sits on. A block comment's
-// anchor key is not stored in pending.json: it comes from pairing the comment
-// with its note in the parsed file (ReconcileNotes), which is the review map's
-// thread, never the unsent comment.
-func anchorKeysOf(threads []review.Thread) map[string]string {
-	out := map[string]string{}
-	for _, th := range threads {
-		if th.AnchorKey != "" {
-			out[th.Key] = th.AnchorKey
 		}
 	}
 	return out
@@ -214,22 +198,41 @@ func anchorKeysOf(threads []review.Thread) map[string]string {
 // ONE INSTRUCTION PER THREAD, not one per reviewer entry: a thread is one
 // comment, unsent.FromThreads keeps its first reviewer entry, and galley
 // itself only ever writes one (edit replaces it via SetComment).
-func instructionsOf(comments []unsent.Comment, model docmodel.Doc, anchorKeys map[string]string) []InstructionView {
+//
+// WHERE A COMMENT SITS IS READ OFF THE MODEL, NEVER STORED. A text comment's
+// Run is its highlight's, and a block comment's AnchorKey and BlockKind are
+// the block its ID note sits under, both found by the comment's ID
+// (suggest.PairFor). A comment with no mark in the model is unplaced: no Run,
+// no AnchorKey. Its stored BlockKind still says what it was about.
+func instructionsOf(comments []unsent.Comment, model docmodel.Doc) []InstructionView {
 	pending := suggest.List(model)
 	threads := unsent.ToThreads(comments)
+	var kinds map[string]string
 	out := make([]InstructionView, 0, len(comments))
 	for i, c := range comments {
-		th := threads[i]
-		th.AnchorKey = anchorKeys[c.Key]
-		run := ""
-		if p, ok := suggest.PairFor(pending, th); ok {
-			run = p.Run
-		}
-		out = append(out, InstructionView{
+		v := InstructionView{
 			Key: c.Key, Text: strings.TrimSpace(c.Text), Quote: strings.TrimSpace(c.Quote),
-			At: c.At.UTC(), Run: run, Anchor: th.Anchor, AnchorKey: th.AnchorKey,
-			BlockKind: c.BlockKind, Region: c.Region,
-		})
+			At: c.At.UTC(), Anchor: threads[i].Anchor, BlockKind: c.BlockKind, Region: c.Region,
+		}
+		if p, ok := suggest.PairFor(pending, threads[i]); ok {
+			v.Run = p.Run
+			if p.Anchor == suggest.AnchorBlock {
+				if kinds == nil {
+					kinds = blockKindsOf(model)
+				}
+				v.AnchorKey, v.BlockKind = p.BlockKey, kinds[p.BlockKey]
+			}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// blockKindsOf maps every addressable block's key to its kind, in one pass.
+func blockKindsOf(model docmodel.Doc) map[string]string {
+	out := map[string]string{}
+	for _, b := range suggest.Blocks(model) {
+		out[b.Key] = b.Kind
 	}
 	return out
 }
@@ -246,7 +249,9 @@ func OfflineInstructions(mdPath string) ([]InstructionView, error) {
 	if err != nil {
 		return nil, err
 	}
-	model, inline, err := markdown.Parse(raw)
+	// The parse's lifted inline notes are discarded, as NewEdit discards them:
+	// nothing is imported from the file's words.
+	model, _, err := markdown.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -254,14 +259,5 @@ func OfflineInstructions(mdPath string) ([]InstructionView, error) {
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now().UTC()
-	threads := suggest.ImportInlineComments(model, unsent.ToThreads(f.Comments), inline, review.AuthorCourt, now)
-	// The file's block and document notes, paired with the unsent round exactly
-	// as the live server pairs them at startup, so a note nothing has opened a
-	// thread for is still reported, under the same key.
-	threads, orphans, _, _ := suggest.ReconcileNotes(model, threads)
-	for _, n := range orphans {
-		threads = append(threads, suggest.NewNoteThread(n, review.AuthorCourt, now))
-	}
-	return instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads)), nil
+	return instructionsOf(f.Comments, model), nil
 }

@@ -1656,73 +1656,178 @@ await page.waitForTimeout(300);
 // the comment's line breaks and wrap a long token, and only a real browser's
 // computed style can say it does.
 //
-// THE FIXTURE HAS NO ID NOTE YET, so one is made here and put back. The
-// figure's block comment is filed through `comment_block`, which still writes
-// its words into a hand-typed-shaped note until the server switches to ID
-// marks. Stamping that thread's key onto its note as `id` is exactly the link
-// the product draws, so the widget painted below is the real one, from the
-// rail's own threads. Both writes skip the undo history, and the second one
-// restores the note before the projection's debounce can see the first.
+// FILED THROUGH THE COMPOSER, the reviewer's own path: the section grip on the
+// title, its bar's button, the form. The note is then found by its ID — the
+// pending instruction's key — and by nothing else: no text is matched, and
+// nothing is written into the fragment by this check.
+//
+// AND IT GROWS. The comment is then edited to three lines, the way the card's
+// edit box does it, and every other card is measured before and after. The
+// note sits under the title, so every mark in the document is below it and
+// moves down with the prose. "A click moves nothing but what was clicked" is
+// the rule this is measured against; the movement is printed as a note. The comment is
+// deleted at the end, so the sections after this one count what they always
+// counted.
 {
-  const words = await page.evaluate(async () => {
-    const app = window.galleyEdit.app;
-    const editor = window.galleyEdit.editor;
-    const thread = (app.comments || []).find(
-      (t) => t.anchor === 'block' && t.entries[0] && t.entries[0].text,
-    );
-    if (!thread) return { thread: null };
-    const want = thread.entries[0].text;
-    let at = -1;
-    editor.state.doc.descendants((n, pos) => {
-      if (at < 0 && n.type.name === 'note' && n.textContent === want) at = pos;
-      return at < 0;
-    });
-    if (at < 0) return { thread: thread.key, note: false };
-    const stamp = (id) => {
-      const node = editor.state.doc.nodeAt(at);
-      editor.view.dispatch(
-        editor.state.tr
-          .setNodeMarkup(at, null, { ...node.attrs, id })
-          .setMeta('addToHistory', false),
+  const before = ((await pending()).instructions || []).length;
+  await page.evaluate(() =>
+    window.galleyEdit.editor.commands.setTextSelection(1),
+  );
+  // The § grip, then its bar's button, then the form: each waited for as a
+  // locator, since each only exists once the one before it was pressed.
+  await page.locator('.ProseMirror h1').hover();
+  for (const step of ['.gly-grip:not(.gly-code-grip)', '.gly-comment-button']) {
+    const control = page.locator(step);
+    await control.waitFor({ state: 'visible', timeout: 5000 });
+    await control.click();
+  }
+  await page
+    .locator('.gly-composer-form')
+    .waitFor({ state: 'visible', timeout: 5000 });
+  const FIRST = 'say who this handoff is for';
+  await page.fill('.gly-composer-text', FIRST);
+  await page.click('.gly-composer-send');
+  await page.waitForFunction(
+    (n) => (window.galleyEdit.app.comments || []).length === n,
+    before + 1,
+    { timeout: 10000 },
+  );
+  const key = ((await pending()).instructions || []).find(
+    (i) => i.anchor === 'block' && i.text === FIRST,
+  )?.key;
+  // Every card in the band but the new one, and for the anchored ones the
+  // mark it hangs on, in page coordinates.
+  const measure = (id) =>
+    page.evaluate(async (k) => {
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      await new Promise((r) => setTimeout(r, 300));
+      const y = (el) => el.getBoundingClientRect().top + window.scrollY;
+      const aside = document.querySelector(
+        `.gly-note[data-comment-id="${CSS.escape(k)}"]`,
       );
-    };
-    stamp(thread.key);
-    app.paintNoteWords();
-    await new Promise((r) => requestAnimationFrame(() => r()));
-    const aside = document.querySelector(
-      `.gly-note[data-comment-id="${CSS.escape(thread.key)}"]`,
-    );
-    const el = aside && aside.querySelector('.gly-note-words');
-    const cs = el && getComputedStyle(el);
-    const out = {
-      thread: thread.key,
-      note: true,
-      want,
-      text: el ? el.textContent : null,
-      whiteSpace: cs ? cs.whiteSpace : null,
-      overflowWrap: cs ? cs.overflowWrap : null,
-    };
-    stamp('');
-    await new Promise((r) => requestAnimationFrame(() => r()));
-    out.left = document.querySelectorAll('.gly-note-words').length;
-    return out;
-  });
+      const el = aside && aside.querySelector('.gly-note-words');
+      const cs = el && getComputedStyle(el);
+      const cards = [...document.querySelectorAll('.gly-rail-band .gly-card')]
+        .filter((c) => c.dataset.key !== k)
+        .map((c) => {
+          const run = c.dataset.run;
+          const mark = run
+            ? document.querySelector(
+                `.ProseMirror [data-run="${CSS.escape(run)}"]`,
+              )
+            : null;
+          return {
+            key: c.dataset.key || run || '',
+            top: Math.round(y(c) * 10) / 10,
+            mark: mark ? Math.round(y(mark) * 10) / 10 : null,
+          };
+        });
+      const own = document.querySelector(
+        `.gly-rail-band .gly-card[data-key="${CSS.escape(k)}"]`,
+      );
+      return {
+        own: own ? Math.round(own.getBoundingClientRect().height * 10) / 10 : 0,
+        notes: document.querySelectorAll(
+          `.ProseMirror .gly-note[data-comment-id="${CSS.escape(k)}"]`,
+        ).length,
+        text: el ? el.textContent : null,
+        whiteSpace: cs ? cs.whiteSpace : null,
+        overflowWrap: cs ? cs.overflowWrap : null,
+        height: aside ? Math.round(aside.getBoundingClientRect().height) : 0,
+        cards,
+      };
+    }, id);
+  const filed = key ? await measure(key) : null;
   check(
-    'the fixture has a block comment whose note can carry its ID, so this can fail',
-    !!words.thread && words.note,
-    words,
+    'a block comment filed through the composer has an ID note in the prose, so this can fail',
+    !!key && /^cb-[0-9a-f]{16}$/.test(key) && !!filed && filed.notes === 1,
+    { key, filed },
   );
   check(
-    "a note carrying its comment's ID shows the comment's words in a widget",
-    words.text === words.want,
-    words,
+    "the note shows its comment's words in a widget, found by ID",
+    !!filed && filed.text === FIRST,
+    filed,
   );
+  const GROWN = 'say who this handoff is for:\n\nthe reviewer,\nor the agent';
+  await page.evaluate(
+    async ({ k, text }) => {
+      await fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'edit', key: k, text, author: 'court' }),
+      });
+      await window.galleyEdit.app.refreshPending();
+    },
+    { k: key || '', text: GROWN },
+  );
+  const grown = key ? await measure(key) : null;
   check(
     "the widget keeps the comment's line breaks and wraps a long token",
-    words.whiteSpace === 'pre-wrap' && words.overflowWrap === 'anywhere',
-    words,
+    !!grown &&
+      grown.text === GROWN &&
+      grown.whiteSpace === 'pre-wrap' &&
+      grown.overflowWrap === 'anywhere' &&
+      grown.height > filed.height,
+    { filed: filed && filed.height, grown },
   );
-  check('and a note with no ID gets no widget', words.left === 0, words);
+  // Per card: how far it moved, and how far its mark moved. The note sits
+  // under the title, so the prose under it moves by the note's growth. The
+  // cards are STACKED in this fixture (each sits below its mark, under the card
+  // above it), and the comment's own card is the top of the stack: it shows the
+  // same three lines and grows with them. So a card may slide by what the
+  // comment's own card grew — CLAUDE.md's recorded exemption, "a card whose
+  // note slot fills grows and slides the cards below it" — and by nothing more:
+  // a card that moved with the PROSE has been moved by the note.
+  const ownGrew =
+    grown && filed ? Math.round((grown.own - filed.own) * 10) / 10 : null;
+  const moves = (filed ? filed.cards : []).map((a) => {
+    const b = ((grown && grown.cards) || []).find((c) => c.key === a.key);
+    return {
+      key: a.key.slice(0, 8),
+      card: b ? Math.round((b.top - a.top) * 10) / 10 : null,
+      mark:
+        b && a.mark !== null && b.mark !== null
+          ? Math.round((b.mark - a.mark) * 10) / 10
+          : null,
+      below: b && b.mark !== null ? b.top >= b.mark - 1 : null,
+    };
+  });
+  note('a growing note, measured: every other card, and the mark it hangs on', {
+    noteGrewBy: grown && filed ? grown.height - filed.height : null,
+    ownCardGrewBy: ownGrew,
+    moves,
+  });
+  check(
+    'a growing note moves no card: each slides only by its own card\u2019s growth, and none is left above its mark',
+    ownGrew !== null &&
+      moves.length > 0 &&
+      moves.every(
+        (m) =>
+          m.card !== null &&
+          Math.abs(m.card - ownGrew) <= 1 &&
+          m.below !== false,
+      ),
+    { ownGrew, moves },
+  );
+  await page.evaluate(async (k) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k }),
+    });
+    await window.galleyEdit.app.refreshPending();
+  }, key || '');
+  const gone = key ? await measure(key) : null;
+  check(
+    'and deleting the comment takes its note and its widget with it',
+    !!gone && gone.notes === 0 && gone.text === null,
+    gone,
+  );
+  await page.waitForFunction(
+    (n) => (window.galleyEdit.app.comments || []).length === n,
+    before,
+    { timeout: 10000 },
+  );
 }
 
 // --- §1 · radius is a caste mark --------------------------------------------
@@ -5948,8 +6053,10 @@ const placeComposer = (nth = 0) =>
   // settled in the document, by matching its text to a thread; that marker is
   // gone with the text matching, and a note now shows only the words of a
   // PENDING block comment, found by ID. So while the page is sealed a settled
-  // conversation has no surface at all, note or range alike. Nothing is LOST
-  // (the rounds log holds every sent round).
+  // conversation has no surface at all, note or range alike. What was SENT is
+  // not lost: each sent round's asks (key, words, quote) are in rounds.jsonl.
+  // An unsent comment the reviewer deleted, or whose words they deleted, is
+  // recorded nowhere, by design.
   // THE SELECTORS ARE THE ONES THE PRODUCT BUILDS, AND ONLY THOSE. This list
   // named six controls that no longer exist — `.gly-card-accept` and
   // `.gly-card-reject` (the proposal card's pair), `.gly-thread-resolve` and

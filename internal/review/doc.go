@@ -100,25 +100,14 @@ type Thread struct {
 	Anchor    string  `json:"anchor,omitempty"`
 	AnchorKey string  `json:"anchorKey,omitempty"`
 	// BlockKind is the docmodel kind of the block AnchorKey named when the
-	// thread was opened — "image", "paragraph", "heading", "codeBlock".
-	//
-	// It is here because AnchorKey alone cannot tell an EDIT from a DELETION.
-	// A block key is derived from the block's content, so editing the
-	// commented block moves it; suggest.ReconcileNotes therefore has a loose
-	// pass that re-pairs a thread whose key no longer matches, and rewrites
-	// AnchorKey with whatever the note now resolves to. Delete the block
-	// instead of editing it and the note remains, resolves to "nearest block
-	// above" — something else entirely — and that rewrite silently turns a
-	// comment about a figure into a comment about the heading over it.
-	//
-	// The old key is GONE from the document in both cases, so the kind cannot
-	// be looked up after the fact. Recording it is what makes the two
-	// distinguishable at all: an edited paragraph is still a paragraph, and a
-	// deleted image's note landing on a heading is not.
+	// thread was opened — "image", "paragraph", "heading", "codeBlock". It is
+	// stored in the unsent round so a block comment whose mark is gone can
+	// still say what it was about. Where a placed comment sits, and on what
+	// kind of block, is read off its ID mark every time (serve's
+	// instructionsOf), never from these fields.
 	//
 	// Empty on a range thread and on any thread written before this field
-	// existed, and the check treats empty as "no opinion" rather than as a
-	// mismatch — an older sidecar must keep loading.
+	// existed.
 	BlockKind string `json:"blockKind,omitempty"`
 	// Region is the rectangle on a figure this thread points at, when it
 	// points at part of one rather than the whole block. Nil for every other
@@ -462,9 +451,9 @@ type SuggestionMeta struct {
 // opens a file sees as the whole list moving, and it also decides WHICH thread
 // "the first one" is for anything that reads a listing positionally.
 //
-// A key is content-derived and stable (see suggest.CommentKeyFor), so ordering
-// by it is a fact about the review rather than about the reader — which is what
-// makes it the order both paths can hold.
+// A key is minted once and stored (see unsent.NewID), so ordering by it is a
+// fact about the review rather than about the reader — which is what makes it
+// the order both paths can hold.
 func SortThreads(threads []Thread) {
 	sort.Slice(threads, func(i, j int) bool { return threads[i].Key < threads[j].Key })
 }

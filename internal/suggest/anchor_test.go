@@ -1,6 +1,7 @@
 package suggest_test
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -122,26 +123,24 @@ func TestBlockKey_IdenticalBlocksGetDistinctKeys(t *testing.T) {
 	}
 }
 
-func TestCommentOnBlock_WritesANoteAfterTheBlock(t *testing.T) {
+func TestCommentOnBlock_WritesAnIDNoteAfterTheBlock(t *testing.T) {
 	d := parseDoc(t, figureDoc)
 	key := keyOf(t, d, "the request path")
-	at := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	const id = "cb-0123456789abcdef"
 
-	out, threadKey, err := suggest.CommentOnBlock(d, key, "this diagram is out of date", "agent", at)
+	out, err := suggest.CommentOnBlock(d, key, id)
 	if err != nil {
 		t.Fatalf("CommentOnBlock: %v", err)
 	}
-	if !strings.HasPrefix(threadKey, "cb-") {
-		t.Errorf("thread key = %q, want a cb- key", threadKey)
-	}
 
+	// The mark and nothing else: the comment's words are not the file's.
 	md := string(markdown.Serialize(out))
-	wantLine := "![the request path](flow.png)\n\n{>>this diagram is out of date<<}\n"
+	wantLine := "![the request path](flow.png)\n\n{>>@comment " + id + "<<}\n"
 	if !strings.Contains(md, wantLine) {
 		t.Fatalf("serialized:\n%s\nwant it to contain:\n%s", md, wantLine)
 	}
 
-	// And it comes back as a block anchor on the same block.
+	// And it comes back as a block anchor on the same block, carrying the ID.
 	back := parseDoc(t, md)
 	var found bool
 	for _, p := range suggest.List(back) {
@@ -152,8 +151,8 @@ func TestCommentOnBlock_WritesANoteAfterTheBlock(t *testing.T) {
 		if p.BlockKey != key {
 			t.Errorf("BlockKey = %q, want %q", p.BlockKey, key)
 		}
-		if p.Text != "this diagram is out of date" {
-			t.Errorf("Text = %q", p.Text)
+		if p.CommentID != id || p.Text != "" {
+			t.Errorf("note = (%q, %q), want the ID %q and no words", p.CommentID, p.Text, id)
 		}
 		if !strings.Contains(p.Context, "![the request path](flow.png)") {
 			t.Errorf("Context = %q, want the image block", p.Context)
@@ -161,31 +160,6 @@ func TestCommentOnBlock_WritesANoteAfterTheBlock(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("List(%q) found no block comment: %#v", md, suggest.List(back))
-	}
-}
-
-func TestCommentOnDocument_WritesAMarkedNoteAtTheEnd(t *testing.T) {
-	d := parseDoc(t, figureDoc)
-	at := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	out, threadKey, err := suggest.CommentOnDocument(d, "needs a security section", "agent", at)
-	if err != nil {
-		t.Fatalf("CommentOnDocument: %v", err)
-	}
-	if !strings.HasPrefix(threadKey, "cd-") {
-		t.Errorf("thread key = %q, want a cd- key", threadKey)
-	}
-	md := string(markdown.Serialize(out))
-	if !strings.HasSuffix(md, "{>>@document needs a security section<<}\n") {
-		t.Fatalf("serialized:\n%s\nwant it to end with the document note", md)
-	}
-	back := parseDoc(t, md)
-	pendings := suggest.List(back)
-	last := pendings[len(pendings)-1]
-	if last.Anchor != suggest.AnchorDocument || last.BlockKey != "" {
-		t.Errorf("last pending = %+v, want a document anchor with no block key", last)
-	}
-	if last.Text != "needs a security section" {
-		t.Errorf("Text = %q", last.Text)
 	}
 }
 
@@ -228,19 +202,9 @@ func TestAnchors_NoteAtTheEndOfAParagraphStaysARange(t *testing.T) {
 
 func TestCommentOnBlock_UnknownKeyIsNamed(t *testing.T) {
 	d := parseDoc(t, figureDoc)
-	_, _, err := suggest.CommentOnBlock(d, "bk-nope", "hi", "agent", time.Now())
+	_, err := suggest.CommentOnBlock(d, "bk-nope", "cb-0123456789abcdef")
 	if err == nil || !strings.Contains(err.Error(), "bk-nope") {
 		t.Fatalf("err = %v, want one naming the key", err)
-	}
-}
-
-func TestCommentOnBlock_RefusesTextTheFileCannotCarry(t *testing.T) {
-	d := parseDoc(t, figureDoc)
-	key := keyOf(t, d, "the request path")
-	for _, note := range []string{"", "   ", "closes early <<} here", "two\nlines"} {
-		if _, _, err := suggest.CommentOnBlock(d, key, note, "agent", time.Now()); err == nil {
-			t.Errorf("CommentOnBlock(%q) = nil error, want a refusal", note)
-		}
 	}
 }
 
@@ -248,19 +212,17 @@ func TestCommentOnBlock_RefusesTextTheFileCannotCarry(t *testing.T) {
 func TestCommentOnBlock_StacksAndKeepsEveryAnchor(t *testing.T) {
 	d := parseDoc(t, figureDoc)
 	key := keyOf(t, d, "the request path")
-	at := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-
-	d, _, err := suggest.CommentOnBlock(d, key, "first", "agent", at)
+	d, err := suggest.CommentOnBlock(d, key, "cb-0000000000000001")
 	if err != nil {
 		t.Fatalf("CommentOnBlock: %v", err)
 	}
-	d, _, err = suggest.CommentOnBlock(d, key, "second", "agent", at.Add(time.Second))
+	d, err = suggest.CommentOnBlock(d, key, "cb-0000000000000002")
 	if err != nil {
 		t.Fatalf("CommentOnBlock: %v", err)
 	}
 
 	md := string(markdown.Serialize(d))
-	if !strings.Contains(md, "{>>first<<}\n\n{>>second<<}") {
+	if !strings.Contains(md, "{>>@comment cb-0000000000000001<<}\n\n{>>@comment cb-0000000000000002<<}") {
 		t.Fatalf("serialized:\n%s\nwant both notes in order", md)
 	}
 	back := parseDoc(t, md)
@@ -271,7 +233,7 @@ func TestCommentOnBlock_StacksAndKeepsEveryAnchor(t *testing.T) {
 		}
 		n++
 		if p.BlockKey != key {
-			t.Errorf("%q anchored to %q, want %q", p.Text, p.BlockKey, key)
+			t.Errorf("%q anchored to %q, want %q", p.CommentID, p.BlockKey, key)
 		}
 	}
 	if n != 2 {
@@ -284,7 +246,7 @@ func TestCommentOnBlock_StacksAndKeepsEveryAnchor(t *testing.T) {
 func TestAcceptRemovesANoteBlock(t *testing.T) {
 	d := parseDoc(t, figureDoc)
 	key := keyOf(t, d, "the request path")
-	d, _, err := suggest.CommentOnBlock(d, key, "stale", "agent", time.Now())
+	d, err := suggest.CommentOnBlock(d, key, "cb-0123456789abcdef")
 	if err != nil {
 		t.Fatalf("CommentOnBlock: %v", err)
 	}
@@ -311,11 +273,13 @@ func TestAcceptRemovesANoteBlock(t *testing.T) {
 }
 
 func TestAcceptAll_ClearsNotesToo(t *testing.T) {
-	d := parseDoc(t, figureDoc)
+	d := parseDoc(t, figureDoc+"\n{>>@document b<<}\n")
 	key := keyOf(t, d, "the request path")
-	d, _, _ = suggest.CommentOnBlock(d, key, "a", "agent", time.Now())
-	d, _, _ = suggest.CommentOnDocument(d, "b", "agent", time.Now())
-	d, err := suggest.Replace(d, "three parts", "four parts", "agent", time.Now())
+	d, err := suggest.CommentOnBlock(d, key, "cb-0123456789abcdef")
+	if err != nil {
+		t.Fatalf("CommentOnBlock: %v", err)
+	}
+	d, err = suggest.Replace(d, "three parts", "four parts", "agent", time.Now())
 	if err != nil {
 		t.Fatalf("Replace: %v", err)
 	}
@@ -336,15 +300,6 @@ func TestFindUnique_IgnoresNoteText(t *testing.T) {
 	}
 	if md := string(markdown.Serialize(out)); !strings.Contains(md, "{>>the widget is undefined<<}") {
 		t.Errorf("the note was rewritten:\n%s", md)
-	}
-}
-
-func TestCommentKeyFor_RangeIsUnchanged(t *testing.T) {
-	at := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	want := suggest.CommentKey("some quote", "court", at)
-	got := suggest.CommentKeyFor(suggest.Anchor{Kind: suggest.AnchorRange, Target: "some quote"}, "", "court", at)
-	if got != want {
-		t.Fatalf("CommentKeyFor(range) = %q, want CommentKey's %q — persisted keys must not move", got, want)
 	}
 }
 
@@ -411,9 +366,7 @@ func TestABlockOrDocumentAnchorNeverCarriesARun(t *testing.T) {
 }
 
 // blockKeys SERIALIZES EVERY BLOCK to markdown, and it was called once per
-// note: by List (through AnchorFor and again through noteContext) and by Notes
-// (through AnchorFor), which ReconcileNotes calls. pending() calls List and
-// Blocks; project() calls List and ReconcileNotes. The measured cost was 137 ms
+// note, by List (through AnchorFor and again through noteContext). The measured cost was 137 ms
 // of CPU per List at 50 notes — 1,765x the same document with none — while the
 // sidebar polls on a timer and project() fires on every debounce.
 //
@@ -427,7 +380,7 @@ func benchDoc(notes int) docmodel.Doc {
 			Inlines: []docmodel.Inline{{Text: "Paragraph number " + strconv.Itoa(i) + " of the document."}},
 		})
 		if i < notes {
-			blocks = append(blocks, markdown.NewNote(docmodel.AnchorBlock, "note "+strconv.Itoa(i)))
+			blocks = append(blocks, markdown.NewCommentNote(fmt.Sprintf("cb-%016x", i)))
 		}
 	}
 	return docmodel.Doc{Blocks: blocks}

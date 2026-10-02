@@ -20,6 +20,17 @@ func roundTrip(t *testing.T, src string) (docmodel.Doc, string) {
 	return model, string(markdown.Serialize(model))
 }
 
+// wordNote is a note that carries its own words: what a hand-typed {>>…<<} on
+// its own line parses to. galley no longer writes one; these tests pin that
+// such a note still reads and writes back as itself.
+func wordNote(anchor, text string) docmodel.Block {
+	b := docmodel.Block{Kind: docmodel.Note, Attrs: map[string]string{"anchor": anchor}}
+	if text != "" {
+		b.Inlines = []docmodel.Inline{{Text: text}}
+	}
+	return b
+}
+
 // noteAt returns the anchor and text of the nth Note block at the top level.
 func noteAt(t *testing.T, d docmodel.Doc, n int) (anchor, text string) {
 	t.Helper()
@@ -139,7 +150,7 @@ func TestNote_TextWithMarkdownSurvives(t *testing.T) {
 	want := "use *emphasis* and `code` here"
 	src := string(markdown.Serialize(docmodel.Doc{Blocks: []docmodel.Block{
 		para(text("A.")),
-		markdown.NewNote(docmodel.AnchorBlock, want),
+		wordNote(docmodel.AnchorBlock, want),
 	}}))
 	model, out := roundTrip(t, src)
 	if out != src {
@@ -166,7 +177,7 @@ func TestNote_MarkerEscape(t *testing.T) {
 	} {
 		src := string(markdown.Serialize(docmodel.Doc{Blocks: []docmodel.Block{
 			para(text("A.")),
-			markdown.NewNote(tc.anchor, tc.text),
+			wordNote(tc.anchor, tc.text),
 		}}))
 		model, out := roundTrip(t, src)
 		if out != src {
@@ -176,24 +187,6 @@ func TestNote_MarkerEscape(t *testing.T) {
 		if anchor != tc.anchor || got != tc.text {
 			t.Errorf("note %+v round-tripped to (%q, %q)", tc, anchor, got)
 		}
-	}
-}
-
-// A note that cannot be spelled keeps the author's words and loses the
-// marker — the same ruling wrapSuggestion makes for an unspellable deletion.
-func TestNote_UnwritableTextKeepsTheWords(t *testing.T) {
-	const words = "this closes early <<} oops"
-	if !markdown.UnwritableNoteText(words) {
-		t.Fatalf("UnwritableNoteText(%q) = false, want true", words)
-	}
-	out := string(markdown.Serialize(docmodel.Doc{Blocks: []docmodel.Block{
-		markdown.NewNote(docmodel.AnchorBlock, words),
-	}}))
-	if strings.Contains(out, "{>>") {
-		t.Errorf("Serialize wrote a marker it cannot close: %q", out)
-	}
-	if !strings.Contains(out, "this closes early") {
-		t.Errorf("Serialize dropped the author's words: %q", out)
 	}
 }
 
@@ -334,73 +327,6 @@ func TestNote_AnEmptiedParagraphKeepsItsNotes(t *testing.T) {
 	}
 }
 
-// The invariant underneath both note tests, stated as the disjunction it
-// actually is, and checked over every shape either of them names plus the
-// package's own fixtures.
-//
-// "Never deleted" cannot mean "always in the .md": a range comment —
-// "The build is slow. {>>why?<<}" — is DESIGNED to be lifted out of the file
-// into the sidecar, with a Highlight left on the text it covers. That is the
-// whole comment lifecycle and CLAUDE.md states it.
-//
-// What must never happen is the third outcome, which is what both Criticals
-// were: the note leaves the file AND is not recoverable — lifted against a
-// BlockPath naming a block that the same pass just deleted, so nothing can
-// ever put it back. So: every note in the input is either still in the output,
-// or lifted into a comment whose BlockPath names a block that EXISTS.
-func TestNote_IsInTheFileOrRecoverableFromTheSidecar(t *testing.T) {
-	for _, in := range []string{
-		"para\n{>>note<<}\n",
-		"{>>one<<}\n{>>two<<}\n",
-		"{>>one<<} {>>two<<}\n",
-		"a\\\n{>>n<<}\n",
-		"{>>note<<}  \nx\n",
-		"The build is slow. {>>why?<<}\n",
-		"{=={>>a<<}==}{=={>>b<<}==}\n",
-		"{>>a<<}{==x{>>b<<}==}\n",
-		"{++{>>a<<}++}{--{>>b<<}--}\n",
-		"{~~{>>a<<}~>x~~}\n",
-		"> {>>q<<}\n",
-		"- {>>l<<}\n",
-		"# {>>h<<}\n",
-	} {
-		doc, lifted, err := markdown.Parse([]byte(in))
-		if err != nil {
-			t.Errorf("Parse(%q): %v", in, err)
-			continue
-		}
-		out := string(markdown.Serialize(doc))
-		kept := strings.Count(out, "{>>")
-		if kept+len(lifted) < strings.Count(in, "{>>") {
-			t.Errorf("a note went missing entirely\n in: %q\nout: %q  kept=%d lifted=%d",
-				in, out, kept, len(lifted))
-		}
-		// Every lifted comment must name a block that survived, or it is
-		// anchored to nothing and can never be shown again.
-		for _, c := range lifted {
-			if !blockExistsAt(doc, c.BlockPath) {
-				t.Errorf("comment %q lifted from %q is anchored to a block that no longer exists (path %v)",
-					c.Text, in, c.BlockPath)
-			}
-		}
-	}
-}
-
-// blockExistsAt reports whether path names a block in d.
-func blockExistsAt(d docmodel.Doc, path []int) bool {
-	blocks := d.Blocks
-	for i, idx := range path {
-		if idx < 0 || idx >= len(blocks) {
-			return false
-		}
-		if i == len(path)-1 {
-			return true
-		}
-		blocks = blocks[idx].Children
-	}
-	return false
-}
-
 // TestParse_AStandaloneCommentIDIsANoteWithNoWords: a block comment's mark in
 // the file is "{>>@comment cb-…<<}" on its own line. Its words live in the
 // unsent round, so the Note it parses to carries the id and no text at all —
@@ -481,7 +407,7 @@ func TestNote_ADocumentNoteNeverWritesACommentID(t *testing.T) {
 		{"with no words", "", "{>>@document<<}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			note := markdown.NewNote(docmodel.AnchorDocument, tc.text)
+			note := wordNote(docmodel.AnchorDocument, tc.text)
 			note.Attrs[docmodel.CommentIDAttr] = id
 			model := docmodel.Doc{Blocks: []docmodel.Block{
 				{Kind: docmodel.Paragraph, Inlines: []docmodel.Inline{{Text: "Some prose."}}},

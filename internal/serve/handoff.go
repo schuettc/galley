@@ -21,7 +21,6 @@ import (
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/ondisk"
 	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.
@@ -294,32 +293,20 @@ func (s *EditServer) importDraft() (bool, error) {
 	if digest == l.Baseline || digest == l.LastImported {
 		return false, nil
 	}
-	model, comments, err := markdown.Parse(raw)
+	// THE DRAFT REPLACES THE MODEL, AND NOTHING ELSE. Comments the agent types
+	// into the file are not imported (the comment design's "dropped" cases):
+	// an inline {>>…<<} the parse lifts is discarded and leaves the .md at the
+	// next projection, a standalone one stays in the draft as the note it
+	// reads as, and no thread is opened for either. The reviewer's own
+	// comments are untouched: their words are in pending.json, and the ID
+	// marks the agent kept place them.
+	model, _, err := markdown.Parse(raw)
 	if err != nil {
 		s.setDraftError(err.Error())
 		return false, err
 	}
-	// Block/document notes new in this draft need threads; existing ones are
-	// matched by ReconcileNotes exactly as the startup import does.
-	_, orphans, _, _ := suggest.ReconcileNotes(model, review.Read(s.doc))
-	now := time.Now()
 	_, err = s.mutate(byAgent, func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
-		return model, func(doc *crdt.Doc, tx review.Tx) {
-			b := review.Bind(doc, tx)
-			// The parse LIFTED these out of the draft; dropping them would be
-			// the discarded-return-value deletion CLAUDE.md records. They are
-			// the agent's own margin notes, so the agent is their author, and
-			// Append upserts by key so a re-import cannot duplicate a thread.
-			for _, c := range comments {
-				b.Append(suggest.InlineCommentKey(c), suggest.InlineCommentHeading(model, c),
-					review.AuthorAgent, c.Text, now)
-			}
-			for _, n := range orphans {
-				nt := suggest.NewNoteThread(n, review.AuthorAgent, now)
-				b.Append(nt.Key, nt.Heading, review.AuthorAgent, n.Text, now)
-				b.SetAnchor(nt.Key, nt.Anchor, nt.AnchorKey, nt.BlockKind)
-			}
-		}, nil
+		return model, nil, nil
 	})
 	if err != nil {
 		s.setDraftError(err.Error())

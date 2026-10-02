@@ -385,7 +385,7 @@ func TestParse_CommentOnlyParagraph_IsABlockAnchor(t *testing.T) {
 	}
 	assertEscapeAcrossBoundary(t, doc, string(src), docmodel.Doc{Blocks: []docmodel.Block{
 		para(text("Before.")),
-		markdown.NewNote(docmodel.AnchorBlock, "just a note"),
+		wordNote(docmodel.AnchorBlock, "just a note"),
 		para(text("After.")),
 	}})
 }
