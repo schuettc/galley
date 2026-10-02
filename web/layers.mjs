@@ -5207,8 +5207,27 @@ console.log(
     await page
       .locator('.gly-comment-button')
       .waitFor({ state: 'visible', timeout: 5000 });
+    // The composer's box and the selected words' box, read together.
+    const boxes = () =>
+      page.evaluate(() => {
+        const r = document
+          .querySelector('.gly-composer')
+          .getBoundingClientRect();
+        const { view, state } = window.galleyEdit.editor;
+        const a = view.coordsAtPos(state.selection.from);
+        const b = view.coordsAtPos(state.selection.to);
+        return {
+          top: +r.top.toFixed(1),
+          bottom: +r.bottom.toFixed(1),
+          selTop: +Math.min(a.top, b.top).toFixed(1),
+          selBottom: +Math.max(a.bottom, b.bottom).toFixed(1),
+          window: window.innerHeight,
+        };
+      });
+    const bar = await boxes();
     await page.click('.gly-comment-button');
     await page.waitForTimeout(150);
+    const opened = await boxes();
     await page.fill('.gly-composer-text', sixty);
     await page.waitForTimeout(150);
     const out = await page.evaluate(() => {
@@ -5225,10 +5244,40 @@ console.log(
     });
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
-    return out;
+    return { ...out, bar, opened };
   };
   const middle = await grown(300, 3);
   const foot = await grown(540, null);
+  // THE BUTTON NEVER GROWS, so it is placed for its own height: beside the
+  // words, below them where it fits and above them where it does not. Placed
+  // for the grown form's height instead, a selection with less room below
+  // than a full form put the one-button bar at the window's foot, far from
+  // the words it was offered for.
+  const beside = (g, side) =>
+    side === 'below'
+      ? g.bar.top - g.bar.selBottom >= 0 && g.bar.top - g.bar.selBottom <= 16
+      : g.bar.selTop - g.bar.bottom >= 0 && g.bar.selTop - g.bar.bottom <= 16;
+  check(
+    'the Add instruction button sits just below words selected mid-window, not at the window foot',
+    beside(middle, 'below') && middle.bar.bottom < middle.bar.window - 40,
+    middle.bar,
+  );
+  check(
+    'and just above words selected near the foot, where there is no room below',
+    beside(foot, 'above'),
+    foot.bar,
+  );
+  // THE FORM IS WHAT GROWS, so opening it re-places the box for the height it
+  // can grow to — inside the window, and off the words it is about.
+  const clear = (o) =>
+    o.top >= 0 &&
+    o.bottom <= o.window + 0.5 &&
+    (o.bottom <= o.selTop + 0.5 || o.top >= o.selBottom - 0.5);
+  check(
+    'the opened form sits inside the window and does not cover the selected words',
+    clear(middle.opened) && clear(foot.opened),
+    { middle: middle.opened, foot: foot.opened },
+  );
   check(
     'the composer grown to its cap stays inside a short window — passage in the middle, and at the foot',
     [middle, foot].every((g) => g.top >= 0 && g.bottom <= g.window + 0.5),
