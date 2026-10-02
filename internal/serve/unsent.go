@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,6 +33,11 @@ import (
 // first.
 var testHookBeforeUnsentCleared func()
 
+// testHookAfterInstructionsCleared runs in sendReviewerRound between the
+// mutation that clears the sent threads and the cut that records them: the
+// window in which pending.json must still hold them.
+var testHookAfterInstructionsCleared func()
+
 // unsentStderr is where startup says it moved an unreadable unsent round
 // aside: NewEdit has no Log yet when it reads the file.
 var unsentStderr io.Writer = os.Stderr
@@ -39,11 +45,44 @@ var unsentStderr io.Writer = os.Stderr
 // unsentPath is this document's unsent round.
 func (s *EditServer) unsentPath() string { return unsent.Path(s.MdPath) }
 
-// saveUnsentLocked mirrors the review map into pending.json. Callers hold mu,
+// saveUnsentLocked mirrors the review map into pending.json, plus the round
+// being sent (s.sending) for any key the map no longer holds. Callers hold mu,
 // and call it after the Apply that changed the map has returned: review.Read
 // inside a Transact deadlocks.
+//
+// The sent round is written by every save, not only Revise's own: between the
+// clear and the cut, a comment filed concurrently or a save made from inside
+// project must not be what lets the sent comments go. See sendReviewerRound.
 func (s *EditServer) saveUnsentLocked() error {
-	return unsent.Save(s.unsentPath(), unsent.File{Comments: unsent.FromThreads(review.Read(s.doc))})
+	live := unsent.FromThreads(review.Read(s.doc))
+	have := make(map[string]bool, len(live))
+	for _, c := range live {
+		have[c.Key] = true
+	}
+	inFlight := make([]unsent.Comment, 0, len(s.sending))
+	for key, c := range s.sending {
+		if !have[key] {
+			inFlight = append(inFlight, c)
+		}
+	}
+	slices.SortFunc(inFlight, func(a, b unsent.Comment) int { return strings.Compare(a.Key, b.Key) })
+	return unsent.Save(s.unsentPath(), unsent.File{Comments: append(live, inFlight...)})
+}
+
+// sendingOf is the unsent comments for keys, read off the review map before
+// Revise deletes them.
+func sendingOf(threads []review.Thread, keys []string) map[string]unsent.Comment {
+	want := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		want[k] = true
+	}
+	out := map[string]unsent.Comment{}
+	for _, c := range unsent.FromThreads(threads) {
+		if want[c.Key] {
+			out[c.Key] = c
+		}
+	}
+	return out
 }
 
 // mutateUnsent is mutate for a write that changes an instruction: the unsent
@@ -52,6 +91,14 @@ func (s *EditServer) saveUnsentLocked() error {
 //
 // A failed save is the caller's error, not the ledger's shrug: a comment that
 // could not be stored must not be reported as filed.
+//
+// THE 500 LEAVES A HALF-STATE, and says so rather than undoing it. The Apply
+// has already happened, so the review map, and every peer synced to it, holds
+// the change while pending.json does not. The rail shows the comment, and the
+// next save that succeeds writes it to disk. A restart before that loses it,
+// which is exactly what the 500 told the reviewer. Rolling the map back would
+// be a second write that can fail as well, under the same lock, and would
+// remove from every screen a comment the reviewer has just watched appear.
 func (s *EditServer) mutateUnsent(by requester, fn func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error)) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -138,6 +185,10 @@ func anchorKeysOf(threads []review.Thread) map[string]string {
 //
 // hide drops a comment the live server watched lose its place (see
 // noteAnchored); offline it is nil.
+//
+// ONE INSTRUCTION PER THREAD, not one per reviewer entry: a thread is one
+// comment, unsent.FromThreads keeps its first reviewer entry, and galley
+// itself only ever writes one (edit replaces it via SetComment).
 func instructionsOf(comments []unsent.Comment, model docmodel.Doc, anchorKeys map[string]string,
 	hide func(th review.Thread, paired bool) bool) []InstructionView {
 	pending := suggest.List(model)

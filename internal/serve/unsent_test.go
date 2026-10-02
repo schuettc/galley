@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,5 +361,85 @@ func TestAnUnsentRoundGalleyCannotReadForAnotherReasonIsAnError(t *testing.T) {
 	}
 	if _, err := os.Stat(unsent.Path(md) + ".unreadable"); err == nil {
 		t.Error("an I/O error was quarantined as if the file were corrupt")
+	}
+}
+
+// NEVER NEITHER, under a concurrent filing. Revise clears the sent threads out
+// of the review map before the round is recorded, and a comment filed in that
+// window rewrites pending.json from the map: without the sent keys held aside,
+// they left the file before any round carried them.
+func TestACommentFiledWhileARoundIsSentKeepsTheSentRoundInPendingJSON(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	s.OnRevise = "true"
+	fileThreeComments(t, s)
+	sent := map[string]bool{}
+	for _, c := range loadUnsent(t, s) {
+		sent[c.Key] = true
+	}
+
+	var hooked bool
+	testHookAfterInstructionsCleared = func() {
+		hooked = true
+		instructOK(t, s, map[string]any{"op": "comment_document", "text": "filed mid-send"})
+		still := map[string]bool{}
+		var late bool
+		for _, c := range loadUnsent(t, s) {
+			still[c.Key] = true
+			late = late || c.Text == "filed mid-send"
+		}
+		for key := range sent {
+			if !still[key] {
+				t.Errorf("%s left pending.json before its round was recorded", key)
+			}
+		}
+		if !late {
+			t.Error("the comment filed mid-send is not in pending.json")
+		}
+	}
+	t.Cleanup(func() { testHookAfterInstructionsCleared = nil })
+
+	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 {
+		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
+	}
+	if !hooked {
+		t.Fatal("Revise never reached the point between the clear and the cut")
+	}
+	got := loadUnsent(t, s)
+	if len(got) != 1 || got[0].Text != "filed mid-send" {
+		t.Errorf("pending.json after the send = %+v, want only the comment filed mid-send", got)
+	}
+}
+
+// A comment that could not be stored is not reported as filed.
+func TestACommentThatCannotBeStoredIsAnError(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	path := unsent.Path(s.MdPath)
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatal(err)
+	}
+	// A non-empty directory where the file goes: nothing can be renamed over it.
+	if err := os.MkdirAll(filepath.Join(path, "blocker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := postRec(t, s, "/_galley/instruct", map[string]any{"op": "comment_document", "text": "kept?"})
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("filing a comment pending.json could not hold answered %d %s, want 500", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "could not store the unsent round") {
+		t.Errorf("the 500 does not say what failed: %q", rec.Body.String())
+	}
+}
+
+// A note typed into the file by hand gets its thread at startup, and that
+// thread is mirrored at once: pending.json is the unsent round as the rail
+// shows it from the first moment, not from the first mutation after.
+func TestANoteImportedAtStartupIsInTheUnsentRound(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc+"\n{>>@document tighten the whole thing<<}\n")
+	t.Cleanup(func() { _ = s.Close() })
+	got := loadUnsent(t, s)
+	if len(got) != 1 || got[0].Text != "tighten the whole thing" || got[0].Kind != unsent.KindDocument {
+		t.Fatalf("pending.json after opening a file with a hand-typed note = %+v, want the document comment", got)
 	}
 }

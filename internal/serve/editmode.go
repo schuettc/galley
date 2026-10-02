@@ -254,6 +254,11 @@ type EditServer struct {
 	// reviseMu without inventing a lock order this file does not have.
 	instrMu   sync.Mutex
 	instrSaid map[string]bool
+	// sending is the round being sent: every comment Revise has cleared out of
+	// the review map and the cut has not yet recorded. saveUnsentLocked writes
+	// it beside the live threads, so pending.json holds a sent comment until a
+	// round does. Under mu. See sendReviewerRound.
+	sending map[string]unsent.Comment
 	// seenAnchored is every range instruction this server has seen paired with
 	// a real mark. See sweepLostAnchors: "there is no mark now" and "the
 	// reviewer deleted the words" are different claims, and only this set tells
@@ -508,6 +513,15 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	// sidecar has never seen — a note somebody typed into the file by hand,
 	// or one written by an offline `galley suggest --on-block`.
 	importNotes(s.doc, orphanNotes)
+	// ONE SAVE, AFTER EVERY IMPORT. A note typed into the file by hand, or an
+	// inline {>>…<<} the first projection will lift out of the .md, has a
+	// thread now and nowhere durable to live until something writes
+	// pending.json. Without this, a restart before the first comment lost the
+	// inline note's words entirely. No peer exists yet, so nothing races it.
+	if err := s.saveUnsentLocked(); err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("could not store the unsent round: %w", err)
+	}
 
 	s.doc.OnUpdate(func(_ []byte, origin any) {
 		// ReadLive's own mutual-exclusion Transact fires this like any other
@@ -1834,6 +1848,12 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		})
 	}
 	if code, err := s.mutate(bySystem, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+		// HELD ASIDE BEFORE THE CLEAR, under mu and outside any Transact: once
+		// the threads below are deleted, the review map no longer holds the
+		// round being sent, and anything that rewrites pending.json from the
+		// map before the cut (a comment filed in this window, a save from
+		// inside project) would drop it. See saveUnsentLocked.
+		s.sending = sendingOf(review.Read(s.doc), keys)
 		return suggest.ClearInstructions(model), func(doc *crdt.Doc, tx review.Tx) {
 			session := review.Bind(doc, tx)
 			for _, key := range keys {
@@ -1841,6 +1861,11 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 			}
 		}, nil
 	}); err != nil {
+		// Nothing was sent: whatever the clear did not delete is still in the
+		// map, and nothing is in flight.
+		s.mu.Lock()
+		s.sending = nil
+		s.mu.Unlock()
 		return reviewerRound{}, code, err
 	}
 
@@ -1849,6 +1874,9 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	// a second time after the handoff that caused it.
 	s.SeedNotify()
 
+	if testHookAfterInstructionsCleared != nil {
+		testHookAfterInstructionsCleared()
+	}
 	round := s.requestCutIntent(&cutIntent{reason: reason, instruction: said, asks: asks})
 	// MARKED ONLY IF THE ROUND WAS ACTUALLY CUT — see reviewerInstruction. A
 	// projection that never reached the cut has recorded nothing, and marking
@@ -1869,6 +1897,10 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	// only now does pending.json let go of what was sent. A crash anywhere
 	// before this line leaves every sent comment still in pending.json, shown
 	// as unplaced; a crash after it finds the round recorded. Never neither.
+	// That holds against every other writer of pending.json in between because
+	// s.sending, not the review map, is what carries the sent comments until
+	// here: a comment filed mid-send, or a save from inside project, writes
+	// them too.
 	//
 	// Rewritten from the review map rather than emptied: a comment filed
 	// between the capture and the clear was not sent and is still in the map.
@@ -1879,6 +1911,7 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		testHookBeforeUnsentCleared()
 	}
 	s.mu.Lock()
+	s.sending = nil
 	err = s.saveUnsentLocked()
 	s.mu.Unlock()
 	if err != nil && s.Log != nil {

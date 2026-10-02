@@ -240,11 +240,41 @@ async function waitForWire(page, fn, arg, ms = 15000) {
 // the composer closes and the trail settles on the 204 that follows, and an
 // ack sent before the window opens is wiped by it. `handoff` is the flag
 // openResponseWindow sets.
-function responseWindowOpen(page) {
-  return waitForWire(
-    page,
-    async () => (await (await fetch('/_galley/revise')).json()).handoff,
-  );
+//
+// KEYED TO THIS PRESS, not to "a window is open". `before` is windowMark, read
+// BEFORE the click: the window must have been shut then (a reviewer cannot
+// file the instruction a press sends while the agent holds the file, so every
+// press here starts shut, and a window already open could not be told from
+// this one), and the round this press cut must be newer than any round there
+// was. Only then is the open window this press's.
+async function windowMark(page) {
+  return page.evaluate(async () => {
+    const [revise, versions] = await Promise.all([
+      fetch('/_galley/revise').then((r) => r.json()),
+      fetch('/_galley/versions').then((r) => r.json()),
+    ]);
+    return {
+      handoff: revise.handoff,
+      round: Math.max(0, ...(versions.rounds || []).map((r) => r.n)),
+    };
+  });
+}
+
+async function responseWindowOpen(page, before, ms = 15000) {
+  if (before.handoff)
+    throw new Error(
+      'responseWindowOpen: the window was already open before the press, so this press opening it cannot be seen',
+    );
+  const until = Date.now() + ms;
+  for (;;) {
+    const now = await windowMark(page);
+    if (now.handoff && now.round > before.round) return;
+    if (Date.now() > until)
+      throw new Error(
+        `responseWindowOpen timed out: ${JSON.stringify({ before, now })}`,
+      );
+    await page.waitForTimeout(50);
+  }
 }
 
 async function ack(page, state, note = '') {
@@ -1350,23 +1380,44 @@ try {
     JSON.stringify(exits) === JSON.stringify(['Revise', 'Revise & Approve']),
     JSON.stringify(exits),
   );
+  const beforeRevise = await windowMark(page);
   await page.click('.gly-verdict-revise');
-  await page.waitForFunction(
+  // The window, keyed to this press: the composer closes on the 204. See
+  // responseWindowOpen.
+  await responseWindowOpen(page, beforeRevise);
+  const leftPending = await page.evaluate(
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      0,
+      (await (await fetch('/_galley/pending')).json()).instructions.length,
   );
-  // And the window: the composer closes on the 204. See responseWindowOpen.
-  await responseWindowOpen(page);
-  check('Revise sends and clears the instruction round', true);
+  check(
+    'Revise sends and clears the instruction round',
+    leftPending === 0,
+    `${leftPending} instruction(s) still pending`,
+  );
+  // WAITED FOR, NOT READ AT AN INSTANT. The page closes the composer and
+  // settles the trail when it hears the 204, which can be a frame after the
+  // window opened on the server.
   check(
     'and Revise closed the open whole-document composer — the unsent draft is discarded',
-    !(await page.locator('.gly-capture').isVisible()),
+    await page
+      .waitForSelector('.gly-capture', { state: 'hidden', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false),
   );
+  const settled = await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll(
+          '.ProseMirror .gly-trail-ins, .ProseMirror .gly-trail-ghost',
+        ).length === 0,
+      null,
+      { timeout: 5000 },
+    )
+    .then(() => true)
+    .catch(() => false);
   check(
     'and Revise SETTLED the reviewer’s hand edits — no trail glow or ghost survives the send',
-    (await page.locator('.ProseMirror .gly-trail-ins').count()) === 0 &&
-      (await page.locator('.ProseMirror .gly-trail-ghost').count()) === 0,
+    settled,
     JSON.stringify({
       ins: await page.locator('.ProseMirror .gly-trail-ins').count(),
       ghost: await page.locator('.ProseMirror .gly-trail-ghost').count(),
@@ -1496,6 +1547,7 @@ try {
     const asked = new Map(listed);
     if (!(await page.locator('.gly-verdict-menu').isVisible()))
       await page.click('#gly-revise');
+    const before = await windowMark(page);
     await page.click('.gly-verdict-revise');
     // THE WINDOW, NOT THE CLEARED PENDING SET. The press clears the
     // instructions in its FIRST mutation and opens the response window several
@@ -1503,7 +1555,7 @@ try {
     // so `instructions.length === 0` goes true while `s.watch` is still nil —
     // and the ack the agent sends next is refused 409 "nothing has been asked
     // of you". `handoff` is the flag openResponseWindow sets LAST.
-    await responseWindowOpen(page);
+    await responseWindowOpen(page, before);
     return asked;
   }
 
@@ -2729,14 +2781,10 @@ try {
 
   await addOverallInstruction(page, 'Final trusted pass.', 1);
   await page.click('#gly-revise');
+  const beforeTrust = await windowMark(page);
   await page.click('.gly-verdict-trust');
-  await page.waitForFunction(
-    async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      0,
-  );
-  // And the window, before the ack. See responseWindowOpen.
-  await responseWindowOpen(page);
+  // The window this press opened, before the ack. See responseWindowOpen.
+  await responseWindowOpen(page, beforeTrust);
   await ack(page, 'failed', 'cannot complete the trusted pass');
   await page.waitForTimeout(1700);
   check(
