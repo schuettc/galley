@@ -227,3 +227,25 @@ func TestRevertRefusesAnEditThatRunsThroughAHighlight(t *testing.T) {
 		t.Errorf("a refused revert moved the document:\n--- was ---\n%s\n--- now ---\n%s", before, got)
 	}
 }
+
+// An edit in the same sentence as a highlight, but not through it, reverts and
+// keeps the highlight. Changes are found a sentence at a time, so the changed
+// sentence as a whole never stands literally in the marked source; the words
+// that actually changed do.
+func TestRevertAnEditBesideAHighlightKeepsTheHighlight(t *testing.T) {
+	s := editServerWith(t, "# T\n\nAlpha one here.\n\nBeta two.\n")
+	instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 9, "text": "which one?"})
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	reviewerRewrites(t, s, "here", "there")
+
+	rec := postRec(t, s, "/_galley/revert", map[string]any{"key": changeKeyOf(t, s, "changed")})
+	if rec.Code >= 300 {
+		t.Fatalf("revert answered %d %s, want it to put the word back", rec.Code, rec.Body.String())
+	}
+	got := string(liveMarkdown(t, s))
+	if !strings.Contains(got, "{==Alpha one==}{>>@comment cm-") || !strings.Contains(got, " here.") || strings.Contains(got, "there") {
+		t.Errorf("after the revert the document reads:\n%s\nwant the word back and the highlight kept", got)
+	}
+}

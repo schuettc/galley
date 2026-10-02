@@ -15,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -830,13 +832,23 @@ func (r *pageRenderer) reload(md []byte) bool {
 	// places went with it: anything found here was filed with no round in
 	// flight, since a send discharges its own.
 	pending, pendingErr := r.es.pending()
-	if _, err := r.es.mutate(byAgent, func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+	var placed map[string]bool
+	if _, err := r.es.mutate(byAgent, func(cur docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		// Under mu, before the write, so no projection sweeps between the two.
 		// The next projection records again whatever this model still places.
-		r.es.forgetPlacedLocked(nil)
+		//
+		// EXCEPT WHAT THE REVIEWER ALREADY TOOK BACK. A comment whose words
+		// were deleted is hidden and out of pending.json, and its thread waits
+		// in the review map for the next send's clear. Forgetting it was
+		// placed would make the next projection read it as never placed, write
+		// it back into pending.json and hand it to the agent on that send.
+		placed = r.es.placedSnapshot()
+		r.es.forgetPlacedLocked(slices.Collect(maps.Keys(r.es.retractedIn(cur))))
 		return model, nil, nil
 	}); err != nil {
-		// Nothing landed, so release the claim: the next projection retries.
+		// Nothing landed: put back what the reload forgot, and release the
+		// claim so the next projection retries.
+		r.es.restorePlaced(placed)
 		r.unclaim(md)
 		_, _ = fmt.Fprintf(pageStderr, "htmlpage: could not reload the editor on the re-extracted content: %v\n", err)
 		return false
@@ -845,8 +857,16 @@ func (r *pageRenderer) reload(md []byte) bool {
 	r.reloads++
 	r.mu.Unlock()
 	lost := ""
-	if pendingErr == nil && len(pending.Instructions) > 0 {
-		lost = fmt.Sprintf(" — %d unsent instruction(s) are kept, unplaced: their marks went with the replaced document", len(pending.Instructions))
+	// Only the ones that HAD a mark: a whole-document comment never did, so
+	// the replaced document took nothing of it.
+	marked := 0
+	for _, instruction := range pending.Instructions {
+		if instruction.Anchor != string(suggest.AnchorDocument) {
+			marked++
+		}
+	}
+	if pendingErr == nil && marked > 0 {
+		lost = fmt.Sprintf(" — %d unsent instruction(s) are kept, unplaced: their marks went with the replaced document", marked)
 	}
 	_, _ = fmt.Fprintf(pageStderr, "htmlpage: %s was restructured — the editor reloads on %d bytes of re-extracted content%s\n",
 		filepath.Base(r.pagePath), len(md), lost)

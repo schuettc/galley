@@ -3,6 +3,7 @@ package serve
 import (
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/reearth/ygo/crdt"
@@ -117,18 +118,61 @@ func revertChange(before, afterMarked string, target ReviewerChange, clean func(
 		// A highlight's markers inside the changed words leave no literal
 		// substitution that keeps the mark, and moving the mark to where it
 		// probably belongs is the guess this function does not make.
-		switch strings.Count(afterBlocks[at].Text, now) {
-		case 1:
-		case 0:
-			return "", errRevertThroughHighlight
-		default:
-			return "", errors.New("that edit's text appears more than once in the document, so reverting it would have to guess which")
+		//
+		// BUT ONLY THE WORDS THAT CHANGED. A change is found a sentence at a
+		// time, so `now` is the whole changed sentence, and a highlight
+		// anywhere in it (not through the edit, just beside it) means the
+		// sentence never stands literally in the marked source. So the
+		// substitution is narrowed to the words that differ, widened a word at
+		// a time on each side only until it is unique in the block.
+		from, to, err := narrowedEdit(afterBlocks[at].Text, want, now)
+		if err != nil {
+			return "", err
 		}
 		out := append([]diff.Block{}, afterBlocks...)
-		out[at].Text = strings.Replace(out[at].Text, now, want, 1)
+		out[at].Text = strings.Replace(out[at].Text, from, to, 1)
 		return joinBlocks(out), nil
 	}
 	return "", errors.New("galley does not know how to revert a " + target.Kind)
+}
+
+// words splits text into words, each carrying the whitespace after it, so the
+// pieces join back to the text exactly.
+var words = regexp.MustCompile(`\s*\S+\s*|\s+`)
+
+// narrowedEdit is the substitution that turns now back into want inside the
+// marked source: the run of words that differs between the two, with as many
+// unchanged words either side as it takes to occur exactly once in source.
+// No occurrence at all means a highlight's markers run through the changed
+// words, which is refused rather than guessed around.
+func narrowedEdit(source, want, now string) (from, to string, err error) {
+	w, n := words.FindAllString(want, -1), words.FindAllString(now, -1)
+	pre := 0
+	for pre < len(w) && pre < len(n) && w[pre] == n[pre] {
+		pre++
+	}
+	post := 0
+	for post < len(w)-pre && post < len(n)-pre && w[len(w)-1-post] == n[len(n)-1-post] {
+		post++
+	}
+	for k := 0; ; k++ {
+		lo, hiN, hiW := max(pre-k, 0), min(len(n)-post+k, len(n)), min(len(w)-post+k, len(w))
+		from = strings.Join(n[lo:hiN], "")
+		to = strings.Join(w[lo:hiW], "")
+		whole := lo == 0 && hiN == len(n)
+		if from == "" && !whole {
+			continue
+		}
+		switch strings.Count(source, from) {
+		case 1:
+			return from, to, nil
+		case 0:
+			return "", "", errRevertThroughHighlight
+		}
+		if whole {
+			return "", "", errors.New("that edit's text appears more than once in the document, so reverting it would have to guess which")
+		}
+	}
 }
 
 // errRevertThroughHighlight is the refusal for a change whose words an

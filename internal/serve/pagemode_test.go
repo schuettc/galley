@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1596,5 +1597,62 @@ func TestPageModeServesTheAdvertisedPath(t *testing.T) {
 	defer func() { _ = srv.Close() }()
 	if got, want := srv.MdPath, AdvertisedPath(page); got != want {
 		t.Errorf("MdPath = %q, want the advertised path %q", got, want)
+	}
+}
+
+// A comment the reviewer already took back (its words deleted, so hidden and
+// out of pending.json) stays taken back through a structural reload. The
+// reload forgets which comments were placed, so that their lost marks are not
+// read as a retraction; it must not forget the ones already retracted, or the
+// next projection would write the comment back and the next send would hand
+// it to the agent.
+func TestAStructuralReloadKeepsARetractedCommentRetracted(t *testing.T) {
+	dir := t.TempDir()
+	page := writePage(t, dir, "page.html", fixturePage)
+	s, err := NewEditPage(page)
+	if err != nil {
+		t.Fatalf("NewEditPage: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	was := pageStderr
+	pageStderr = io.Discard
+	defer func() { pageStderr = was }()
+
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	commentAs(t, s, "The reviewer highlights a sentence.", "cut this section")
+	key := onlyKey(t, s)
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	reviewerDeletes(t, s, "The reviewer highlights a sentence.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if v := pendingView(t, s).Instructions; len(v) != 0 {
+		t.Fatalf("precondition: deleting the words should hide the comment: %+v", v)
+	}
+
+	if err := os.WriteFile(page, []byte(structuralPage(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := s.Project(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := s.pageRender.reloadCount(); n != 1 {
+		t.Fatalf("structural round reloaded %d times, want exactly 1", n)
+	}
+	for _, v := range pendingView(t, s).Instructions {
+		if v.Key == key {
+			t.Errorf("the reload brought back the comment the reviewer took back: %+v", v)
+		}
+	}
+	for _, c := range loadUnsent(t, s) {
+		if c.Key == key {
+			t.Errorf("the reload wrote the taken-back comment into pending.json: %+v", c)
+		}
 	}
 }

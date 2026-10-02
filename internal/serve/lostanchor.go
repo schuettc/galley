@@ -195,3 +195,22 @@ func (s *EditServer) forgetPlacedLocked(sent []string) {
 		}
 	}
 }
+
+// placedSnapshot is a copy of which text comments this server has seen placed,
+// for a caller that may have to put it back. Safe with or without mu.
+func (s *EditServer) placedSnapshot() map[string]bool {
+	s.anchorMu.Lock()
+	defer s.anchorMu.Unlock()
+	return maps.Clone(s.seenAnchored)
+}
+
+// restorePlaced puts back a snapshot taken by placedSnapshot. A nil snapshot
+// (the caller never reached the point of taking one) changes nothing.
+func (s *EditServer) restorePlaced(placed map[string]bool) {
+	if placed == nil {
+		return
+	}
+	s.anchorMu.Lock()
+	defer s.anchorMu.Unlock()
+	s.seenAnchored = placed
+}
