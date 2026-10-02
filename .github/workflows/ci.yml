@@ -189,6 +189,16 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
+      # ONE GRIP FOR EVERY BLOCK. Every top-level heading, fence, table,
+      # figure, display-math block and front matter carries one grip in the
+      # left gutter, visible without hovering, and pressing it opens the block
+      # composer on that block. The cross-kind claims live here; each kind's
+      # own claims stay in its own gate.
+      - name: Gate — every block has one grip
+        run: node web/grip.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
       # THE CONTENT PANE ALIGNS TO THE LIVE PAGE, AND CLEARS OUTSIDE BOTH
       # VIEW. Page mode's Both view shows the same document twice, and the two
       # panes are made to read together at the section level: each content

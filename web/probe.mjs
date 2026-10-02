@@ -98,6 +98,17 @@ import { coerceLevel } from './heading.ts';
 // sectionSpan and the nine figures/grip methods moved to web/figures.ts —
 // see that module's header.
 import { sectionSpan, codeBlockPos } from './figures.ts';
+// The block grip's rules, which need no browser: which blocks get one, what its
+// face and label say, how many instructions it carries, and how two grips
+// closer than one grip's height are kept apart.
+import {
+  GRIP_KINDS,
+  gripTargets,
+  gripCount,
+  gripFace,
+  gripLabel,
+  stackGrips,
+} from './grips.ts';
 import { composerPlacement } from './composer.ts';
 // The verdict vocabulary moved out of entry.ts — see web/verdict.ts's header.
 import {
@@ -4572,6 +4583,195 @@ const unplacedEntry = (c) => {
   check(
     'DOM the view cannot place hides the grip rather than throwing',
     codeBlockPos(viewSaying(new RangeError('gone')), null) === null,
+  );
+}
+
+// --- the block grip ---
+//
+// Which top-level blocks get a grip, what the grip says, and where two of them
+// go when their blocks are closer than one grip. All of it is arithmetic over a
+// document and a list of threads, so it is checked here; what a browser has to
+// prove (the grip is visible, pressable, in the gutter) is web/grip.mjs's.
+//
+// The document goes through fragmentSchema, the one that carries every node the
+// editor builds — image, note, front matter and display math included — so a
+// kind this file names is a kind the browser actually has.
+
+{
+  const f = fragmentSchema;
+  const text = (t) => [f.text(t)];
+  const nestedFence = f.node('bulletList', null, [
+    f.node('listItem', null, [
+      f.node('paragraph', null, text('run this')),
+      f.node('codeBlock', { language: 'bash' }, text('nested')),
+    ]),
+  ]);
+  const doc = f.node('doc', null, [
+    f.node('frontMatter', null, text('title: x')), // 0
+    f.node('heading', { level: 1 }, text('Title')), // 1
+    f.node('paragraph', null, text('intro')), // 2
+    f.node('heading', { level: 2 }, text('Design')), // 3
+    f.node('table', null, [
+      f.node('tableRow', null, [
+        f.node('tableHeader', null, [f.node('paragraph', null, text('key'))]),
+        f.node('tableHeader', null, [f.node('paragraph', null, text('value'))]),
+      ]),
+    ]), // 4
+    nestedFence, // 5
+    f.node('blockquote', null, [f.node('paragraph', null, text('quoted'))]), // 6
+    f.node('note', null, []), // 7 — counted in the index, never a target
+    f.node('codeBlock', { language: 'bash' }, text('npm install')), // 8
+    f.node('image', { src: 'flow.svg', alt: 'flow' }), // 9
+    f.node('codeBlock', { language: 'mermaid' }, text('graph TD; a-->b')), // 10
+    f.node('mathBlock', null, text('E = mc^2')), // 11
+    f.node('horizontalRule'), // 12
+    f.node('paragraph', null, text('the end')), // 13
+  ]);
+  const targets = gripTargets(doc);
+  const posOf = (i) => {
+    let at = 0;
+    for (let n = 0; n < i; n += 1) {
+      at += doc.child(n).nodeSize;
+    }
+    return at;
+  };
+
+  check(
+    'the grip goes on front matter, headings, a table, a fence, an image, a diagram and display math, in document order',
+    targets.map((t) => `${t.kind}@${t.index}`).join(',') ===
+      'frontMatter@0,heading@1,heading@3,table@4,codeBlock@8,image@9,codeBlock@10,mathBlock@11',
+    targets.map((t) => `${t.kind}@${t.index}`),
+  );
+  // The index is the top-level ordinal WITH notes counted, because that is
+  // BlockRef.Index, and the grip finds its block's key by it at click time.
+  check(
+    "each target's position is the top-level child its index names",
+    targets.every((t) => t.pos === posOf(t.index)),
+    targets.map((t) => [t.index, t.pos]),
+  );
+  check(
+    'no paragraph, list, blockquote, note or rule gets a grip, and neither does the fence inside the list item',
+    !targets.some((t) =>
+      [
+        'paragraph',
+        'bulletList',
+        'blockquote',
+        'note',
+        'horizontalRule',
+      ].includes(t.kind),
+    ) && !targets.some((t) => t.index === 5),
+    targets,
+  );
+  check(
+    'only the image and the diagram are figures',
+    targets
+      .filter((t) => t.figure)
+      .map((t) => t.index)
+      .join(',') === '9,10',
+    targets.filter((t) => t.figure),
+  );
+  check(
+    'every kind the grip goes on is a node the editor builds',
+    GRIP_KINDS.length === 6 &&
+      GRIP_KINDS.every((k) =>
+        Object.prototype.hasOwnProperty.call(fragmentSchema.nodes, k),
+      ),
+    GRIP_KINDS,
+  );
+
+  check(
+    'the face is + with no instructions, the count up to nine, and 9+ past it',
+    [0, 1, 9, 10, 31].map(gripFace).join(' ') === '+ 1 9 9+ 9+',
+    [0, 1, 9, 10, 31].map(gripFace),
+  );
+
+  const heading = { kind: 'heading', figure: false };
+  const said = {
+    heading: gripLabel(heading, '## Design', 0),
+    headingTwo: gripLabel(heading, '## Design', 2),
+    headingOne: gripLabel(heading, 'Design', 1),
+    table: gripLabel({ kind: 'table', figure: false }, 'table: key, value', 0),
+    diagram: gripLabel(
+      { kind: 'codeBlock', figure: true },
+      'mermaid: graph TD',
+      0,
+    ),
+    image: gripLabel({ kind: 'image', figure: true }, 'flow (flow.svg)', 0),
+    math: gripLabel({ kind: 'mathBlock', figure: false }, 'E = mc^2', 0),
+    front: gripLabel({ kind: 'frontMatter', figure: false }, '---', 0),
+    code: gripLabel({ kind: 'codeBlock', figure: false }, 'bash: npm', 0),
+  };
+  check(
+    'a heading grip names its section in words, without the markdown hashes',
+    said.heading === 'Add an instruction on the section "Design"' &&
+      said.headingOne ===
+        'Add an instruction on the section "Design" (1 already)',
+    said,
+  );
+  check(
+    'and says how many instructions it already carries',
+    said.headingTwo ===
+      'Add an instruction on the section "Design" (2 already)',
+    said.headingTwo,
+  );
+  check(
+    'every other kind names what it is',
+    said.table === 'Add an instruction on this table' &&
+      said.diagram === 'Add an instruction on this diagram' &&
+      said.image === 'Add an instruction on this figure' &&
+      said.math === 'Add an instruction on this equation' &&
+      said.front === 'Add an instruction on the front matter' &&
+      said.code === 'Add an instruction on this code block',
+    said,
+  );
+  check(
+    'no grip label carries a raw markdown # or |',
+    Object.values(said).every((l) => !/[#|]/.test(l)),
+    said,
+  );
+  const long = gripLabel(heading, `## ${'word '.repeat(40)}`, 0);
+  check(
+    'a long heading is bounded in the label, as it is in a card head',
+    long.length < 'Add an instruction on the section ""'.length + 50 &&
+      long.includes('…'),
+    long,
+  );
+
+  const threads = [
+    { anchor: 'block', anchorKey: 'bk-a' },
+    { anchor: 'block', anchorKey: 'bk-a', region: { x: 0, y: 0, w: 1, h: 1 } },
+    { anchor: 'block', anchorKey: 'bk-b' },
+    { anchor: 'range', anchorKey: '', run: 'r1' },
+    { anchor: 'document', anchorKey: '' },
+  ];
+  check(
+    "a grip counts the block's own instructions, a region comment included",
+    gripCount(threads, 'bk-a') === 2 && gripCount(threads, 'bk-b') === 1,
+    [gripCount(threads, 'bk-a'), gripCount(threads, 'bk-b')],
+  );
+  check(
+    'and never a range or a whole-document instruction',
+    gripCount(threads, '') === 0 && gripCount(threads, 'bk-none') === 0,
+    gripCount(threads, ''),
+  );
+
+  const stacked = stackGrips([0, 10, 100], 32, 4);
+  check(
+    'a grip closer than one grip to the one above is pushed clear of it',
+    stacked.join(',') === '0,36,100',
+    stacked,
+  );
+  const clear = stackGrips([0, 50, 200], 32, 4);
+  check(
+    'grips already clear of each other are not moved',
+    clear.join(',') === '0,50,200',
+    clear,
+  );
+  const crowd = stackGrips([5, 5, 6, 40, 41], 32, 4);
+  check(
+    'a crowd of grips comes out non-decreasing, each clear of the last',
+    crowd.every((t, i) => i === 0 || t - crowd[i - 1] >= 36),
+    crowd,
   );
 }
 

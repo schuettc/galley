@@ -440,6 +440,14 @@ page: build
 codeblock: build
     GALLEY="$PWD/bin/galley" node web/codeblock.mjs
 
+# One grip for every block. The cross-kind gate: every top-level heading,
+# fence, table, figure, display-math block and front matter carries one grip
+# in the left gutter, visible without hovering, and pressing it opens the block
+# composer on that block. The rules that need no browser are web/grips.ts's,
+# checked in probe.mjs; this is what only a browser can see.
+grip: build
+    GALLEY="$PWD/bin/galley" node web/grip.mjs
+
 # The content pane aligns to the live page, and clears outside Both view. The
 # page-mode geometry gate: in Both view each content heading carries exactly
 # the measured gap to the same heading on the page as padding — floored at
@@ -516,6 +524,7 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/rounds-ux.mjs
     GALLEY="$PWD/bin/galley" node web/page.mjs
     GALLEY="$PWD/bin/galley" node web/codeblock.mjs
+    GALLEY="$PWD/bin/galley" node web/grip.mjs
     GALLEY="$PWD/bin/galley" node web/align.mjs
     GALLEY="$PWD/bin/galley" node web/livestructure.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
