@@ -107,7 +107,7 @@ func (s *EditServer) openHandoff(round int, fp string, approveOnAnswer bool) {
 // that puts the canonical document back on disk.
 func (s *EditServer) closeHandoff() {
 	s.handoffLive.Store(false)
-	s.stopWatcher()
+	_ = s.stopWatcher()
 	s.reviseMu.Lock()
 	s.handoffLease = nil
 	s.reviseMu.Unlock()
@@ -234,10 +234,12 @@ func (s *EditServer) startWatcher() {
 		s.reviseMu.Unlock()
 		return
 	}
-	stop := make(chan struct{})
-	s.handoffStop = stop
+	stop, done := make(chan struct{}), make(chan struct{})
+	s.handoffStop, s.handoffDone = stop, done
+	tickHook := s.testImportTick
 	s.reviseMu.Unlock()
 	go func() {
+		defer close(done)
 		tick := time.NewTicker(importPoll)
 		defer tick.Stop()
 		for {
@@ -245,6 +247,9 @@ func (s *EditServer) startWatcher() {
 			case <-stop:
 				return
 			case <-tick.C:
+				if tickHook != nil {
+					tickHook()
+				}
 				// An error here is HELD state, not a failure — the draft stays
 				// on disk, the readout says so, and the next save retries.
 				_, _ = s.importDraft()
@@ -253,13 +258,21 @@ func (s *EditServer) startWatcher() {
 	}()
 }
 
-func (s *EditServer) stopWatcher() {
+// stopWatcher tells the watcher to stop and returns a channel closed once its
+// goroutine has exited (nil when none was running). Only Close waits on it: an
+// import still under way when the window closes is already harmless (a closed
+// window gets no import mark; see importDraft), but one still under way when
+// the server shuts down would write after the caller was told it had finished.
+// Never wait on it from the watcher's own goroutine.
+func (s *EditServer) stopWatcher() <-chan struct{} {
 	s.reviseMu.Lock()
+	defer s.reviseMu.Unlock()
+	done := s.handoffDone
 	if s.handoffStop != nil {
 		close(s.handoffStop)
-		s.handoffStop = nil
+		s.handoffStop, s.handoffDone = nil, nil
 	}
-	s.reviseMu.Unlock()
+	return done
 }
 
 // importDraft loads the agent's saved file into the live document as one

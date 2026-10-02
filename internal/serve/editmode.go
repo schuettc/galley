@@ -238,7 +238,13 @@ type EditServer struct {
 	// could not be imported, in the parser's words, for the readout. Both
 	// under reviseMu with the lease.
 	handoffStop chan struct{}
-	draftErr    string
+	// handoffDone is closed when the watcher's goroutine has exited.
+	handoffDone chan struct{}
+	// testImportTick, when set before a window opens, runs on that window's
+	// watcher goroutine at the start of each tick, before the import. Tests
+	// only: a field, not a package variable, so no other server sees it.
+	testImportTick func()
+	draftErr       string
 
 	// The agent's last acknowledgment, shown by writeReviseState. Guarded by
 	// reviseMu with the watch because the two are one story: the window opens
@@ -583,8 +589,11 @@ func (s *EditServer) Close() error {
 	// The import watcher first: it calls mutate, and a mutation landing after
 	// the final flush is a write nothing will ever project. Stopping the
 	// watcher does NOT close the window — the lease survives a shutdown so a
-	// restart can resume the agent's round.
-	s.stopWatcher()
+	// restart can resume the agent's round. And it is WAITED FOR: an import
+	// already under way would otherwise write the lease after Close returned.
+	if done := s.stopWatcher(); done != nil {
+		<-done
+	}
 	s.debounce.stop()
 	s.Notify.Stop()
 	// Before the websocket shutdown, and unconditionally: a blocked reader

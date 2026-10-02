@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -435,5 +436,46 @@ func TestLeaseRoundTripsAndClears(t *testing.T) {
 	}
 	if _, _, err := readLease(path); err == nil {
 		t.Fatal("corrupt lease read as no lease")
+	}
+}
+
+// Close waits for an import already under way. The watcher is stopped first
+// so nothing lands after the final flush, and an import that had started
+// before the stop must finish before Close returns: otherwise it writes the
+// handoff lease into a directory the caller has been told is finished with.
+func TestCloseWaitsForAnImportUnderWay(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(md, []byte("# T\n\nAlpha.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	s.testImportTick = func() {
+		once.Do(func() { close(started) })
+		<-release
+	}
+	s.openHandoff(1, "fp", false)
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watcher never ticked")
+	}
+	closed := make(chan struct{})
+	go func() { _ = s.Close(); close(closed) }()
+	select {
+	case <-closed:
+		t.Error("Close returned while an import was still under way")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close never returned after the import finished")
 	}
 }
