@@ -178,7 +178,6 @@ import {
   censusCounts,
   unplacedSaid,
   decidable,
-  threadAnswered,
   stepPending,
   keyTargetIsEditable,
   submitOnEnter,
@@ -4271,90 +4270,10 @@ const unplacedEntry = (c) => {
   // left: nothing beside the thread numbers.
   check(
     'the census reports thread numbers and nothing else',
-    Object.keys(c).sort().join(',') === 'answered,docThreads,threads',
+    Object.keys(c).sort().join(',') === 'threads',
     Object.keys(c),
   );
 
-  // threadAnswered is the JS twin of review.Thread.Answered — it asks WHO
-  // SPOKE LAST, not "is it open" — and this is its ONLY spelling in this
-  // language; censusCounts' `answered` tally is built on it.
-  check(
-    'a thread the agent answered last reads answered',
-    threadAnswered({
-      entries: [
-        { author: 'court', text: 'q' },
-        { author: 'agent', text: 'a' },
-      ],
-    }) === true,
-  );
-  check(
-    'a thread with no entries has nobody to have spoken last',
-    threadAnswered({ entries: [] }) === false &&
-      threadAnswered({}) === false &&
-      threadAnswered(undefined) === false,
-  );
-  check(
-    'the reviewer’s own follow-up puts the ball back in their court',
-    threadAnswered({ entries: [{ author: 'agent' }, { author: 'court' }] }) ===
-      false,
-  );
-
-  // `answered` counts the threads the agent spoke last on, beside `threads`.
-  const swept = censusCounts({
-    comments: [
-      { key: 'a', entries: [{ author: 'court' }, { author: 'agent' }] },
-      { key: 'c', entries: [{ author: 'court' }] },
-    ],
-  });
-  check(
-    'the census counts answered threads beside open ones',
-    swept.answered === 1 && swept.threads === 2,
-    swept,
-  );
-  check(
-    'an empty payload has nothing answered',
-    censusCounts({}).answered === 0,
-  );
-
-  // ONE CONVERSATION, COUNTED ONCE ON THE BAR. The strip printed every open
-  // thread and the handle beside it printed the document-anchored one AGAIN:
-  // measured `3 pending · 3 threads` next to `1 doc instruction` on a document with
-  // three conversations, of which the doc instruction was one. A reviewer read four.
-  //
-  // The split is what fixes it, and `threads` staying the TOTAL is what keeps
-  // verdictLabel honest — a subtraction inside `threads` would offer Approve
-  // over an unanswered whole-document question.
-  const both = censusCounts({
-    comments: [
-      {
-        key: 'cd-1',
-        anchor: 'document',
-        entries: [{ author: 'agent' }],
-      },
-      {
-        key: 'md-1',
-        anchor: 'range',
-        entries: [{ author: 'agent' }],
-      },
-      {
-        key: 'md-2',
-        anchor: 'range',
-        entries: [{ author: 'court' }],
-      },
-    ],
-  });
-  check(
-    'the census splits the whole-document conversation out from the marked ones',
-    both.threads === 3 &&
-      both.docThreads === 1 &&
-      both.threads - both.docThreads === 2,
-    both,
-  );
-  check(
-    'and the two numbers the bar prints sum to what the rail holds — never more',
-    both.threads - both.docThreads + both.docThreads === both.threads,
-    both,
-  );
   // The total is still every open conversation, which is the number Approve
   // is withheld on. A doc instruction ALONE must not read as a settled document.
   check(

@@ -32,9 +32,8 @@ export const GUTTER_PX = 26;
 // the way that disagreement shows up is rail and sheet on screen together.
 export const RAIL_MIN_WIDTH = 992;
 
-// Who the reviewer is on the wire. ONE SPELLING: threadAnswered asks "did
-// someone other than the reviewer speak last", and entry.ts posts under it. A
-// third reader that spelled its own literal is how the six agreeing spellings
+// Who the reviewer is on the wire. ONE SPELLING: entry.ts posts under it. A
+// second reader that spelled its own literal is how the six agreeing spellings
 // in CLAUDE.md always start. (`outgoingCounts` was the third and is deleted;
 // see the note where it was.)
 const REVIEWER = 'court';
@@ -44,10 +43,9 @@ const REVIEWER = 'court';
 // attributed to "agent". (It used to name every typed mark too — the
 // reviewer's-hand cut removed those, but a conversation still needs a name.)
 //
-// ONE SPELLING, and it is rail.ts's: `threadAnswered` and `outgoingCounts` both
-// have to know which entries are the reviewer's, and a literal 'court' here
-// beside a literal 'court' there is how two agreeing copies become three and
-// then one that disagrees.
+// ONE SPELLING, and it is rail.ts's: a literal 'court' here beside a literal
+// 'court' there is how two agreeing copies become three and then one that
+// disagrees.
 export const AUTHOR = REVIEWER;
 
 // The shapes of a pending-payload entry, in the loose form this module has
@@ -232,28 +230,6 @@ export function decidable(
   return !!(s && s.decidable);
 }
 
-/**
- * threadAnswered reports whether the agent has spoken last in a thread.
- *
- * The JS twin of review.Thread.Answered on the Go side, and the ONLY spelling
- * of the predicate in this language — entry.ts consumes it through
- * censusCounts' `answered` tally rather than inlining a copy that agrees for
- * now. It asks "who spoke last", not "is it open": a thread with no entries
- * has nobody to have spoken last, so it reads as unanswered, and a thread
- * whose newest entry is the reviewer's own follow-up is unanswered too — the
- * ball is back in the reviewer's court. `!== 'court'` rather than
- * `=== 'agent'` deliberately, matching the Go predicate: anyone who is not
- * the reviewer answering is still an answer.
- *
- * @param t a pending-payload thread
- */
-export function threadAnswered(
-  t: { entries?: { author?: string }[] } | null | undefined,
-): boolean {
-  const entries = (t && t.entries) || [];
-  return entries.length > 0 && entries[entries.length - 1].author !== REVIEWER;
-}
-
 /* --- what the reviewer is about to tell the agent ---------------------------
  *
  * THE TRAIL IS AN OUTGOING MESSAGE, NOT A HISTORY, AND THAT IS WHY IT HAS NO
@@ -324,30 +300,16 @@ export function threadAnswered(
  * per-kind breakdown and an allowlist of kinds holding the two together — and
  * the payload no longer carries any, so every one of those numbers was zero.
  *
- * `threads` IS EVERY OPEN CONVERSATION AND MUST STAY THAT WAY, because
- * `verdictLabel` turns `threads === 0` into **Approve** — and a total that
- * quietly left the whole-document conversation out would offer Approve on a
- * document with an unanswered question in it. So the document-anchored ones
- * are SPLIT OUT rather than subtracted: `docThreads` counts them and `threads`
- * still counts them too. That is what stops a bar double-counting: `3 threads`
- * beside `1 doc note` was four conversations advertised where there were
- * three, because the doc note was one of the three.
- *
- * `answered` is how many of them the agent spoke last on (threadAnswered).
+ * `threads` IS EVERY UNSENT INSTRUCTION, the whole-document ones included,
+ * because `verdictLabel` turns `threads === 0` into **Approve**, and a total
+ * that left the whole-document instruction out would offer Approve on a
+ * document with an instruction still to send.
  */
 export function censusCounts(
   view: { comments?: PendingThread[] } | null | undefined,
 ) {
   const threads = (view && view.comments) || [];
-  const docOpen = threads.filter((t) => t.anchor === 'document');
-  return {
-    threads: threads.length,
-    // The whole-document conversation, counted apart. Over the SAME partition
-    // rail.ts already exports — `overallThreads` is `anchor === 'document'`,
-    // and this is that predicate as a count.
-    docThreads: docOpen.length,
-    answered: threads.filter(threadAnswered).length,
-  };
+  return { threads: threads.length };
 }
 
 /* --- ✓ all IS GONE, AND SO IS EVERY WORD IT SPOKE ---------------------------

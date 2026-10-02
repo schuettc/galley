@@ -613,9 +613,9 @@ const shellSelectors = () =>
 // for the one button in the shell's markup and silently captured every button
 // the editor appends into the bar.
 //
-// This block runs BEFORE the `.gly-census-overall` click further down. Amber
-// on that handle once it is open is correct — it means "here" — and reading
-// the resting colour after the click would be reading the wrong state.
+// This block reads every bar button at REST, before anything is opened: amber
+// on an opened handle is correct (it means "here"), and reading the resting
+// colour after a click would be reading the wrong state.
 
 {
   const bar = await styleAll('.gly-bar button', 'font-size');
