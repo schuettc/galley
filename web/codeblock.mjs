@@ -382,12 +382,35 @@ await page.waitForTimeout(600);
 // reviewer's next keystroke would be aimed at the whole block.
 {
   const sel = await page.evaluate(() => {
-    const s = window.galleyEdit.editor.state.selection;
-    return { empty: s.empty, from: s.from, to: s.to };
+    const state = window.galleyEdit.editor.state;
+    const s = state.selection;
+    let fenceEnd = -1;
+    state.doc.descendants((node, pos) => {
+      if (node.type.name === 'codeBlock' && fenceEnd < 0) {
+        fenceEnd = pos + node.nodeSize;
+      }
+    });
+    return {
+      empty: s.empty,
+      from: s.from,
+      to: s.to,
+      in: s.$from.parent.type.name,
+      fenceEnd,
+    };
   });
   check(
     'sending the fence\u2019s comment leaves nothing selected',
     sel.empty,
+    sel,
+  );
+  // AND THE CARET IS OUT OF THE FENCE, past it. Inside, the next keystroke
+  // meets the read-only refusal rather than landing anywhere. Not in the
+  // comment's own note either, which lands right after the fence.
+  check(
+    'and the caret lands after the fence, not inside it',
+    sel.empty &&
+      !['codeBlock', 'note'].includes(sel.in) &&
+      sel.from > sel.fenceEnd,
     sel,
   );
 }

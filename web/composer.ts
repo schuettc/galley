@@ -24,11 +24,11 @@
 
 import { postJSON } from './net.ts';
 import { submitOnEnter, growOnInput, elide, AUTHOR } from './rail.ts';
-import { literalHit } from './suggestions.ts';
+import { isFence, literalHit, literalRegion } from './suggestions.ts';
 import type { LiteralHit } from './suggestions.ts';
 import { TextSelection } from '@tiptap/pm/state';
 import type { EditorState } from '@tiptap/pm/state';
-import type { ResolvedPos } from '@tiptap/pm/model';
+import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model';
 import type { AppShell } from './appshell.ts';
 import type { Region } from './wire';
 import type { MenuItem } from './menu.ts';
@@ -688,9 +688,14 @@ export const composerMethods = {
   // `#  The budget is the subject.` — a click into a selection the editor
   // regained focus with did not collapse it.
   //
-  // THE CARET STAYS WHERE THE GRIP POINTED, at the selection's start: the
-  // section's heading or the fence's first line, which is the place on screen
-  // the reviewer was just looking at. Nothing scrolls.
+  // THE CARET STAYS WHERE THE GRIP POINTED: at the section's heading, the
+  // selection's start, which is the place on screen the reviewer was just
+  // looking at. Nothing scrolls. A FENCE IS THE EXCEPTION: it is read-only, so
+  // a caret on its first line meets the fence's refusal on the next keystroke.
+  // The caret goes to the first text the reviewer can type into after it —
+  // NOT `Selection.near` past the fence, which lands in the comment's own
+  // note (a `text*` block, read-only on screen) that was just filed there.
+  // With nothing typeable after the fence it stays on the fence's first line.
   //
   // ONLY THE GRIP'S OWN SELECTION. `gripFrom` is cleared the moment a fresh
   // placement takes over (the reviewer made a selection of their own), and the
@@ -709,9 +714,13 @@ export const composerMethods = {
     if (sel.empty || sel.from !== from) {
       return;
     }
-    view.dispatch(
-      view.state.tr.setSelection(TextSelection.create(view.state.doc, from)),
-    );
+    const doc = view.state.doc;
+    const $to = sel.$to;
+    let at = from;
+    if (isFence($to.parent)) {
+      at = typeableAfter(doc, $to.after()) ?? from;
+    }
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, at)));
   },
 
   // (applyStrike lived here until the trail cut. The Strike button was a
@@ -1023,4 +1032,26 @@ export function composerPlacement(
     denied,
     denyReason: denied && literal ? literal.reason : '',
   };
+}
+
+// typeableAfter is the first position at or after pos inside a textblock a
+// reviewer can type into: not in a read-only region (literalRegion: a fence, a
+// table, front matter, a math block) and not a note. Null when there is none.
+// See releaseGrip.
+function typeableAfter(doc: PMNode, pos: number): number | null {
+  let found: number | null = null;
+  doc.nodesBetween(pos, doc.content.size, (node, at) => {
+    if (found !== null) {
+      return false;
+    }
+    if (literalRegion(node) || node.type.name === 'note') {
+      return false;
+    }
+    if (!node.isTextblock) {
+      return true;
+    }
+    found = at + 1;
+    return false;
+  });
+  return found;
 }
