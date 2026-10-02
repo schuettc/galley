@@ -1,6 +1,7 @@
 package suggest
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -46,17 +47,26 @@ func codeSpanDoc() docmodel.Doc {
 	}}}
 }
 
-func docText(d docmodel.Doc) string {
-	out := ""
+// readings is what the file says if every pending edit is taken, and if every
+// one is declined: the Del text dropped and the Ins text kept, or the reverse.
+// A read-path oracle: it asks the document, never a decision.
+func readings(d docmodel.Doc) (taken, declined string) {
 	var walk func([]docmodel.Block)
 	walk = func(blocks []docmodel.Block) {
 		for _, b := range blocks {
-			out += plainText(b.Inlines)
+			for _, in := range b.Inlines {
+				if !in.Has(docmodel.Del) {
+					taken += in.Text
+				}
+				if !in.Has(docmodel.Ins) {
+					declined += in.Text
+				}
+			}
 			walk(b.Children)
 		}
 	}
 	walk(d.Blocks)
-	return out
+	return taken, declined
 }
 
 func testAt() time.Time { return time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC) }
@@ -108,14 +118,14 @@ func TestCommentOnRangeAcrossAFormattingRunIsOneSpanLive(t *testing.T) {
 // three. It starts from bytes on disk and exercises the read path, which is
 // where the document's OWN span boundaries have to survive.
 //
-// Decide the pieces one at a time the way a reviewer would, and check the
-// document after EVERY decision, not only at the end. There are exactly two
-// coherent outcomes: the edit was taken, or it was not. The review reproduced a
-// third, "The retryBudgetThe retry budget controls retries.", which is a word
-// neither side wrote.
-func TestDecidingASpanReadFromAFilePieceByPieceNeverCorruptsTheDocument(t *testing.T) {
-	// No heading: docText concatenates every block, and the point of comparison
-	// here is the prose of the paragraph the span lives in.
+// There are exactly two coherent outcomes: the edit was taken, or it was not.
+// The review reproduced a third, "The retryBudgetThe retry budget controls
+// retries.", which is a word neither side wrote; it was reachable only because
+// the one span read as several. So the read path is the oracle: one replace,
+// whose halves are exactly what separates the file's two readings.
+func TestASpanReadFromAFileIsOneReplaceWhoseHalvesAreTheTwoReadings(t *testing.T) {
+	// No heading: readings concatenates every block, and the point of
+	// comparison here is the prose of the paragraph the span lives in.
 	const onDisk = "{~~The `retryBudget` value controls~>The retry budget controls~~} retries.\n"
 
 	parsed, _, err := markdown.Parse([]byte(onDisk))
@@ -124,82 +134,27 @@ func TestDecidingASpanReadFromAFilePieceByPieceNeverCorruptsTheDocument(t *testi
 	}
 	live := MintRuns(parsed)
 
-	if n := len(List(live)); n != 1 {
-		for i, p := range List(live) {
+	pending := List(live)
+	if len(pending) != 1 {
+		for i, p := range pending {
 			t.Logf("  [%d] %s %q", i, p.Kind, p.Text)
 		}
-		t.Fatalf("one span in the file read as %d suggestions once loaded, want 1", n)
+		t.Fatalf("one span in the file read as %d suggestions once loaded, want 1", len(pending))
 	}
-
-	coherent := func(stage string, d docmodel.Doc) {
-		t.Helper()
-		for _, c := range []struct {
-			how    string
-			accept bool
-		}{{"taking the rest", true}, {"declining the rest", false}} {
-			done := decideRest(t, d, c.accept)
-			got := docText(done)
-			if got != codeSpanBefore && got != codeSpanAfter {
-				t.Fatalf("%s, %s: document reads %q\n  want either %q (declined) or %q (taken)",
-					stage, c.how, got, codeSpanBefore, codeSpanAfter)
-			}
-		}
+	p := pending[0]
+	if p.Kind != KindReplace {
+		t.Fatalf("kind = %s, want %s", p.Kind, KindReplace)
 	}
-
-	coherent("as opened", live)
-	for i := 0; i < 8; i++ {
-		pending := List(live)
-		var next Pending
-		found := false
-		for _, p := range pending {
-			if p.Kind != KindComment {
-				next, found = p, true
-				break
-			}
-		}
-		if !found {
-			return
-		}
-		live, err = applyDecisionOn(live, next.ID, next.Kind != KindDelete)
-		if err != nil {
-			t.Fatalf("deciding %s %q: %v", next.Kind, next.Text, err)
-		}
-		coherent("after deciding "+string(next.Kind)+" "+next.Text, live)
+	if p.Old != codeSpanTarget || p.New != "The retry budget controls" {
+		t.Fatalf("halves = %q -> %q, want the whole selection on each side", p.Old, p.New)
 	}
-	t.Fatalf("still decidable after 8 rounds: %d spans left", len(List(live)))
-}
-
-func applyDecisionOn(d docmodel.Doc, id string, accept bool) (docmodel.Doc, error) {
-	if accept {
-		return Accept(d, id)
+	taken, declined := readings(live)
+	if declined != codeSpanBefore || taken != codeSpanAfter {
+		t.Fatalf("readings: declined %q, taken %q\n  want %q and %q", declined, taken, codeSpanBefore, codeSpanAfter)
 	}
-	return Reject(d, id)
-}
-
-// decideRest takes (or declines) every decidable suggestion left in d, one at a
-// time against a fresh List, the way a reviewer finishing the round would.
-func decideRest(t *testing.T, d docmodel.Doc, accept bool) docmodel.Doc {
-	t.Helper()
-	// Bounded, so a decision that leaves its span behind fails instead of
-	// spinning.
-	for i := 0; i < 64; i++ {
-		next := ""
-		for _, p := range List(d) {
-			if p.Decidable {
-				next = p.ID
-				break
-			}
-		}
-		if next == "" {
-			return d
-		}
-		var err error
-		if d, err = applyDecisionOn(d, next, accept); err != nil {
-			t.Fatalf("deciding %s: %v", next, err)
-		}
+	if got := strings.Replace(declined, p.Old, p.New, 1); got != taken {
+		t.Fatalf("the one span's halves do not turn one reading into the other: %q, want %q", got, taken)
 	}
-	t.Fatalf("still decidable after 64 decisions: %+v", List(d))
-	return d
 }
 
 // The guarantee MintRuns exists for, stated against the AUTHORING path rather

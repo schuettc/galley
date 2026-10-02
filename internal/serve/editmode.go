@@ -1,14 +1,14 @@
-// editmode.go is the edit-mode analogue of serve.go: instead of a generated
-// review page with a comment overlay, EditServer serves the user's own
-// markdown document live, as a ygo XML fragment TipTap binds to directly.
+// editmode.go is galley's server: EditServer serves the user's own markdown
+// document live, as a ygo XML fragment TipTap binds to directly.
 //
-// The round-trip is the same shape as Server's, with one more hop: markdown
+// Three consumers share one document: the browser over y-websocket at
+// /yjs/{room}, the agent over JSON at /_galley/*, and the disk. Markdown
 // on disk maps to docmodel.Doc (internal/markdown), docmodel.Doc maps to the
 // fragment (internal/ydoc), and pending suggestions in the fragment map to
 // docmodel marks (internal/suggest). The document of record is still the
-// file — CriticMarkup carries pending suggestions, the sidecar carries
-// attribution and comment threads — never the live ygo document, which
-// exists only while a session runs.
+// file — CriticMarkup carries pending suggestions and comment ID marks, the
+// unsent round (pending.json) carries the comments' words — never the live
+// ygo document, which exists only while a session runs.
 package serve
 
 import (
@@ -59,8 +59,8 @@ type EditServer struct {
 	RuntimePath string
 	Room        string
 
-	// Notify, when set, fires after the document settles — same contract as
-	// Server.Notify.
+	// Notify, when set, fires after the document settles. It exists so the
+	// reviewer never has to tell the agent to go and look.
 	Notify *Notifier
 
 	// OnRevise is the shell command POST /_galley/revise runs: the editor's
@@ -399,7 +399,7 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	src, err := os.ReadFile(abs)
 	if err != nil {
 		// "document", not "page": edit mode serves a markdown file, and
-		// borrowing review mode's vocabulary made `galley edit nope.md`
+		// borrowing the retired review mode's vocabulary made `galley edit nope.md`
 		// report a problem with something the user never mentioned.
 		return nil, fmt.Errorf("document: %w", err)
 	}
@@ -574,8 +574,9 @@ func NewEdit(mdPath string) (*EditServer, error) {
 // Doc exposes the live document for reads.
 func (s *EditServer) Doc() *crdt.Doc { return s.doc }
 
-// Close releases everything NewEdit started — see Server.Close, which this
-// mirrors. It closes peer connections, so it must run AFTER the final Flush:
+// Close releases everything NewEdit started: the pending debounced projection,
+// and the websocket server's peer connections and per-room idle sweeper, which
+// ws.NewServer starts whether or not a peer ever connects. It closes peer connections, so it must run AFTER the final Flush:
 // a projection that has not reached disk by then never will.
 func (s *EditServer) Close() error {
 	// The import watcher first: it calls mutate, and a mutation landing after
@@ -959,11 +960,10 @@ func (s *EditServer) handleMode(w http.ResponseWriter, r *http.Request) {
 // endpoint the browser binds the fragment through, the JSON endpoints the
 // agent (and the editor's own buttons) drive, and the built editor bundle.
 //
-// Unlike Server's, the only static content behind it is the document's own
+// The only static content behind it is the document's own
 // figures: serveSibling answers GET and HEAD for the image files beside the
 // .md, and nothing else. Anything that is not "/" and not a figure is a 404.
-// The broader "serve the whole directory" surface review mode's http.FileServer
-// gives is still refused — see editassets.go for why the extension allowlist is
+// A "serve the whole directory" http.FileServer is refused — see editassets.go for why the extension allowlist is
 // load-bearing, why every read goes through an os.Root rather than through
 // string arithmetic on the URL, and why a figure that is a SYMLINK is refused
 // even when it points inside the directory.
@@ -982,7 +982,8 @@ func (s *EditServer) Handler() http.Handler {
 		"application/javascript; charset=utf-8", "`just assets`, which builds the editor bundle"))
 	// The caret, committed rather than built — unlike the three routes above,
 	// this one never 404s on a fresh checkout.
-	mux.HandleFunc("/_galley/favicon.svg", serveAsset("assets/favicon.svg", "image/svg+xml"))
+	mux.HandleFunc("/_galley/favicon.svg", serveAssetHint("assets/favicon.svg", "image/svg+xml",
+		"`git checkout -- internal/serve/assets/favicon.svg`; it is committed"))
 	// The split-pane preview iframe fetches the live page and its assets here.
 	// Only live in page mode; a plain 404 in markdown mode. See preview.go.
 	mux.HandleFunc("/_galley/preview/", s.servePreview)
@@ -1059,7 +1060,7 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
-// handleEditRev mirrors Server's: the document's mtime, so the page can notice
+// handleEditRev reports the document's mtime, so the page can notice
 // that something outside the editor rewrote the file underneath it.
 //
 // It also carries this run's room name. A tab that outlived a restart is
@@ -1078,7 +1079,7 @@ func (s *EditServer) handleEditRev(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleEditSaved mirrors Server's: when the projection last reached disk, in
+// handleEditSaved reports when the projection last reached disk, in
 // epoch milliseconds, so the editor can say "on disk" honestly rather than
 // meaning "synced to a peer".
 func (s *EditServer) handleEditSaved(w http.ResponseWriter, r *http.Request) {
@@ -1171,15 +1172,6 @@ func (s *EditServer) editFingerprint(model docmodel.Doc) string {
 		_, _ = fmt.Fprintf(h, "\x00%s\x00%s\x00", instruction.Quote, instruction.Text)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-func threadByKey(doc *crdt.Doc, key string) (review.Thread, bool) {
-	for _, thread := range review.Read(doc) {
-		if thread.Key == key {
-			return thread, true
-		}
-	}
-	return review.Thread{}, false
 }
 
 func (s *EditServer) ReviseInFlight() (<-chan struct{}, bool) {

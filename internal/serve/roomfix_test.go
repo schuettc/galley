@@ -22,8 +22,8 @@ import (
 const wsOuterSync = uint64(0)
 
 // dialRoom opens a real WebSocket connection to the server's y-websocket
-// endpoint for its one room — the same URL shape both Server and EditServer
-// mount at /yjs/{room} (see Handler in serve.go / editmode.go).
+// endpoint for its one room — the URL EditServer mounts at /yjs/{room} (see
+// Handler in editmode.go).
 func dialRoom(t *testing.T, ts *httptest.Server, room string) *gws.Conn {
 	t.Helper()
 	u := "ws" + strings.TrimPrefix(ts.URL, "http") + "/yjs/" + room

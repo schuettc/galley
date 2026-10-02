@@ -39,15 +39,16 @@ hooks:
     echo "lefthook hooks installed in $d"
 
 # ---- galley -----------------------------------------------------------------
-# The wasm client is embedded in the binary and built rather than committed,
-# and a serve test asserts it is served, so it is built before the gate.
-prepare: wasm
+# Nothing to prepare: everything the gate builds is committed, including the
+# editor bundle (kept honest by `bundle-fresh` below). The slot stays because
+# `verify` and ci.yml's gate job both run it.
+prepare:
 
 # Tool-specific checks beyond the gate (CI runs this too): the TypeScript gate
 # and the committed editor bundle matching web/.
 verify-extra: verify-web bundle-fresh
 
-# The editor bundle is COMMITTED (unlike galley.wasm), so nothing else notices
+# The editor bundle is COMMITTED, so nothing else notices
 # when web/ changes and the bundle does not: the Go tests pass, the binary
 # builds, and the browser silently runs last week's editor. mermaid.js is
 # checked with the other two; it is the output a page only fetches when it
@@ -85,11 +86,6 @@ ldflags := "-X github.com/schuettc/galley/internal/version.version=" + version +
 # and a build that works from a worktree to gain.
 buildflags := "-buildvcs=false"
 
-# Build the browser client. Go all the way down: no node, no npm, no bundler.
-wasm:
-    GOOS=js GOARCH=wasm go build {{ buildflags }} -ldflags "{{ ldflags }}" \
-      -o internal/serve/assets/galley.wasm ./cmd/galley-wasm
-
 # Build the edit-mode editor bundle from web/ into internal/serve/assets.
 #
 # A PASS-THROUGH, LIKE `just types`. Every esbuild invocation and the probe now
@@ -104,8 +100,7 @@ wasm:
 # somebody who knows this repo runs `just assets`; both reach the same code.
 #
 # npm is DEV-TIME ONLY. The built editor.js, editor.css and mermaid.js are
-# COMMITTED — unlike galley.wasm, which `just build` regenerates from Go on
-# every build — so neither a `go build` nor a release needs node anywhere near
+# COMMITTED, so neither a `go build` nor a release needs node anywhere near
 # it. Run this after changing anything under web/, and commit what it writes.
 #
 # WHY THE SCRIPTS ARE SHAPED THE WAY THEY ARE. package.json is JSON and cannot
@@ -482,12 +477,8 @@ livestructure: build
 sweep corpus=".":
     GALLEY_CORPUS="$(cd {{ corpus }} && pwd)" go test ./internal/diff -run Sweep -v -count=1
 
-# Refresh Go's own wasm loader from the installed toolchain.
-wasm-exec:
-    cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" internal/serve/assets/wasm_exec.js
-
-# Build the binary. The wasm client is embedded, so it is built first.
-build: wasm
+# Build the binary, stamped the way a release build is.
+build:
     CGO_ENABLED=0 go build {{ buildflags }} -ldflags "{{ ldflags }}" -o bin/galley ./cmd/galley
 
 # THE TYPESCRIPT GATE, in TypeScript's own tools: tsc for types, prettier for
@@ -535,7 +526,3 @@ gates: build
 # sample's quotes in a plan an implementer copies verbatim.
 fmt-md:
     npx --yes prettier@3 --write "*.md" "docs/**/*.md"
-
-# Serve a review page and collect comments beside it.
-serve page: build
-    ./bin/galley serve "{{ page }}"

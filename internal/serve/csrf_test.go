@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// mutatingEndpoints is every request that changes state, across both servers,
-// with a body each will accept. They are tested together on purpose: a guard
-// that covers three of four is the shape this whole class of bug takes.
+// mutatingEndpoints is every request that changes state, with a body each will
+// accept. They are tested together on purpose: a guard that covers three of
+// four is the shape this whole class of bug takes.
 type mutatingEndpoint struct {
 	name string
 	path string
@@ -19,13 +19,6 @@ type mutatingEndpoint struct {
 	// method-rejection case has to know the difference, and it asserts the GET
 	// answers rather than skipping it. See TestReadableEndpointsAnswerGet.
 	alsoReads bool
-}
-
-func reviewEndpoints() []mutatingEndpoint {
-	return []mutatingEndpoint{
-		{"reply", "/_galley/reply", `{"key":"k","text":"hi"}`, false},
-		{"resolve", "/_galley/resolve", `{"key":"k","resolved":true}`, false},
-	}
 }
 
 func editEndpoints() []mutatingEndpoint {
@@ -39,18 +32,10 @@ func editEndpoints() []mutatingEndpoint {
 	}
 }
 
-// bothServers hands each endpoint set to fn along with the handler that serves
-// it, so every case below runs against the review server and the edit server
-// without either being written out twice.
-func bothServers(t *testing.T, fn func(t *testing.T, h http.Handler, e mutatingEndpoint)) {
+// everyEndpoint hands each mutating endpoint to fn along with the handler
+// that serves it.
+func everyEndpoint(t *testing.T, fn func(t *testing.T, h http.Handler, e mutatingEndpoint)) {
 	t.Helper()
-	review := newTestServer(t, "<body></body>")
-	mustAppend(t, review, "k", "H", "court", "why?")
-	rh := review.Handler()
-	for _, e := range reviewEndpoints() {
-		t.Run("serve/"+e.name, func(t *testing.T) { fn(t, rh, e) })
-	}
-
 	dir := t.TempDir()
 	edit := newEditServer(t, dir, "doc.md", "# Title\n\nHello.\n")
 	edit.OnRevise = "true"
@@ -78,7 +63,7 @@ func csrfRequest(e mutatingEndpoint, contentType, origin string) *http.Request {
 // plain auto-submitting form was enough; no fetch, no preflight, no CORS
 // headers needed.
 func TestCrossOriginPostIsRefusedOnEveryMutatingEndpoint(t *testing.T) {
-	bothServers(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
+	everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, csrfRequest(e, "application/json", "https://evil.example"))
 		if rec.Code != http.StatusForbidden {
@@ -95,7 +80,7 @@ func TestCrossOriginPostIsRefusedOnEveryMutatingEndpoint(t *testing.T) {
 // simply omits the header, still carries Origin — so the mismatch must be
 // caught on Origin alone.
 func TestCrossOriginPostWithNoSecFetchSiteIsRefused(t *testing.T) {
-	bothServers(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
+	everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 		r := httptest.NewRequest(http.MethodPost, e.path, strings.NewReader(e.body))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Origin", "https://evil.example")
@@ -113,7 +98,7 @@ func TestCrossOriginPostWithNoSecFetchSiteIsRefused(t *testing.T) {
 func TestCorsSimpleContentTypesAreRefused(t *testing.T) {
 	for _, ct := range []string{"text/plain", "application/x-www-form-urlencoded", "multipart/form-data"} {
 		t.Run(ct, func(t *testing.T) {
-			bothServers(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
+			everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 				rec := httptest.NewRecorder()
 				h.ServeHTTP(rec, csrfRequest(e, ct, ""))
 				if rec.Code != http.StatusUnsupportedMediaType {
@@ -127,7 +112,7 @@ func TestCorsSimpleContentTypesAreRefused(t *testing.T) {
 // The guard must not cost the two callers that matter their access: the
 // editor's own page (same origin) and the CLI (no Origin header at all).
 func TestSameOriginAndCLIRequestsStillReachEveryEndpoint(t *testing.T) {
-	bothServers(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
+	everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 		sameOrigin := httptest.NewRequest(http.MethodPost, e.path, strings.NewReader(e.body))
 		sameOrigin.Header.Set("Content-Type", "application/json")
 		sameOrigin.Header.Set("Origin", "http://"+sameOrigin.Host)
@@ -154,7 +139,7 @@ func TestSameOriginAndCLIRequestsStillReachEveryEndpoint(t *testing.T) {
 func TestOnlyPostIsAcceptedAndTheAllowHeaderSaysSo(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		t.Run(method, func(t *testing.T) {
-			bothServers(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
+			everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 				if method == http.MethodGet && e.alsoReads {
 					// Asserted by TestReadableEndpointsAnswerGet instead: this
 					// endpoint's GET is a read, not a mutation attempted with
@@ -180,7 +165,7 @@ func TestOnlyPostIsAcceptedAndTheAllowHeaderSaysSo(t *testing.T) {
 // of the method-rejection case rather than merely excluded from it, so
 // "readable" cannot become a way to leave an endpoint untested.
 func TestReadableEndpointsAnswerGet(t *testing.T) {
-	bothServers(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
+	everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 		if !e.alsoReads {
 			return
 		}

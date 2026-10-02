@@ -54,9 +54,9 @@
 // without inventing a trailer convention, and the pairing of a round with its
 // instruction is the whole reason the history is worth keeping.
 //
-// BESIDE THE DOCUMENT is what content does here already: the sidecar is
-// `<doc>.comments.json` in the same directory, and moving a document takes its
-// versions with it. In a repository whose documents sit at the root — the
+// BESIDE THE DOCUMENT is what content does here already: the running
+// editor's advert is `<doc>.serve.json` in the same directory, and moving a
+// document takes its versions with it. In a repository whose documents sit at the root — the
 // common case, and this repository's own — that path is literally
 // `.galley/versions/<doc>/<n>.md`.
 //

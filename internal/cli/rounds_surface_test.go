@@ -10,6 +10,7 @@ func TestRemovedWorkflowCommandsAreGone(t *testing.T) {
 	for _, command := range []string{
 		"approve", "decline", "reply", "resolve", "delete", "blocks",
 		"suggest", "accept", "reject", "reopen", "discard",
+		"serve", "comments",
 	} {
 		_, stderr, code := galleyCLI(t, command)
 		if code != 2 || !strings.Contains(stderr, "unknown command") {

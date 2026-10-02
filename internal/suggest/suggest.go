@@ -38,13 +38,13 @@ const (
 	KindComment Kind = "comment"
 )
 
-// Decidable says whether accept and reject act on this kind at all — the ONE
+// Decidable says whether a verdict applies to this kind at all — the ONE
 // place that answers it, for every consumer, on both sides of the wire.
 //
-// A comment is a conversation: it is settled by resolving its thread, and
-// Reject on one lifts the highlight or removes the Note block, deleting the
-// reviewer's own words. So it is not a proposal, and no surface may offer a
-// verdict on it.
+// A comment is a conversation: it is settled by resolving its thread, and a
+// verdict on one would lift the highlight or remove the Note block, deleting
+// the reviewer's own words. So it is not a proposal, and no surface may offer
+// a verdict on it.
 //
 // IT IS ONE PREDICATE BECAUSE IT WAS SIX, and the sixth disagreed. Five
 // callers, since deleted, each spelled `!= KindComment` separately and
@@ -78,16 +78,13 @@ const replaceSep = " → "
 //
 // AN ORDINAL IS NOT IDENTITY. It renumbers the moment a suggestion appears
 // anywhere earlier in the document, so it is only meaningful against the
-// document value it was listed from — pass it straight to Accept or Reject
-// and nowhere else. NEVER PERSIST ONE. A thread keyed by a comment's ordinal
+// document value it was listed from. NEVER PERSIST ONE. A thread keyed by a comment's ordinal
 // silently reattaches itself to different text on the next edit; see
 // unsent.NewID for what a comment is keyed by instead.
 //
-// The JSON tags are lower-case to match review.SuggestionMeta, which already
-// ships these same fields into the sidecar that way: an agent reading
-// `galley pending --json`, the serve layer's /_galley/pending, and the .comments
-// .json beside the document should not have to remember which of the three
-// spells a suggestion's id "id" and which spells it "ID".
+// The JSON tags are lower-case, the spelling every other galley payload uses,
+// so an agent reading `galley pending --json` or /_galley/pending never has to
+// remember which payload spells a suggestion's id "id" and which "ID".
 type Pending struct {
 	ID string `json:"id"`
 	// Run is the mark's stable in-session identity (docmodel.RunAttr).
@@ -178,8 +175,7 @@ type Pending struct {
 	// content-derived key `--on-block` takes. Empty for every other anchor.
 	BlockKey string `json:"blockKey,omitempty"`
 	// Path is the docmodel.Walk path of the block the suggestion's text
-	// lives in. It is opaque outside this package: Accept and Reject use it
-	// only after re-deriving it themselves from id — which is exactly why it
+	// lives in. It is opaque outside this package, which is exactly why it
 	// is `json:"-"`. Serializing it would publish an internal coordinate an
 	// external caller could neither interpret nor safely send back, and a
 	// field on the wire is a field someone eventually depends on.
@@ -188,9 +184,9 @@ type Pending struct {
 
 // span is the internal unit every operation in this file works over: a
 // maximal run of consecutive inlines within one block that carry the same
-// suggestion mark, from the same author at the same instant. List, Accept,
-// and Reject all locate suggestions by re-deriving these from scratch —
-// there is no persistent identity across document values.
+// suggestion mark, from the same author at the same instant. List locates
+// suggestions by re-deriving these from scratch — there is no persistent
+// identity across document values.
 // spanPart is one block's share of a span that crosses blocks.
 type spanPart struct {
 	path       []int
@@ -204,13 +200,6 @@ type span struct {
 	markKind docmodel.MarkKind
 	author   string
 	at       time.Time
-	// atRaw is the mark's "at" Attrs value exactly as stored, unparsed. It
-	// is what identifies THIS mark instance for removal (see dropMark):
-	// round-tripping through time.Parse/Format to recover it risks
-	// reformatting a value that was already valid RFC3339 but spelled
-	// differently (fractional seconds, "+00:00" vs "Z") into a string that
-	// no longer matches the stored Attrs, which would make removal miss.
-	atRaw string
 	// run is docmodel.RunAttr: this mark's stable in-session identity. Part
 	// of the span grouping key, not decoration — see listSpans.
 	run string
@@ -236,14 +225,8 @@ type span struct {
 	note bool
 	// ins is the INSERTED half of a KindReplace span, and nil for every
 	// other kind. The outer span stays the DELETED half in every respect —
-	// path, start, end, author, at, atRaw, run — so everything that already
-	// works over a span keeps working; only mutateSpan looks at this, and it
-	// resolves both halves together.
-	//
-	// A pointer to a whole span rather than a second index range, because
-	// resolving the inserted half needs its author and raw "at" too:
-	// dropMark removes exactly the mark instance a span was built from, and
-	// the two halves can carry different attribution.
+	// path, start, end, author, at, run — so everything that already
+	// works over a span keeps working; Pending.InsRun reads this half's run.
 	ins *span
 	// oldText and newText are the two halves' plain text, kept because text
 	// is the joined display form for a replace and the halves cannot be
@@ -311,61 +294,6 @@ func noteContext(d docmodel.Doc, a Anchor, keys []string) string {
 		}
 	}
 	return ""
-}
-
-// Accept applies id: for an insertion, drops the Ins mark and keeps the
-// text; for a deletion, removes the text outright; for a comment, drops the
-// Highlight mark (resolving the thread either way it goes).
-func Accept(d docmodel.Doc, id string) (docmodel.Doc, error) {
-	return applyDecision(d, id, true)
-}
-
-// Reject applies id: for an insertion, removes the text outright; for a
-// deletion, drops the Del mark and keeps the text; for a comment, drops the
-// Highlight mark, same as Accept.
-func Reject(d docmodel.Doc, id string) (docmodel.Doc, error) {
-	return applyDecision(d, id, false)
-}
-
-// applySpan resolves one span on a COPY of d. A mark-based span is mutated in
-// place inside its block; a note has no mark to lift, so resolving it removes
-// the Note block outright — which is also what takes the {>>…<<} out of the
-// file, the only place a block or document comment is recorded.
-func applySpan(d docmodel.Doc, sp span, accept bool) docmodel.Doc {
-	if sp.note {
-		return removeBlockAt(d, sp.path)
-	}
-	clone := cloneDoc(d)
-	// EVERY BLOCK THE SPAN TOUCHES, not just the one it is filed under. A
-	// cross-block comment is one decision over several blocks (see spanPart),
-	// and lifting its highlight from the first block alone would leave the rest
-	// marked with a run no thread points at any more.
-	docmodel.Walk(clone, func(path []int, b *docmodel.Block) {
-		for _, part := range sp.allParts() {
-			if pathEqual(path, part.path) {
-				// A COPY WITH THE COORDINATES MOVED, never a span rebuilt
-				// field by field. The first cut of this listed the fields it
-				// knew about and silently dropped `ins` — the substitution's
-				// other half — and mutateSpan dereferenced it: a nil pointer
-				// panic on a code-span replace, from a change that had nothing
-				// to do with substitutions.
-				at := sp
-				at.path, at.start, at.end = part.path, part.start, part.end
-				mutateSpan(b, at, accept)
-				return
-			}
-		}
-	})
-	return clone
-}
-
-// allParts is the blocks this span covers, which for the ordinary single-block
-// span is just itself.
-func (sp span) allParts() []spanPart {
-	if len(sp.parts) > 0 {
-		return sp.parts
-	}
-	return []spanPart{{path: sp.path, start: sp.start, end: sp.end}}
 }
 
 // coalesceRuns folds consecutive spans that share a RUN into one.
@@ -526,118 +454,6 @@ func digestKey(prefix string, parts ...string) string {
 		_, _ = fmt.Fprintf(h, "%d:%s", len(part), part)
 	}
 	return prefix + hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-// UnknownIDError is what every path returns for an id that names no pending
-// suggestion. One shared constructor, not two string literals: the live server
-// checks the id itself (so it can answer 404 rather than 400) and the offline
-// CLI gets the error from here, and the two used to differ by a "suggest: "
-// prefix — enough for a test matching one to pass silently against the other.
-//
-// No package prefix, deliberately: this reaches a user as the whole message.
-func UnknownIDError(id string) error {
-	return fmt.Errorf("unknown suggestion id %q", id)
-}
-
-// applyDecision locates the span named by id, then applies accept or reject
-// semantics to it on a clone of d.
-func applyDecision(d docmodel.Doc, id string, accept bool) (docmodel.Doc, error) {
-	spans := listSpans(d)
-	idx := -1
-	for i := range spans {
-		if spans[i].id == id {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return docmodel.Doc{}, UnknownIDError(id)
-	}
-	return applySpan(d, spans[idx], accept), nil
-}
-
-// mutateSpan applies accept or reject semantics for sp's kind to b in
-// place. b must belong to a document already cloned away from the caller's
-// input — this function mutates unconditionally.
-func mutateSpan(b *docmodel.Block, sp span, accept bool) {
-	switch sp.kind {
-	case KindInsert:
-		if accept {
-			dropMark(b, sp, docmodel.Ins)
-		} else {
-			removeInlines(b, sp)
-		}
-	case KindDelete:
-		if accept {
-			removeInlines(b, sp)
-		} else {
-			dropMark(b, sp, docmodel.Del)
-		}
-	case KindReplace:
-		// ONE DECISION RESOLVES BOTH MARKS. Accept and the replacement
-		// stands — old text gone, new text kept; reject and the original
-		// does. Leaving either half pending is the bug this kind exists to
-		// close: reject the deleted half alone and the file reads
-		// "brown{++red++}", whose only completion is "brownred".
-		//
-		// The INSERTED half goes first in both directions. It sits after
-		// the deleted one, so mutating it cannot move the deleted half's
-		// indices, whereas the other order would leave sp.ins pointing past
-		// the end of a block that just got shorter.
-		if accept {
-			dropMark(b, *sp.ins, docmodel.Ins)
-			removeInlines(b, sp)
-		} else {
-			removeInlines(b, *sp.ins)
-			dropMark(b, sp, docmodel.Del)
-		}
-	case KindComment:
-		// Resolving a thread — accepted or rejected — just lifts the
-		// highlight. The comment's own resolution (accepted/rejected) is
-		// the sidecar's business, not the document's.
-		dropMark(b, sp, docmodel.Highlight)
-	}
-}
-
-// dropMark removes exactly the mark instance sp was built from — kind,
-// author, and raw "at" string all matching — from every inline in sp's
-// range. It deliberately does NOT strip every mark of kind mk: an inline
-// can carry two suggestion marks of the same kind from two different
-// authors (a document built by hand can have it), and removing sp's mark
-// must never take a different author's suggestion down with it.
-func dropMark(b *docmodel.Block, sp span, mk docmodel.MarkKind) {
-	for i := sp.start; i < sp.end; i++ {
-		b.Inlines[i].Marks = removeMarkInstance(b.Inlines[i].Marks, mk, sp.author, sp.atRaw)
-	}
-}
-
-// removeMarkInstance removes the first mark matching kind, author, and raw
-// at exactly — at most one mark, however many are present.
-func removeMarkInstance(marks []docmodel.Mark, mk docmodel.MarkKind, author, atRaw string) []docmodel.Mark {
-	if len(marks) == 0 {
-		return marks
-	}
-	out := make([]docmodel.Mark, 0, len(marks))
-	removed := false
-	for _, m := range marks {
-		if !removed && m.Kind == mk && m.Attrs["author"] == author && m.Attrs["at"] == atRaw {
-			removed = true
-			continue
-		}
-		out = append(out, m)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// removeInlines deletes b.Inlines[sp.start:sp.end] in place. The three-index
-// slice on the destination caps capacity at sp.start so the append cannot
-// clobber the source region before it has been fully read — needed because
-// source and destination are the same backing array.
-func removeInlines(b *docmodel.Block, sp span) {
-	b.Inlines = append(b.Inlines[:sp.start:sp.start], b.Inlines[sp.end:]...)
 }
 
 // listSpans finds every suggestion span in d and assigns ordinal IDs:
@@ -813,7 +629,6 @@ func spansForMark(d docmodel.Doc, mk docmodel.MarkKind) []span {
 				markKind: mk,
 				author:   author,
 				at:       at,
-				atRaw:    atStr,
 				run:      key.run,
 				// The first inline's: every inline of one span is one mark, and
 				// a highlight's ID rides on it.
@@ -1017,8 +832,7 @@ func sliceByRuneRange(inlines []docmodel.Inline, start, end int) (before, matche
 // any — the check the comment paths use to refuse stacking a second comment
 // onto text that already carries one. This is a creation-time invariant only:
 // it keeps every highlight unambiguous about which single author's comment it
-// is, without requiring Accept/Reject/List to understand two highlights on one
-// inline. It does not run across kinds — a Highlight coexisting with a Del on
+// is, without requiring List to understand two highlights on one inline. It does not run across kinds — a Highlight coexisting with a Del on
 // the same text is the ordinary "comment on a proposed deletion" case and
 // stays fully legal.
 func conflictingComment(d docmodel.Doc, m match) (author, at string, found bool) {

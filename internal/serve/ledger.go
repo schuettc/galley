@@ -2,7 +2,7 @@
 // to the repository's committed decision log at the moment it is reached.
 //
 // THE LEDGER IS MEMORY, NEVER TRUTH, and this file is where that stops being a
-// slogan. Review state stays exactly where it was — the .md and its sidecar —
+// slogan. Review state stays exactly where it was — the .md and the unsent round —
 // and nothing here is on the path that puts it there. The whole surface is
 // EditServer.remember, which returns nothing: there is no error for a handler
 // to check, so no handler can be written to refuse an accept because a disk was
@@ -86,39 +86,6 @@ func clipContext(s string) string {
 		return strings.TrimSpace(string(r[:contextLimit-1])) + "…"
 	}
 	return s
-}
-
-// ThreadRecord is one decision about one conversation.
-//
-// The AUTHOR is whoever opened it — the record's author names who authored the
-// thing being decided, and for a thread that is the first entry's writer. A
-// thread with no entries at all is a note reconciled off the file that nobody
-// has spoken in yet; the reviewer is the honest default there, since a note in
-// the file with no sidecar row was typed by hand.
-//
-// The QUOTE is the thread's heading — what the conversation is about — and
-// falls back to its opening words when there is none. A heading is set on
-// create and is usually the anchored text, but a thread reconciled off a note
-// the sidecar had never opened a row for has nothing there, and a delete's
-// record is, from the moment it lands, the whole of what is left to say the
-// conversation existed. A row naming nothing would be a memory of nothing.
-func ThreadRecord(kind ledger.Kind, th review.Thread) ledger.Record {
-	author := review.AuthorCourt
-	var opening string
-	if len(th.Entries) > 0 {
-		author = th.Entries[0].Author
-		opening = th.Entries[0].Text
-	}
-	quote := th.Heading
-	if strings.TrimSpace(quote) == "" {
-		quote = opening
-	}
-	return ledger.Record{
-		Kind:    kind,
-		Author:  author,
-		Quote:   quote,
-		Context: clipContext(opening),
-	}
 }
 
 // verdictRecord is the review's own ending, which is a decision about the

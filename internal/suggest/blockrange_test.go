@@ -121,16 +121,12 @@ func TestDeletingACrossBlockCommentLiftsEveryHighlight(t *testing.T) {
 	if len(pending) != 1 {
 		t.Fatalf("want one span to decide, got %d", len(pending))
 	}
-	lifted, err := suggest.Accept(out, pending[0].ID)
-	if err != nil {
-		t.Fatalf("lifting the highlight: %v", err)
-	}
-	// And the delete verb, which lifts by the ID.
+	// The delete verb, which lifts by the ID.
 	detached, ok := suggest.Detach(out, []review.Thread{{Key: "cm-0000000000000011"}}, "cm-0000000000000011")
 	if !ok {
 		t.Fatal("Detach found no piece of the comment")
 	}
-	for name, d := range map[string]docmodel.Doc{"accept": lifted, "detach": detached} {
+	for name, d := range map[string]docmodel.Doc{"detach": detached} {
 		for i, b := range d.Blocks {
 			for _, in := range b.Inlines {
 				if in.Has(docmodel.Highlight) {

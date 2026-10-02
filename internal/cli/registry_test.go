@@ -89,7 +89,7 @@ func TestCommandsJSONListsEveryCommand(t *testing.T) {
 
 	want := []string{
 		// galley's own mutating and reading verbs.
-		"serve", "comments", "edit", "pending", "cannot", "revise", "ack",
+		"edit", "pending", "cannot", "revise", "ack",
 		"round", "wait", "agent-prompt", "channel", "ledger",
 		// built-ins tools.App registers on every app.
 		"help", "man", "commands", "version",

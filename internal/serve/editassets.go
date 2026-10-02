@@ -19,8 +19,7 @@ import (
 // show its own figures is not a document editor.
 //
 // The second half of that ruling still stands, and is what shapes this. The
-// directory is NOT handed to http.FileServer the way review mode's is
-// (serve.go's Server.static). Five constraints, each closing a different
+// directory is NOT handed to http.FileServer. Five constraints, each closing a different
 // door:
 //
 //   - GET AND HEAD ONLY. There is nothing to write here, and a handler that

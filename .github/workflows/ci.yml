@@ -1,8 +1,8 @@
 # .tools family standard: identical in every family repo except the branch
 # list and the gate's OS list. The same checks `just verify` runs locally (and
 # the pre-push hook runs): `gate` is the family Go gate after `just prepare`
-# (the wasm client), `extra` is `just verify-extra` (the TypeScript gate and the
-# committed editor bundle). Checks too slow for a push follow as their own jobs.
+# (galley's is empty), `extra` is `just verify-extra` (the TypeScript gate and
+# the committed editor bundle). Checks too slow for a push follow as their own jobs.
 name: ci
 on:
   push:
@@ -135,9 +135,8 @@ jobs:
         run: node node_modules/playwright-core/cli.js install --with-deps chromium chromium-headless-shell
 
       # The gates spawn `bin/galley edit` against a real document. `just build`
-      # and NOT `go build`: the wasm client is embedded, so a binary built
-      # without it serves an error page instead of a review surface, and every
-      # check would fail on a document that never rendered.
+      # and NOT `go build`: it stamps the version the same way a release does,
+      # into the bin/galley path every gate is pointed at.
       - name: Build
         run: just build
 

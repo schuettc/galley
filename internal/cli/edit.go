@@ -1,8 +1,6 @@
-// edit.go is the CLI surface for edit mode: `edit`, `pending`, `suggest`,
-// `accept`, `reject`, `revise`. It mirrors serve/comments/reply/resolve's
-// shape in main.go — live via a running server's JSON endpoints when
-// serve.FindRuntime finds one, offline via parse -> transform -> serialize
-// otherwise — but for a markdown document instead of a review page.
+// edit.go is the CLI surface for edit mode: `edit`, `pending`, `revise`. Live
+// via a running server's JSON endpoints when serve.FindRuntime finds one,
+// offline from the files otherwise.
 package cli
 
 import (
@@ -388,11 +386,9 @@ func routeEdit(path, root string) (*serve.EditServer, error) {
 
 const reviseShutdownGrace = 5 * time.Second
 
-// announceEdit and withdrawEdit are EditServer's equivalent of Server's
-// Announce/Withdraw methods, which EditServer does not have. serve.Runtime and
-// serve.DefaultRuntimePath (via EditServer.RuntimePath, computed the same way)
-// are shared with Server, so a plain `galley pending`/`suggest`/etc. finds an
-// edit-mode server exactly the way `galley reply`/`resolve` find a review one.
+// announceEdit and withdrawEdit write and remove the running editor's advert,
+// serve.Runtime at EditServer.RuntimePath (serve.DefaultRuntimePath), which is
+// how a plain `galley pending`/`wait`/`ack` finds the running server.
 func announceEdit(srv *serve.EditServer, url, owner string) error {
 	raw, err := json.MarshalIndent(serve.Runtime{
 		URL:  url,
@@ -647,8 +643,8 @@ func formatInstructions(instructions []instructionPayload) string {
 }
 
 // loadPending reads the live server's pending view when one is running and
-// reachable, falling back to an offline parse — same "unreachable falls
-// through, a real rejection does not" convention loadReview/runReply use.
+// reachable, falling back to an offline parse. Unreachable falls through; a
+// real rejection does not.
 func loadPending(docPath string) (pendingPayload, bool, error) {
 	if rt, ok := serve.FindRuntime(docPath); ok {
 		resp, err := getPendingHTTP(rt.URL) //nolint:bodyclose // decodeOK closes it

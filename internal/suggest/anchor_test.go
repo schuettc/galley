@@ -9,6 +9,7 @@ import (
 
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
+	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/suggest"
 	"github.com/schuettc/galley/internal/unsent"
 )
@@ -242,30 +243,23 @@ func TestCommentOnBlock_StacksAndKeepsEveryAnchor(t *testing.T) {
 	}
 }
 
-// Resolving a block comment removes the note from the file — the only place
-// a block comment is recorded.
-func TestAcceptRemovesANoteBlock(t *testing.T) {
+// Deleting a block comment removes its note from the file, and nothing else.
+func TestDetachRemovesANoteBlock(t *testing.T) {
 	d := parseDoc(t, figureDoc)
 	key := keyOf(t, d, "the request path")
 	d, err := suggest.CommentOnBlock(d, key, "cb-0123456789abcdef")
 	if err != nil {
 		t.Fatalf("CommentOnBlock: %v", err)
 	}
-	var id string
-	for _, p := range suggest.List(d) {
-		if p.Anchor == suggest.AnchorBlock {
-			id = p.ID
-		}
+	if md := string(markdown.Serialize(d)); !strings.Contains(md, "{>>@comment cb-0123456789abcdef<<}") {
+		t.Fatalf("no note to delete:\n%s", md)
 	}
-	if id == "" {
-		t.Fatal("no block comment to accept")
-	}
-	out, err := suggest.Accept(d, id)
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
+	out, ok := suggest.Detach(d, []review.Thread{{Key: "cb-0123456789abcdef", Anchor: string(suggest.AnchorBlock)}}, "cb-0123456789abcdef")
+	if !ok {
+		t.Fatal("Detach found no note")
 	}
 	if md := string(markdown.Serialize(out)); strings.Contains(md, "{>>") {
-		t.Errorf("accepted note still in the file:\n%s", md)
+		t.Errorf("deleted note still in the file:\n%s", md)
 	}
 	// The document is otherwise untouched.
 	if got, want := string(markdown.Serialize(out)), figureDoc; got != want {

@@ -37,17 +37,6 @@ func plain(text string) docmodel.Inline {
 	return docmodel.Inline{Text: text}
 }
 
-func delMark(author string, at time.Time) docmodel.Mark {
-	return docmodel.Mark{Kind: docmodel.Del, Attrs: map[string]string{"author": author, "at": at.Format(time.RFC3339)}}
-}
-
-// multiMark builds an inline carrying more than one mark at once — the
-// shape that exercises overlapping spans of different kinds on the same
-// inline (e.g. a comment on a proposed deletion).
-func multiMark(text string, marks ...docmodel.Mark) docmodel.Inline {
-	return docmodel.Inline{Text: text, Marks: marks}
-}
-
 func para(inlines ...docmodel.Inline) docmodel.Block {
 	return docmodel.Block{Kind: docmodel.Paragraph, Inlines: inlines}
 }
@@ -134,7 +123,7 @@ func TestList_ContextAtDocumentEdges(t *testing.T) {
 	}
 }
 
-// --- Accept / Reject: each kind, independently ---
+// --- List: each kind, independently ---
 
 // substitutionDoc is a Del run straight into an Ins run: the one shape the
 // file writes as "{~~old~>new~~}", and therefore ONE suggestion with one
@@ -156,71 +145,6 @@ func deleteDoc() docmodel.Doc {
 	return doc(para(del("old", "court", tCourt), plain(" keep")))
 }
 
-func TestAccept_Insert_DropsMarkKeepsText(t *testing.T) {
-	got, err := Accept(insertDoc(), "s1")
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	want := doc(para(plain("keep "), plain("new")))
-	if !docmodel.Equal(got, want) {
-		t.Fatalf("want %+v, got %+v", want, got)
-	}
-}
-
-func TestReject_Insert_RemovesText(t *testing.T) {
-	got, err := Reject(insertDoc(), "s1")
-	if err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
-	want := doc(para(plain("keep ")))
-	if !docmodel.Equal(got, want) {
-		t.Fatalf("want %+v, got %+v", want, got)
-	}
-}
-
-func TestAccept_Delete_RemovesText(t *testing.T) {
-	got, err := Accept(deleteDoc(), "s1")
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	want := doc(para(plain(" keep")))
-	if !docmodel.Equal(got, want) {
-		t.Fatalf("want %+v, got %+v", want, got)
-	}
-}
-
-func TestReject_Delete_DropsMarkKeepsText(t *testing.T) {
-	got, err := Reject(deleteDoc(), "s1")
-	if err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
-	want := doc(para(plain("old"), plain(" keep")))
-	if !docmodel.Equal(got, want) {
-		t.Fatalf("want %+v, got %+v", want, got)
-	}
-}
-
-func TestAcceptReject_Comment_DropsHighlightEitherWay(t *testing.T) {
-	d := doc(para(plain("hey "), highlight("note", "alice", tAlice), plain(" more")))
-	want := doc(para(plain("hey "), plain("note"), plain(" more")))
-
-	accepted, err := Accept(d, "c1")
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	if !docmodel.Equal(accepted, want) {
-		t.Fatalf("Accept: want %+v, got %+v", want, accepted)
-	}
-
-	rejected, err := Reject(d, "c1")
-	if err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
-	if !docmodel.Equal(rejected, want) {
-		t.Fatalf("Reject: want %+v, got %+v", want, rejected)
-	}
-}
-
 // A SUBSTITUTION IS NOT A PAIR OF DECISIONS, so there is no "either order"
 // to converge from. This test used to assert that accepting one half left
 // the other pending and that finishing both, in either order, reached the
@@ -229,46 +153,22 @@ func TestAcceptReject_Comment_DropsHighlightEitherWay(t *testing.T) {
 // "oldnew" — was the bug: two individually reasonable decisions, with the
 // incoherent state on disk before the second one. See substitution_test.go
 // for the four-row table.
-func TestSubstitutionResolvesBothHalvesAtOnce(t *testing.T) {
+func TestSubstitutionIsOneSpanCoveringBothHalves(t *testing.T) {
 	pending := List(substitutionDoc())
 	if len(pending) != 1 || pending[0].Kind != KindReplace {
 		t.Fatalf("want one replace, got %+v", pending)
 	}
-
-	accepted, err := Accept(substitutionDoc(), pending[0].ID)
-	if err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	if want := doc(para(plain("new"))); !docmodel.Equal(accepted, want) {
-		t.Fatalf("accept: want %+v, got %+v", want, accepted)
-	}
-	if left := List(accepted); len(left) != 0 {
-		t.Fatalf("accept left a half pending: %+v", left)
-	}
-
-	rejected, err := Reject(substitutionDoc(), pending[0].ID)
-	if err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
-	if want := doc(para(plain("old"))); !docmodel.Equal(rejected, want) {
-		t.Fatalf("reject: want %+v, got %+v", want, rejected)
-	}
-	if left := List(rejected); len(left) != 0 {
-		t.Fatalf("reject left a half pending: %+v", left)
+	if pending[0].Old != "old" || pending[0].New != "new" {
+		t.Fatalf("halves = %q -> %q, want old -> new", pending[0].Old, pending[0].New)
 	}
 }
 
-func TestAccept_UnknownID_Errors(t *testing.T) {
-	d := substitutionDoc()
-	if _, err := Accept(d, "s99"); err == nil || !strings.Contains(err.Error(), "s99") {
-		t.Fatalf("want error naming unknown id s99, got %v", err)
+func TestStandaloneInsertAndDeleteListAsTheirOwnKind(t *testing.T) {
+	if got := List(insertDoc()); len(got) != 1 || got[0].Kind != KindInsert || got[0].Text != "new" {
+		t.Fatalf("insert: %+v", got)
 	}
-}
-
-func TestReject_UnknownID_Errors(t *testing.T) {
-	d := substitutionDoc()
-	if _, err := Reject(d, "c7"); err == nil || !strings.Contains(err.Error(), "c7") {
-		t.Fatalf("want error naming unknown id c7, got %v", err)
+	if got := List(deleteDoc()); len(got) != 1 || got[0].Kind != KindDelete || got[0].Text != "old" {
+		t.Fatalf("delete: %+v", got)
 	}
 }
 
@@ -319,15 +219,9 @@ func TestOperationsDoNotMutateInput(t *testing.T) {
 	d := doc(para(del("old", "court", tCourt), ins("new", "court", tCourt), plain(" extra")))
 	original := doc(para(del("old", "court", tCourt), ins("new", "court", tCourt), plain(" extra")))
 
-	// s1 is the substitution — one id covering both marks, so its accept and
-	// its reject each mutate two inlines. That is the transform most likely
-	// to write through into the caller's slice, which is what this checks.
-	if _, err := Accept(d, "s1"); err != nil {
-		t.Fatalf("Accept: %v", err)
-	}
-	if _, err := Reject(d, "s1"); err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
+	// List pairs the substitution's two marks into one span, the read path
+	// most likely to write through into the caller's slice.
+	_ = List(d)
 	// "extra" carries no suggestion mark yet, so this exercises CommentOn's
 	// mutation path rather than tripping conflictingComment.
 	if _, err := CommentOn(d, "extra", "cm-0000000000000020", "court", tCourt); err != nil {
@@ -353,43 +247,6 @@ func TestCommentOn_RefusesToStackOntoAnExistingComment(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "alice") {
 		t.Fatalf("want error naming the existing comment's author, got %v", err)
-	}
-}
-
-// TestReject_LeavesADifferentAuthorsSameKindMarkAlone guards the removal
-// half directly: on a document that already has two Del marks on one
-// inline (as a hand-built or externally-sourced document could),
-// docmodel.Inline.Attr returns only
-// the FIRST match — so List surfaces just one of the two as a pending
-// suggestion, a pre-existing docmodel limitation this package does not
-// attempt to lift. What matters here is that rejecting the one List DID
-// surface removes exactly that mark instance and nothing else: bob's Del
-// must survive untouched on the same inline, rather than being wiped out
-// by a removal that matched on kind alone.
-func TestReject_LeavesADifferentAuthorsSameKindMarkAlone(t *testing.T) {
-	d := doc(para(multiMark("word", delMark("court", tCourt), delMark("bob", tBob))))
-
-	pending := List(d)
-	if len(pending) != 1 || pending[0].Author != "court" {
-		t.Fatalf("want List to surface only court's (Attr-first) suggestion, got %+v", pending)
-	}
-
-	got, err := Reject(d, pending[0].ID)
-	if err != nil {
-		t.Fatalf("Reject: %v", err)
-	}
-	// court's Del is gone (rejecting a delete drops the mark, keeping the
-	// text); bob's Del survives on the same inline, untouched.
-	want := doc(para(multiMark("word", delMark("bob", tBob))))
-	if !docmodel.Equal(got, want) {
-		t.Fatalf("want %+v, got %+v", want, got)
-	}
-
-	// And bob's suggestion — invisible before, because it sat behind
-	// court's in Attr's first-match order — is now independently visible.
-	after := List(got)
-	if len(after) != 1 || after[0].Author != "bob" {
-		t.Fatalf("want bob's suggestion now surfaced, got %+v", after)
 	}
 }
 
