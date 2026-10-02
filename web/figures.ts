@@ -502,7 +502,7 @@ function indexOfChild(doc: PMNode, pos: number): number {
  * SHALLOWER.
  *
  * LEVEL-AWARE, NOT "THE NEXT HEADING". An h3 nested under an h2 is part of that
- * h2's section, and stopping at it would select the first paragraph of a
+ * h2's section, and stopping at it would outline the first paragraph of a
  * section the reviewer can plainly see is longer — and then open a thread about
  * that paragraph, labelled with the heading. A wrong anchor that looks right is
  * the failure this whole line of work exists to remove.

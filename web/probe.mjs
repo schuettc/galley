@@ -95,7 +95,7 @@ import {
 // coerceLevel moved to web/heading.ts — shared between TolerantHeading
 // (entry.ts) and sectionSpan (figures.ts).
 import { coerceLevel } from './heading.ts';
-// sectionSpan and the nine figures/grip methods moved to web/figures.ts —
+// sectionSpan and the figure and block-grip methods moved to web/figures.ts —
 // see that module's header.
 import { sectionSpan } from './figures.ts';
 // The block grip's rules, which need no browser: which blocks get one, what its
@@ -4490,7 +4490,7 @@ const unplacedEntry = (c) => {
   );
 }
 
-// --- the section grip's span ---
+// --- a heading grip's section span ---
 //
 // A section is a heading plus everything under it up to the NEXT heading of the
 // same level OR SHALLOWER. "Up to the next heading" alone is wrong and wrong in
@@ -4551,17 +4551,17 @@ const unplacedEntry = (c) => {
     blocksIn(sectionSpan(doc, posOf(4))).join(',') === '4,5,6',
     blocksIn(sectionSpan(doc, posOf(4))),
   );
-  // The span must land ON block boundaries: a TextSelection built from an
-  // interior position would select from the middle of the heading's text, and
-  // the reviewer would see a selection that starts mid-word.
+  // The span must land ON block boundaries: the scope outline draws a node
+  // decoration over every block wholly inside it, so a span that started
+  // inside the heading would leave the heading itself unoutlined.
   check(
     'a section span starts at its heading and ends on a block boundary',
     sectionSpan(doc, posOf(2)).from === posOf(2) &&
       sectionSpan(doc, posOf(2)).to === posOf(4),
     sectionSpan(doc, posOf(2)),
   );
-  // Not a heading: the grip has nothing to be beside, and must say so rather
-  // than selecting a paragraph and calling it a section.
+  // Not a heading: there is no section, and the answer must say so rather
+  // than outlining a paragraph and calling it a section.
   check(
     'a position that is not a heading has no section span',
     sectionSpan(doc, posOf(1)) === null,

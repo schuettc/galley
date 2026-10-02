@@ -740,11 +740,6 @@ export const composerMethods = {
     c.root.style.transform = hang;
   },
 
-  // headComposer writes the head's sentence. `ON "…"` only where there is
-  // something to quote: a whole-section or whole-figure note has no phrase, and
-  // a head that quoted an empty string would read as an instruction about
-  // nothing. Bounded, because a reviewer may select a paragraph and the head is
-  // one line of chrome, not a second copy of the document.
   // headBlockComposer is the head for a block grip's composer: what the
   // instruction is ON, in the grip's own words (`on the section "Budget"`,
   // `on this code block`), so the button pressed and the box it opened say
@@ -764,6 +759,11 @@ export const composerMethods = {
     }${on}`;
   },
 
+  // headComposer writes the head's sentence. `ON "…"` only where there is
+  // something to quote: a whole-section or whole-figure note has no phrase, and
+  // a head that quoted an empty string would read as an instruction about
+  // nothing. Bounded, because a reviewer may select a paragraph and the head is
+  // one line of chrome, not a second copy of the document.
   headComposer(this: AppShell, quote: string) {
     // `elide` and not a second copy of it: the rail's card head and this head
     // quote the SAME anchor a moment apart, and two cuts made in two places is

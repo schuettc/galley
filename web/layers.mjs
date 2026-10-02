@@ -432,7 +432,7 @@ await instruct({
 // wrong predicate, two symptoms" entry arriving inside a check.
 //
 // THE KEY IS READ BACK from the pending view's own `blocks`, which is where
-// `galley blocks` used to get it and where the browser's section grip gets it:
+// `galley blocks` used to get it and where the browser's block grip gets it:
 // it is a content hash, so a transcribed one would stop resolving the day the
 // caption changes and leave the fixture quietly without a block thread again.
 {
