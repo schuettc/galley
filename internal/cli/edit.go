@@ -23,11 +23,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/suggest"
 	"github.com/schuettc/galley/internal/versions"
 )
 
@@ -668,36 +665,14 @@ func loadPending(docPath string) (pendingPayload, bool, error) {
 }
 
 // offlinePending builds the same shape a live GET /_galley/pending would,
-// straight from the file: no ygo document needed, since suggest.List works
-// over a plain docmodel.Doc. Attribution comes back through the same replay
-// the live server runs at startup, so `galley pending` reports the same
-// author and time whether or not a session happens to be up — a suggestion
-// nothing has attributed still prints "(unattributed)".
+// with no editor running: the unsent round in pending.json, placed against
+// the .md, through the one instruction builder the live server uses (see
+// serve.OfflineInstructions). A range comment's words live in pending.json,
+// so it is listed after the editor stops, as it is while it runs.
 func offlinePending(docPath string) (pendingPayload, error) {
-	abs, err := filepath.Abs(docPath)
+	instructions, err := serve.OfflineInstructions(docPath)
 	if err != nil {
 		return pendingPayload{}, err
-	}
-	raw, err := os.ReadFile(abs)
-	if err != nil {
-		return pendingPayload{}, err
-	}
-	model, inline, err := markdown.Parse(raw)
-	if err != nil {
-		return pendingPayload{}, err
-	}
-	threads := suggest.ImportInlineComments(model, nil, inline, review.AuthorCourt, time.Now().UTC())
-	// Reconcile the file's block/document notes against the sidecar's threads
-	// exactly as the live server does at startup, so `galley pending` reports
-	// a hand-written note whether or not anything has opened a thread for it
-	// yet — and reports it under the same anchor either way.
-	threads, orphans, _, _ := suggest.ReconcileNotes(model, threads)
-	for _, n := range orphans {
-		threads = append(threads, newNoteThread(n))
-	}
-	instructions := instructionsFromThreads(threads)
-	if instructions == nil {
-		instructions = []instructionPayload{}
 	}
 	view := pendingPayload{Instructions: instructions}
 	// THE SAME ANSWER WITH OR WITHOUT A SERVER. `galley pending` read offline
@@ -707,46 +682,6 @@ func offlinePending(docPath string) (pendingPayload, error) {
 	// disk beside the document, so nothing needs a server to read it.
 	view.Changes, view.ChangesDropped = serve.ReviewerChanges(versions.Open(docPath))
 	return view, nil
-}
-
-func instructionsFromThreads(threads []review.Thread) []instructionPayload {
-	var out []instructionPayload
-	for _, th := range threads {
-		if th.Resolved {
-			continue
-		}
-		for _, e := range th.Entries {
-			if e.Author != review.AuthorCourt || strings.TrimSpace(e.Text) == "" {
-				continue
-			}
-			out = append(out, instructionPayload{
-				Key:  th.Key,
-				Text: strings.TrimSpace(e.Text), Quote: strings.TrimSpace(th.Heading), At: e.At.UTC(),
-			})
-		}
-	}
-	return out
-}
-
-// newNoteThread is the ONE spelling of "a {>>note<<} the sidecar has never
-// seen becomes a thread", for every offline path — `pending`, `delete`,
-// `approve <thread-key>` and `reply`/`resolve`'s seedFileThreads.
-//
-// It exists because there were four spellings and they disagreed. Three passed
-// `time.Time{}` and the fourth `time.Now()`, and while suggest.CommentKeyFor
-// digested that instant the fourth minted a key the other three could not
-// name: `galley pending` printed cb-f623…, `galley reply` answered "no thread
-// with key cb-f623…" for it one command later, and neither matched what
-// serve.NewEdit's importNotes minted when a reviewer opened the document. The
-// key no longer digests the instant (see CommentKeyFor), so the four agree by
-// construction now — this function is what keeps them agreeing.
-//
-// The instant is time.Now(): the file carries none, so first-sight is the only
-// honest answer, and it is exactly what the live importNotes stamps. The
-// author is the REVIEWER, for the reason ImportInlineComments gives — a marker
-// found in a file was typed by whoever edits the file.
-func newNoteThread(n suggest.NoteThread) review.Thread {
-	return suggest.NewNoteThread(n, review.AuthorCourt, time.Now().UTC())
 }
 
 // --- galley revise ---

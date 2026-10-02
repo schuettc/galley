@@ -234,6 +234,19 @@ async function waitForWire(page, fn, arg, ms = 15000) {
   }
 }
 
+// A PRESS HAS ANSWERED WHEN ITS RESPONSE WINDOW IS OPEN, not when the pending
+// set is empty. Revise clears the instructions in its FIRST mutation and opens
+// the window last, after the round is recorded and the unsent round emptied:
+// the composer closes and the trail settles on the 204 that follows, and an
+// ack sent before the window opens is wiped by it. `handoff` is the flag
+// openResponseWindow sets.
+function responseWindowOpen(page) {
+  return waitForWire(
+    page,
+    async () => (await (await fetch('/_galley/revise')).json()).handoff,
+  );
+}
+
 async function ack(page, state, note = '') {
   return page.evaluate(
     async ({ ackState, ackNote }) => {
@@ -1343,6 +1356,8 @@ try {
       (await (await fetch('/_galley/pending')).json()).instructions.length ===
       0,
   );
+  // And the window: the composer closes on the 204. See responseWindowOpen.
+  await responseWindowOpen(page);
   check('Revise sends and clears the instruction round', true);
   check(
     'and Revise closed the open whole-document composer — the unsent draft is discarded',
@@ -1488,10 +1503,7 @@ try {
     // so `instructions.length === 0` goes true while `s.watch` is still nil —
     // and the ack the agent sends next is refused 409 "nothing has been asked
     // of you". `handoff` is the flag openResponseWindow sets LAST.
-    await waitForWire(
-      page,
-      async () => (await (await fetch('/_galley/revise')).json()).handoff,
-    );
+    await responseWindowOpen(page);
     return asked;
   }
 
@@ -2723,6 +2735,8 @@ try {
       (await (await fetch('/_galley/pending')).json()).instructions.length ===
       0,
   );
+  // And the window, before the ack. See responseWindowOpen.
+  await responseWindowOpen(page);
   await ack(page, 'failed', 'cannot complete the trusted pass');
   await page.waitForTimeout(1700);
   check(

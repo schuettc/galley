@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/review"
+	"github.com/schuettc/galley/internal/unsent"
 )
 
 // THE ROUND HANDS OVER ITS KEYS, AND FOR THE WHOLE OF PHASE 3 IT DID NOT.
@@ -63,17 +64,21 @@ func TestTheLiveWireCarriesTheKeyIntoTheCLI(t *testing.T) {
 // is running. A key that only exists live is a key an agent cannot rely on.
 func TestTheOfflinePathCarriesTheKeyToo(t *testing.T) {
 	at := time.Date(2026, 8, 22, 15, 2, 17, 0, time.UTC)
-	threads := []review.Thread{{
-		Key:     "cd-dbdcfb4746a99476",
-		Heading: "the whole document",
-		Entries: []review.Entry{{
-			Author: review.AuthorCourt,
-			Text:   "in general this is good, but too many places where we're vague",
-			At:     at,
-		}},
-	}}
+	doc := writeDoc(t, t.TempDir(), "d.md", "# T\n\nHello.\n")
+	// A whole-document comment has no mark in the file: pending.json is the
+	// only place it is, and offline it is read from there.
+	if err := unsent.Save(unsent.Path(doc), unsent.File{Comments: []unsent.Comment{{
+		Key: "cd-dbdcfb4746a99476", Kind: unsent.KindDocument, Author: review.AuthorCourt, At: at,
+		Text: "in general this is good, but too many places where we're vague",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
 
-	got := instructionsFromThreads(threads)
+	view, err := offlinePending(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := view.Instructions
 	if len(got) != 1 {
 		t.Fatalf("built %d instructions, want 1", len(got))
 	}

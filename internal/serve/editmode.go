@@ -42,6 +42,7 @@ import (
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/suggest"
+	"github.com/schuettc/galley/internal/unsent"
 	"github.com/schuettc/galley/internal/versions"
 	"github.com/schuettc/galley/internal/ydoc"
 )
@@ -413,7 +414,15 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		return nil, fmt.Errorf("parse %s: %w", abs, err)
 	}
 
-	_, orphanNotes, _, _ := suggest.ReconcileNotes(model, nil)
+	// THE UNSENT ROUND, read before anything else looks at the comments. Its
+	// block and document comments are paired with their notes in the file
+	// here, so a note already in pending.json is not imported a second time as
+	// an orphan, and the pairing gives each its block's anchor key.
+	pendingComments, err := loadUnsentRound(abs)
+	if err != nil {
+		return nil, err
+	}
+	replayed, orphanNotes, _, _ := suggest.ReconcileNotes(model, unsent.ToThreads(pendingComments))
 	// Identity, before the document is ever served. A peer that connects
 	// during startup must see addressable marks on its first sync, not
 	// unaddressed ones corrected a moment later.
@@ -491,7 +500,8 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	// already carries the conversation forward. It only ever fires for a
 	// file that still has raw markers Project hasn't had a chance to lift
 	// out yet.
-	importInlineComments(s.doc, model, comments)
+	replayUnsent(s.doc, replayed)
+	importInlineComments(s.doc, model, notReplayed(comments, replayed))
 	// Block and document comments live IN the file as {>>…<<} notes, and in
 	// the sidecar as threads carrying the conversation that grew around them.
 	// Both were just replayed, so this only opens threads for notes the
@@ -702,7 +712,7 @@ func (s *EditServer) project() error {
 	// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM. This is
 	// the one place the server learns the reviewer moved — typing has no HTTP
 	// hook — and the call WRITES NOTHING: it records which anchors it has seen,
-	// and `anchoredInstructions` drops the ones that have since gone. An eager
+	// and `instructionsOf` drops the ones that have since gone. An eager
 	// deletion was built here first and cut spurious rounds; see noteAnchored,
 	// which carries the measurements and why the write is not worth having.
 	s.noteAnchored(model)
@@ -1146,9 +1156,8 @@ func (s *EditServer) pending() (PendingView, error) {
 	if err != nil {
 		return PendingView{}, err
 	}
-	pending := suggest.List(model)
 	view := PendingView{
-		Instructions: s.anchoredInstructions(review.Read(s.doc), pending),
+		Instructions: s.liveInstructions(model),
 		Blocks:       suggest.Blocks(model),
 	}
 	// AND WHAT THE REVIEWER CHANGED BY HAND, on the same payload as what they
@@ -1161,72 +1170,13 @@ func (s *EditServer) pending() (PendingView, error) {
 	return view, nil
 }
 
-func (s *EditServer) anchoredInstructions(threads []review.Thread, pending []suggest.Pending) []InstructionView {
-	var out []InstructionView
-	for _, th := range threads {
-		if th.Resolved {
-			continue
-		}
-		run := ""
-		p, paired := suggest.PairFor(pending, th)
-		if paired {
-			run = p.Run
-		}
-		// DELETE THE SENTENCE, DELETE THE INSTRUCTION ABOUT IT. See
-		// noteAnchored: an instruction whose anchor this server watched appear
-		// and then go is one the reviewer retracted by deleting the words.
-		if s.retracted(th, paired) {
-			continue
-		}
-		for _, e := range th.Entries {
-			if e.Author != review.AuthorCourt || strings.TrimSpace(e.Text) == "" {
-				continue
-			}
-			out = append(out, InstructionView{
-				Key: th.Key, Text: strings.TrimSpace(e.Text), Quote: strings.TrimSpace(th.Heading),
-				At: e.At.UTC(), Run: run, Anchor: th.Anchor, AnchorKey: th.AnchorKey,
-				BlockKind: th.BlockKind, Region: th.Region,
-			})
-		}
-	}
-	return out
-}
-
 func (s *EditServer) editFingerprint(model docmodel.Doc) string {
 	h := sha256.New()
 	_, _ = h.Write(markdown.Serialize(model))
-	for _, instruction := range reviewerInstructions(review.Read(s.doc)) {
+	for _, instruction := range s.liveInstructions(model) {
 		_, _ = fmt.Fprintf(h, "\x00%s\x00%s\x00", instruction.Quote, instruction.Text)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-func reviewerInstructions(threads []review.Thread) []InstructionView {
-	var out []InstructionView
-	for _, th := range threads {
-		if th.Resolved {
-			continue
-		}
-		for _, e := range th.Entries {
-			if e.Author != review.AuthorCourt || strings.TrimSpace(e.Text) == "" {
-				continue
-			}
-			// KEY TRAVELS ON THE WAKE, and for the whole of phase 3 it did
-			// not — this builder set Text, Quote and At while `pending()`
-			// next door set Key as well, so the ROUND (which composes
-			// through here) handed over no key while a poll of
-			// /_galley/pending did. `galley wait` and the channel both take
-			// this path, which made it the one that mattered.
-			//
-			// Safe for `editFingerprint`, which hashes Quote and Text only:
-			// adding a field it does not read cannot manufacture a wake.
-			out = append(out, InstructionView{
-				Key:  th.Key,
-				Text: strings.TrimSpace(e.Text), Quote: strings.TrimSpace(th.Heading), At: e.At.UTC(),
-			})
-		}
-	}
-	return out
 }
 
 func anchoredText(model docmodel.Doc, path []int, author string) (string, bool) {
@@ -1409,7 +1359,12 @@ func requesterFor(author string) requester {
 func (s *EditServer) mutate(by requester, fn func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error)) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.mutateLocked(by, fn)
+}
 
+// mutateLocked is mutate's body, with mu already held. mutateUnsent shares it
+// so it can mirror the unsent round before releasing mu.
+func (s *EditServer) mutateLocked(by requester, fn func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error)) (int, error) {
 	model, err := s.readLive()
 	if err != nil {
 		return statusFor(err), err
@@ -1597,7 +1552,7 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	code, err := s.mutate(requesterFor(author), func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+	code, err := s.mutateUnsent(requesterFor(author), func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		switch in.Op {
 		case "comment":
 			var (
@@ -1752,7 +1707,7 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "which instruction? pass its key", http.StatusBadRequest)
 		return
 	}
-	code, err := s.mutate(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+	code, err := s.mutateUnsent(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		threads := review.Read(s.doc)
 		var instruction bool
 		for _, thread := range threads {
@@ -1907,6 +1862,28 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	}
 	fp, _, _ := s.waitFingerprint()
 	s.debugRoundSent(reason, round, fp, asks)
+
+	// THE UNSENT ROUND IS EMPTIED LAST. The marks were cleared above and the
+	// round was recorded inside project (a version is cut nowhere else, from
+	// the bytes project wrote, so the marks are necessarily gone by then), and
+	// only now does pending.json let go of what was sent. A crash anywhere
+	// before this line leaves every sent comment still in pending.json, shown
+	// as unplaced; a crash after it finds the round recorded. Never neither.
+	//
+	// Rewritten from the review map rather than emptied: a comment filed
+	// between the capture and the clear was not sent and is still in the map.
+	// A version that could not be written (round == 0) does not hold this
+	// back: such a round is still sent, by the rule that a failed version
+	// never fails a round.
+	if testHookBeforeUnsentCleared != nil {
+		testHookBeforeUnsentCleared()
+	}
+	s.mu.Lock()
+	err = s.saveUnsentLocked()
+	s.mu.Unlock()
+	if err != nil && s.Log != nil {
+		s.Log("could not empty the sent comments out of the unsent round: " + err.Error())
+	}
 	return reviewerRound{pending: handoff, round: round, fingerprint: fp}, http.StatusOK, nil
 }
 
@@ -2770,7 +2747,7 @@ func (s *EditServer) waitFingerprint() (string, PendingView, error) {
 	if err != nil {
 		return "", PendingView{}, err
 	}
-	view := PendingView{Instructions: reviewerInstructions(review.Read(s.doc))}
+	view := PendingView{Instructions: s.liveInstructions(model)}
 	// WHAT THE REVIEWER CHANGED BY HAND rides the same payload as what they
 	// wrote about it. Read here rather than at the press because this is where
 	// the round is composed for handover, and because a version that cannot be
@@ -2950,6 +2927,23 @@ func importInlineComments(doc *crdt.Doc, model docmodel.Doc, comments []markdown
 		s.Append(suggest.InlineCommentKey(c), suggest.InlineCommentHeading(model, c),
 			review.AuthorCourt, c.Text, now)
 	}
+}
+
+// notReplayed drops the inline comments the unsent round already holds a
+// thread for: Append upserts by key, so importing one again would add its
+// words to that thread a second time.
+func notReplayed(comments []markdown.InlineComment, replayed []review.Thread) []markdown.InlineComment {
+	have := make(map[string]bool, len(replayed))
+	for _, th := range replayed {
+		have[th.Key] = true
+	}
+	var out []markdown.InlineComment
+	for _, c := range comments {
+		if !have[suggest.InlineCommentKey(c)] {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // importNotes opens a thread for every block or document comment in the file
