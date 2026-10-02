@@ -1479,6 +1479,10 @@ type instructionRequest struct {
 	Region *review.Region `json:"region,omitempty"`
 }
 
+// errNotPending is an edit naming a key that is not pending: never filed,
+// already deleted or sent, or retracted. handleInstruction answers it 404.
+var errNotPending = errors.New("there is no unsent instruction")
+
 func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 	var in instructionRequest
 	if !decode(w, r, &in) {
@@ -1559,6 +1563,13 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			// since CommentOn refuses to highlight text that already carries
 			// one. Both halves of the change land inside the one mutate
 			// closure or neither does.
+			//
+			// A RETRACTED COMMENT IS NOT PENDING, so it cannot be edited. Its
+			// thread stays in the review map until the next send (see
+			// lostanchor.go), so finding the key there is not enough: an edit
+			// saved into it is saved into a comment no surface shows, and the
+			// reviewer's words are gone without a word said. A key that is not
+			// pending is a 404, and the browser keeps the words.
 			threads := review.Read(s.doc)
 			var target review.Thread
 			for _, thread := range threads {
@@ -1571,8 +1582,8 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			if target.Key == "" {
-				return docmodel.Doc{}, nil, fmt.Errorf("there is no unsent instruction %q", in.Key)
+			if target.Key == "" || s.retractedIn(model)[in.Key] {
+				return docmodel.Doc{}, nil, fmt.Errorf("%w %q", errNotPending, in.Key)
 			}
 			text := strings.TrimSpace(in.Text)
 			if text == "" {
@@ -1618,6 +1629,9 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if err != nil {
+		if code == 0 && errors.Is(err, errNotPending) {
+			code = http.StatusNotFound
+		}
 		if code == 0 {
 			// A transform failure is the caller's problem, not the server's:
 			// text that matched zero or several times, or already carries a

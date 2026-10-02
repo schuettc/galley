@@ -2314,6 +2314,15 @@ class App implements AppState {
     // Read first, and out here rather than inside the rebuild: the drafts have
     // to be lifted off the OLD cards before a single one is destroyed.
     const drafts = this.captureDrafts();
+    const editing = this.editingThread
+      ? this.draftFields().find(
+          (el) => el.dataset.draft === `edit:${this.editingThread}`,
+        )
+      : undefined;
+    const editWords = editing && {
+      value: editing.value,
+      typed: editing.value !== editing.dataset.opened,
+    };
     this.paintRailCards();
     // EVERY SURFACE THIS DESTROYS IS REBUILT BEFORE THE RESTORE, or being in
     // draftRoots() buys it nothing. The sheet used to be repainted at the FOOT
@@ -2332,6 +2341,21 @@ class App implements AppState {
     // than the empty one that replaced it, and stacking against the empty
     // height is exactly the stale-geometry overlap this pass also fixes.
     this.restoreDrafts(drafts);
+    // AN EDIT WHOSE INSTRUCTION LEFT TAKES ITS WORDS SOMEWHERE THAT STAYS. The
+    // instruction was sent, deleted or retracted between polls, so no card
+    // carries its edit box any more, and restoreDrafts had nowhere to put
+    // them. A box nobody typed in has nothing to keep. See strandEdit.
+    if (
+      this.editingThread &&
+      !this.draftFields().some(
+        (el) => el.dataset.draft === `edit:${this.editingThread}`,
+      )
+    ) {
+      this.editingThread = null;
+      if (editWords && editWords.typed && editWords.value.trim()) {
+        this.strandEdit(editWords.value);
+      }
+    }
     // Watch the new cards before the first measure, so a card that grows
     // between now and the reviewer's next scroll re-stacks the ones below it
     // instead of being drawn over them.

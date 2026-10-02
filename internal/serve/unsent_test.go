@@ -177,6 +177,64 @@ func TestEditingAndDeletingRewriteTheUnsentRound(t *testing.T) {
 	}
 }
 
+// TestEditingAnInstructionThatIsNotPendingIsNotFound: an edit names a key, and
+// a key that is not pending is a 404 — whether it was never there, already
+// deleted, or RETRACTED (its words deleted from the prose, so the thread is
+// still in the review map but on no surface). A 200 for a retracted key saved
+// the reviewer's words into a comment nobody can see; a 400 read as "your
+// words were wrong" when the instruction itself was gone.
+func TestEditingAnInstructionThatIsNotPendingIsNotFound(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
+		t.Cleanup(func() { _ = s.Close() })
+		instructOK(t, s, map[string]any{
+			"op": "comment", "path": []int{1}, "from": 0, "to": 7, "text": "name the issuer",
+		})
+		key := onlyKey(t, s)
+		if rec := postRec(t, s, "/_galley/instruction/delete", map[string]any{"key": key}); rec.Code >= 300 {
+			t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+		}
+		rec := postRec(t, s, "/_galley/instruct", map[string]any{"op": "edit", "key": key, "text": "say which issuer"})
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("edit of a deleted instruction answered %d %s, want 404", rec.Code, rec.Body.String())
+		}
+	})
+	t.Run("retracted", func(t *testing.T) {
+		dir := t.TempDir()
+		md := filepath.Join(dir, "d.md")
+		if err := os.WriteFile(md,
+			[]byte("# T\n\nCognito mints every token.\n\nSecond para here.\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s, err := NewEdit(md)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		instructOK(t, s, map[string]any{"op": "comment", "target": "Cognito mints every token.", "text": "too punchy"})
+		key := onlyKey(t, s)
+		if err := s.Project(); err != nil {
+			t.Fatal(err)
+		}
+		reviewerDeletes(t, s, "Cognito mints every token.")
+		if err := s.Project(); err != nil {
+			t.Fatal(err)
+		}
+		if got := keysOf(t, s); len(got) != 0 {
+			t.Fatalf("the fixture did not retract the instruction: %v", got)
+		}
+		rec := postRec(t, s, "/_galley/instruct", map[string]any{"op": "edit", "key": key, "text": "lost words"})
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("edit of a retracted instruction answered %d %s, want 404", rec.Code, rec.Body.String())
+		}
+		for _, th := range review.Read(s.doc) {
+			if th.Key == key && th.Comment() == "lost words" {
+				t.Errorf("the edit was saved into the retracted, hidden comment")
+			}
+		}
+	})
+}
+
 func TestReviseRecordsTheRoundBeforeEmptyingTheUnsentRound(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
 	t.Cleanup(func() { _ = s.Close() })

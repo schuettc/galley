@@ -1398,6 +1398,95 @@ try {
     JSON.stringify({ editedOK, editedCard }),
   );
 
+  // AN EDIT TO AN INSTRUCTION THAT IS GONE KEEPS THE REVIEWER'S WORDS. The
+  // instruction is deleted over the wire while its edit box is open (an
+  // agent's send clears it the same way). Two ways the box can go: the save
+  // answers that the key is not pending, or the next poll repaints the rail
+  // without the card. Either way the words move to the whole-document box with
+  // the reason, rather than vanishing with the card.
+  const strandedReason =
+    'this instruction was sent or deleted — your edit was not saved';
+  const fileDocComment = (text) =>
+    page.evaluate(async (said) => {
+      const res = await fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'comment_document', text: said }),
+      });
+      const view = await res.json();
+      return view.instructions.find((i) => i.text === said)?.key || '';
+    }, text);
+  const openEditOn = async (key, words) => {
+    const card = `.gly-thread[data-key="${key}"]`;
+    await page.waitForSelector(`${card} .gly-thread-edit`, { timeout: 10000 });
+    await page.click(`${card} .gly-thread-edit`);
+    await page.waitForSelector(`${card} .gly-thread-edit-text`);
+    await page.fill(`${card} .gly-thread-edit-text`, words);
+  };
+  const stranded = () =>
+    page.evaluate(() => {
+      const capture = document.querySelector('.gly-capture');
+      return {
+        shown: !!capture && !capture.hidden,
+        words: document.querySelector('.gly-overall-input')?.value || '',
+        note: capture?.querySelector('.gly-card-note')?.textContent || '',
+      };
+    });
+  const closeStranded = async () => {
+    if (await page.isVisible('.gly-capture-cancel')) {
+      await page.click('.gly-capture-cancel');
+    }
+  };
+  const savedKey = await fileDocComment('stranded by a save');
+  const savedWords = 'words typed into an edit\nthat the save could not keep';
+  await openEditOn(savedKey, savedWords);
+  const saveStatus = await page.evaluate(async (key) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const save = document.querySelector(
+      `.gly-thread[data-key="${key}"] .gly-thread-edit-save`,
+    );
+    if (save) save.click();
+    return !!save;
+  }, savedKey);
+  await page.waitForTimeout(2500);
+  const afterSave = await stranded();
+  check(
+    'an edit saved onto a deleted instruction keeps its words on the page and says why',
+    afterSave.shown &&
+      afterSave.words.includes(savedWords) &&
+      afterSave.note === strandedReason,
+    JSON.stringify({ saveStatus, afterSave }),
+  );
+  await closeStranded();
+  const polledKey = await fileDocComment('stranded by a poll');
+  const polledWords = 'words still being typed when the card went';
+  await openEditOn(polledKey, polledWords);
+  await page.evaluate(async (key) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+  }, polledKey);
+  await page.waitForFunction(
+    (key) => !document.querySelector(`.gly-thread[data-key="${key}"]`),
+    polledKey,
+    { timeout: 10000 },
+  );
+  const afterPoll = await stranded();
+  check(
+    'an edit whose instruction leaves the rail mid-sentence keeps its words on the page and says why',
+    afterPoll.shown &&
+      afterPoll.words.includes(polledWords) &&
+      afterPoll.note === strandedReason,
+    JSON.stringify(afterPoll),
+  );
+  await closeStranded();
+
   // THE THREE COMMENT BOXES ARE ONE DESIGN. The whole-document box, the
   // selected-text composer and the edit box each open at the same height and
   // the same type size, grow with what is typed, and stop at half the window,

@@ -61,6 +61,10 @@ const DELETE_ARM_NOTE = 'this removes the comment and its mark — click again';
 // under the cursor that pressed it.
 const REVERT_ARM_NOTE =
   'this puts the words back and drops your undo history — click again';
+// What the whole-document box says when it is handed an edit's words because
+// the instruction they were for is gone. See strandEdit.
+const STRANDED_EDIT =
+  'this instruction was sent or deleted — your edit was not saved';
 
 // makeOverallCard's return shape — the whole-document instructions already
 // filed. Named and exported here (its owning file) so appshell.ts can type
@@ -561,9 +565,14 @@ export const cardMethods = {
     if (this.rail.root.hidden) {
       return;
     }
-    capture.note.textContent = '';
+    // AN OPEN BOX KEEPS WHAT IS IN IT. Opening it again (the bar's button,
+    // the menu, or strandEdit handing it words) is not a reason to wipe a
+    // sentence somebody is still writing.
+    if (capture.root.hidden) {
+      capture.note.textContent = '';
+      capture.input.value = '';
+    }
     capture.input.disabled = !!this.sealed;
-    capture.input.value = '';
     capture.root.hidden = false;
     // Assigning `value` fires no `input` event, so without this the box keeps
     // the height the LAST instruction grew it to. See growOnInput. AFTER the
@@ -587,6 +596,35 @@ export const cardMethods = {
     // Hiding it with `display:none` gives its flow space back, so the band
     // rises and the anchored cards re-floor. Same repaint openCapture fires.
     this.scheduleAnchors();
+  },
+
+  // strandEdit keeps the words of an edit whose instruction is gone: sent by a
+  // round, deleted from another tab or by the agent, or retracted. The card is
+  // gone with it, so its edit box is too, and a box that took the words down
+  // with it would lose the reviewer's sentence without a word said.
+  //
+  // THE WORDS GO TO THE WHOLE-DOCUMENT BOX, WITH THE REASON. It is the one
+  // box a repaint never rebuilds, and it files a new instruction, which is
+  // what a reviewer whose instruction left can still do with what they wrote.
+  // Its other verb is cancel. Words already in it are kept, and these follow
+  // them. Called from the save (the server answers 404) and from paintRail
+  // (the poll found the card gone), so either way the box says the same.
+  strandEdit(this: AppShell, words: string) {
+    this.openCapture();
+    const capture = this.capture;
+    if (!capture) {
+      return;
+    }
+    // Unhidden even when the rail is (History, or a narrow window, where
+    // openCapture returns early): the words are on the page when it returns.
+    capture.root.hidden = false;
+    const had = capture.input.value.trimEnd();
+    capture.input.value = had ? `${had}\n\n${words}` : words;
+    capture.input.dispatchEvent(new Event('input'));
+    capture.note.textContent = STRANDED_EDIT;
+    capture.input.focus();
+    const end = capture.input.value.length;
+    capture.input.setSelectionRange(end, end);
   },
 
   makeCaptureCard(this: AppShell): CaptureCard {
@@ -1202,6 +1240,9 @@ export const cardMethods = {
       (thread.entries || []).find((e) => e.author === AUTHOR) ||
       (thread.entries || [])[0];
     text.value = (opened && opened.text) || '';
+    // What the box opened with, so paintRail can tell an edit from a box
+    // nobody typed in when the card goes. See strandEdit.
+    text.dataset.opened = text.value;
     const save = document.createElement('button');
     save.type = 'button';
     save.className = 'gly-thread-edit-save';
@@ -1230,6 +1271,15 @@ export const cardMethods = {
       })
         .then((res) => {
           el.classList.remove('gly-busy');
+          if (res.status === 404) {
+            // The instruction is not pending any more: the card is about to
+            // go, and its box with it. The words go where a repaint keeps
+            // them. See strandEdit.
+            this.editingThread = null;
+            this.strandEdit(text.value);
+            this.paintRail();
+            return undefined;
+          }
           if (!res.ok) {
             return res.text().then((body) => {
               // THE WORDS STAY IN THE BOX. A failed save that also closed the

@@ -546,6 +546,7 @@ export interface AppMethods {
   makeOverallCard(): OverallCard;
   openCapture(): void;
   closeCapture(): void;
+  strandEdit(words: string): void;
   makeCaptureCard(): CaptureCard;
   makeCaptureButton(): HTMLButtonElement;
   paintCaptureVerb(): void;
