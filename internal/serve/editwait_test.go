@@ -189,6 +189,10 @@ func TestReviseHandsWaiterTheCapturedDocumentInstruction(t *testing.T) {
 	if len(current.Instructions) != 0 {
 		t.Fatalf("browser pending was not cleared after handoff: %+v", current.Instructions)
 	}
+	// The waiter was handed the round, and the unsent round let go of it.
+	if left := loadUnsent(t, s); len(left) != 0 {
+		t.Fatalf("pending.json still holds the sent instruction: %+v", left)
+	}
 }
 
 func TestLiveHandsWaiterTheSameCapturedDocumentInstruction(t *testing.T) {
@@ -220,6 +224,9 @@ func TestLiveHandsWaiterTheSameCapturedDocumentInstruction(t *testing.T) {
 	}
 	if len(current.Instructions) != 0 {
 		t.Fatalf("browser pending was not cleared after live handoff: %+v", current.Instructions)
+	}
+	if left := loadUnsent(t, s); len(left) != 0 {
+		t.Fatalf("pending.json still holds the instruction a live settle sent: %+v", left)
 	}
 	if _, waiting := s.ReviseWatch(); !waiting {
 		t.Fatal("live handoff did not open the agent response window")

@@ -102,7 +102,7 @@ const KIND_WORD: Record<string, string> = {
  * `the agent` and never `claude`, which is the word this sentence carried for
  * its whole life. THE PARTY HAS ONE NAME EVERYWHERE ELSE: every card head reads
  * `REPLACE · AGENT · JUST NOW`, the standing sentence reads "the agent
- * proposes", and `galley suggest --author` defaults to `agent` and takes ANY
+ * proposes", and `galley suggest --author` defaulted to `agent` and took ANY
  * name — so a proposal filed by `galley suggest --author dana` was announced as
  * having come from claude, on the same screen as three cards saying DANA. The
  * strip was the only surface naming a vendor, and it named the wrong one as
@@ -229,30 +229,6 @@ export function queueArrivals(
  */
 export function holdLabel(holding: boolean, n: number): string {
   return holding ? `▶ release · ${n}` : '⏸ hold';
-}
-
-/**
- * shownSuggestions is what the RAIL displays while some arrivals are held.
- *
- * HOLD IS A BROWSER-SIDE QUEUE OVER WHAT IS DISPLAYED, NOT A SERVER-SIDE GATE
- * ON THE DOCUMENT. The suggestions are in the CRDT and on disk either way —
- * pretending otherwise would mean the file and the screen disagreeing about
- * what the document contains, which is the one thing this editor cannot do. A
- * held arrival is A CARD NOT YET SHOWN, never a suggestion not yet made. The
- * opposite reading is the intuitive one, which is why it is written down here.
- *
- * The census is deliberately NOT filtered through this. It counts the server's
- * projection, so it keeps telling the truth while the rail is holding its
- * tongue — which is exactly the division of labour those two surfaces have.
- */
-export function shownSuggestions(
-  suggestions: Arrival[] | null | undefined,
-  held: Set<string | undefined> | null | undefined,
-): Arrival[] {
-  if (!held || held.size === 0) {
-    return suggestions || [];
-  }
-  return (suggestions || []).filter((s) => !held.has(s.run));
 }
 
 /**

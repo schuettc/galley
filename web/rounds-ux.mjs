@@ -191,6 +191,20 @@ async function addOverallInstruction(page, text, want) {
   );
 }
 
+// The section grip on the document's title, then its bar's button: the form
+// that files a block comment on the section, open and ready to type in.
+async function openSectionForm(page) {
+  await page.hover('.ProseMirror h1');
+  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
+    timeout: 5000,
+  });
+  await page.click('.gly-grip:not(.gly-code-grip)');
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])', {
+    timeout: 5000,
+  });
+}
+
 // What the right-click menu is offering, as the labels a reviewer reads. One
 // reader because the check is made twice — once with nothing selected and once
 // with a passage selected — and the whole claim is that the SAME gesture reads
@@ -222,6 +236,24 @@ async function waitForDisk(re, ms = 6000) {
   }
 }
 
+// THE UNSENT ROUND IS THE OTHER RECORD: a comment's words live in pending.json,
+// beside the document's versions, and the .md carries only its ID mark (none at
+// all for a whole-document comment). Read off disk for the same reason.
+const unsentPath = join(
+  dir,
+  '.galley',
+  'versions',
+  'history-ux.md',
+  'pending.json',
+);
+function readUnsent() {
+  try {
+    return JSON.parse(readFileSync(unsentPath, 'utf8')).comments || [];
+  } catch {
+    return [];
+  }
+}
+
 // POLLED, NOT `page.waitForFunction(async () => …)`: an async page function
 // returns a PROMISE, a promise is truthy, and such a wait resolves on its first
 // poll whatever the fetch said. See the note in the sweep check below.
@@ -230,6 +262,49 @@ async function waitForWire(page, fn, arg, ms = 15000) {
   for (;;) {
     if (await page.evaluate(fn, arg)) return;
     if (Date.now() > until) throw new Error('waitForWire timed out');
+    await page.waitForTimeout(50);
+  }
+}
+
+// A PRESS HAS ANSWERED WHEN ITS RESPONSE WINDOW IS OPEN, not when the pending
+// set is empty. Revise clears the instructions in its FIRST mutation and opens
+// the window last, after the round is recorded and the unsent round emptied:
+// the composer closes and the trail settles on the 204 that follows, and an
+// ack sent before the window opens is wiped by it. `handoff` is the flag
+// openResponseWindow sets.
+//
+// KEYED TO THIS PRESS, not to "a window is open". `before` is windowMark, read
+// BEFORE the click: the window must have been shut then (a reviewer cannot
+// file the instruction a press sends while the agent holds the file, so every
+// press here starts shut, and a window already open could not be told from
+// this one), and the round this press cut must be newer than any round there
+// was. Only then is the open window this press's.
+async function windowMark(page) {
+  return page.evaluate(async () => {
+    const [revise, versions] = await Promise.all([
+      fetch('/_galley/revise').then((r) => r.json()),
+      fetch('/_galley/versions').then((r) => r.json()),
+    ]);
+    return {
+      handoff: revise.handoff,
+      round: Math.max(0, ...(versions.rounds || []).map((r) => r.n)),
+    };
+  });
+}
+
+async function responseWindowOpen(page, before, ms = 15000) {
+  if (before.handoff)
+    throw new Error(
+      'responseWindowOpen: the window was already open before the press, so this press opening it cannot be seen',
+    );
+  const until = Date.now() + ms;
+  for (;;) {
+    const now = await windowMark(page);
+    if (now.handoff && now.round > before.round) return;
+    if (Date.now() > until)
+      throw new Error(
+        `responseWindowOpen timed out: ${JSON.stringify({ before, now })}`,
+      );
     await page.waitForTimeout(50);
   }
 }
@@ -721,25 +796,67 @@ try {
   // TWO INSTRUCTIONS ON THE PAGE AT ONCE IS THE STATE THE GLUED-CARD BUG NEEDS.
   // With one there is nothing for a missing border to run into, and every
   // reading of the rail is arithmetic rather than evidence.
-  // TYPED ACROSS TWO LINES ON PURPOSE. A whole-document note is stored inline
-  // as `{>>@document …<<}` and CriticMarkup cannot hold a newline, so the
-  // composer flattens runs of whitespace to a single space before filing (see
-  // web/cards.ts fileNote). The line break here is where a space belongs, so
-  // the flattened form is the one-line sentence the disk read further down
-  // already asserts — and `addOverallInstruction` waits for the pending count,
-  // which never reaches 2 if the server rejects the note, so this filing IS the
-  // flatten contract's end-to-end proof.
-  await addOverallInstruction(
+  // TYPED ACROSS TWO LINES ON PURPOSE, the way a reviewer types them: a line,
+  // Shift-Enter, a line, Enter. The box used to flatten every line break to a
+  // space before filing, because the words were once written into the file
+  // where a newline could not go. They live in pending.json now, so the words
+  // the reviewer typed are the words that are kept, line break and all.
+  //
+  // A WHOLE-DOCUMENT COMMENT HAS NO MARK IN THE FILE. The range instruction
+  // just above has reached the disk first (its ID mark is the proof), so the
+  // bytes read here are what the document comment must leave untouched.
+  const beforeDocumentComment = await waitForDisk(
+    /\{>>@comment cm-[0-9a-f]{16}<<\}/,
+  );
+  if (!(await page.locator('.gly-capture').isVisible())) {
+    await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  }
+  await page.locator('.gly-overall-input').click();
+  await page.keyboard.type('Open with the decision,');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('not the background.');
+  await page.keyboard.press('Enter');
+  await waitForWire(
     page,
-    'Open with the decision,\nnot the background.',
-    2,
+    async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.length ===
+      2,
   );
   await page.waitForSelector('.gly-overall-entries .gly-thread');
+  const documentComment = await (async () => {
+    for (const until = Date.now() + 6000; Date.now() < until;) {
+      const found = readUnsent().find((c) => c.kind === 'document');
+      if (found) return found;
+      await page.waitForTimeout(100);
+    }
+    return null;
+  })();
+  const documentCard = await page.evaluate(
+    () =>
+      document.querySelector('.gly-overall-entries .gly-thread-entry p')
+        ?.innerText || '',
+  );
+  // innerText, NOT textContent: textContent holds the `\n` whatever the paint
+  // does with it, and innerText is the RENDERED text, so it carries a line
+  // break only when the card shows one.
   check(
-    'a multi-line whole-document instruction files — newlines flattened, not rejected',
-    (
-      await waitForDisk(/Open with the decision, not the background\./)
-    ).includes('Open with the decision, not the background.'),
+    'a multi-line whole-document instruction keeps its lines — in pending.json and on its card',
+    !!documentComment &&
+      documentComment.text === 'Open with the decision,\nnot the background.' &&
+      documentCard === 'Open with the decision,\nnot the background.',
+    JSON.stringify({ unsent: readUnsent(), card: documentCard }),
+  );
+  // A projection is debounced; wait out more than one before reading.
+  await page.waitForTimeout(1500);
+  const afterDocumentComment = readFileSync(doc, 'utf8');
+  check(
+    'a whole-document instruction leaves the .md byte-identical, words and all',
+    /@comment cm-/.test(beforeDocumentComment) &&
+      afterDocumentComment === beforeDocumentComment,
+    JSON.stringify({
+      before: beforeDocumentComment,
+      after: afterDocumentComment,
+    }),
   );
   const anatomy = await page.evaluate(() => {
     const cards = [
@@ -785,13 +902,10 @@ try {
 
   // §2.2 — IT APPEARS IN THE RAIL AND NOWHERE ELSE. It used to render three
   // times: a rail card, an amber block in the prose, and the panel.
-  // IT DOES NOT PAINT, AND IT IS STILL THERE — which are two claims and the
-  // check has to make both. Counting DOM nodes and asserting zero would be the
-  // wrong test of the right idea: y-prosemirror DELETES a node this schema
-  // cannot build, and the projection writes that deletion to the author's file,
-  // so a rail branch that got its zero by dropping `note` from the schema would
-  // pass while destroying the document. The node is present, built, and drawn
-  // as nothing: no box, no room taken.
+  // IT IS NOT IN THE PROSE AT ALL, AND IT IS STILL KEPT — which are two claims.
+  // A whole-document comment has no mark in the file, so the fragment holds no
+  // node for it: nothing to paint, and nothing y-prosemirror could delete. Its
+  // words are in pending.json, which the filing check above already read.
   const inProse = await page.evaluate(() => {
     const notes = [
       ...document.querySelectorAll(
@@ -801,13 +915,18 @@ try {
     return {
       present: notes.length,
       painted: notes.filter((n) => n.getClientRects().length > 0).length,
-      area: notes.reduce((a, n) => a + n.getBoundingClientRect().height, 0),
     };
   });
   check(
-    'a whole-document instruction does not paint in the prose, and is still in the document',
-    inProse.present === 1 && inProse.painted === 0 && inProse.area === 0,
-    JSON.stringify(inProse),
+    'a whole-document instruction is not in the prose at all, and is still kept',
+    inProse.present === 0 &&
+      inProse.painted === 0 &&
+      readUnsent().some(
+        (c) =>
+          c.kind === 'document' &&
+          c.text === 'Open with the decision,\nnot the background.',
+      ),
+    JSON.stringify({ inProse, unsent: readUnsent() }),
   );
   const firstCard = await page
     .locator('.gly-rail .gly-card.gly-thread')
@@ -1021,35 +1140,149 @@ try {
     !(await page.locator('.gly-menu').isVisible()),
   );
 
-  // THE INVARIANT, AND IT IS THE HALF THAT BREAKS SILENTLY. Only the RENDERING
-  // moved: the {>>…<<} block is still the record in the author's file. A node
-  // the browser's schema cannot build is not skipped by y-prosemirror — it is
-  // DELETED out of the Yjs document, and the next projection writes that
-  // deletion to disk. So NoteBlock has to stay registered and parsed and render
-  // as nothing visible, and this is read off the real path rather than off
-  // /_galley/pending, which would be green over a document already destroyed.
-  const filed = await waitForDisk(/\{>>\s*@document/);
+  // THE INVARIANT, AND IT IS THE HALF THAT BREAKS SILENTLY. A block comment's
+  // ID mark, {>>@comment cb-…<<}, is the record of its place in the author's
+  // file. A node the browser's schema cannot build is not skipped by
+  // y-prosemirror — it is DELETED out of the Yjs document, and the next
+  // projection writes that deletion to disk. So the note node has to stay
+  // registered and parsed and build with its id, and this is read off the real
+  // path rather than off /_galley/pending, which would be green over a
+  // document already destroyed. Filed by the section grip, the reviewer's own
+  // gesture, and taken back out at the end so the rest of this gate counts
+  // what it always counted.
+  await page.hover('.ProseMirror h1');
+  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
+    timeout: 5000,
+  });
+  await page.click('.gly-grip:not(.gly-code-grip)');
+  // The section grip selects the section and offers the bar; its button opens
+  // the form on the heading's block.
+  await page.waitForSelector(
+    '.gly-comment-button:not([hidden]):not([disabled])',
+    {
+      timeout: 5000,
+    },
+  );
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])', {
+    timeout: 5000,
+  });
+  await page.fill('.gly-composer-text', 'Say who the review is for.');
+  await page.click('.gly-composer-send');
+  await waitForWire(
+    page,
+    async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.length ===
+      3,
+  );
+  const blockKey = await page.evaluate(
+    async () =>
+      (
+        (await (await fetch('/_galley/pending')).json()).instructions.find(
+          (i) => i.anchor === 'block',
+        ) || {}
+      ).key || '',
+  );
+  const blockMark = `{>>@comment ${blockKey}<<}`;
+  const filed = await waitForDisk(
+    new RegExp(`\\{>>@comment ${blockKey || 'none'}<<\\}`),
+  );
   check(
-    'the {>>…<<} block with @document still persists in the .md',
-    /\{>>\s*@document[\s\S]*Open with the decision, not the background\.[\s\S]*<<\}/.test(
-      filed,
-    ),
-    JSON.stringify(filed),
+    'the block comment\u2019s ID mark is in the .md, and its words are not',
+    /^cb-[0-9a-f]{16}$/.test(blockKey) &&
+      filed.includes(`# A careful review\n\n${blockMark}\n`) &&
+      !filed.includes('Say who the review is for.') &&
+      readUnsent().some(
+        (c) => c.key === blockKey && c.text === 'Say who the review is for.',
+      ),
+    JSON.stringify({ blockKey, filed, unsent: readUnsent() }),
+  );
+  // THE GRIP'S SELECTION ENDS WITH ITS COMPOSER. The section grip selects the
+  // whole section so the reviewer can see what the comment is about; once the
+  // comment is sent, that selection is nothing the reviewer made, and keeping
+  // it meant the next keystroke replaced the section. Measured on 73ea80a:
+  // typing after the send turned this fixture into `#  The budget is the
+  // subject.` on disk.
+  const afterSend = await page.evaluate(() => {
+    const s = window.galleyEdit.editor.state.selection;
+    return { empty: s.empty, from: s.from, to: s.to };
+  });
+  check(
+    'sending a section comment leaves no section selected',
+    afterSend.empty,
+    JSON.stringify(afterSend),
   );
   // AND IT SURVIVES A PROJECTION THE BROWSER DROVE, which is the half a POST-
   // then-read cannot see: the server writes the block, and it is the round trip
-  // through the editor's own schema that would take it back out again.
+  // through the editor's own schema that would take it back out again. Typed
+  // the way a reviewer types next — click into the paragraph and go on — with
+  // nothing collapsing the grip's selection for them.
   await page.locator('.ProseMirror p').first().click();
   await page.keyboard.press('End');
   await page.keyboard.type(' The budget is the subject.');
   const projected = await waitForDisk(/The budget is the subject\./);
   check(
-    'and it survives a projection the browser drove — the schema still builds the node',
-    /The budget is the subject\./.test(projected) &&
-      /\{>>\s*@document[\s\S]*Open with the decision, not the background\.[\s\S]*<<\}/.test(
-        projected,
-      ),
+    'typing after a section comment is sent keeps the section — heading, both paragraphs',
+    projected.startsWith('# A careful review\n') &&
+      projected.includes(
+        'should stay explicit and readable. The budget is the subject.',
+      ) &&
+      projected.includes('Nothing else in the pipeline is told'),
     JSON.stringify(projected),
+  );
+  check(
+    'and it survives a projection the browser drove, with its id — the schema still builds the node',
+    /The budget is the subject\./.test(projected) &&
+      !!blockKey &&
+      projected.includes(blockMark),
+    JSON.stringify(projected),
+  );
+  const removed = await page.evaluate(async (key) => {
+    const response = await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    return response.status;
+  }, blockKey);
+  await waitForWire(
+    page,
+    async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.length ===
+      2,
+  );
+  // AND OFF THE RAIL BEFORE ANYTHING ELSE IS PRESSED. The delete went over
+  // the wire, not through the card, so the rail drops the card on its next
+  // refresh; until then the band's first card is the deleted comment's, and
+  // the edit below pressed ITS edit and saved onto a key that no longer
+  // exists, while the check after it waited on a promise and passed.
+  await page.waitForFunction(
+    (key) => !document.querySelector(`.gly-thread[data-key="${key}"]`),
+    blockKey,
+    { timeout: 10000 },
+  );
+  check(
+    'deleting the block comment takes its mark out of the .md',
+    removed === 200 &&
+      !(await waitForDisk(/^(?![\s\S]*@comment cb-)/)).includes(blockMark),
+    String(removed),
+  );
+
+  // AND A CANCELLED GRIP LEAVES NOTHING SELECTED EITHER: the same selection,
+  // the same keystroke waiting to replace it, with no comment sent at all.
+  await openSectionForm(page);
+  const gripHeld = await page.evaluate(
+    () => !window.galleyEdit.editor.state.selection.empty,
+  );
+  await page.click('.gly-composer-cancel');
+  const afterCancel = await page.evaluate(() => {
+    const s = window.galleyEdit.editor.state.selection;
+    return { empty: s.empty, from: s.from, to: s.to };
+  });
+  check(
+    'cancelling a section comment leaves no section selected',
+    gripHeld && afterCancel.empty,
+    JSON.stringify({ gripHeld, afterCancel }),
   );
 
   // §2.3 — AN INSTRUCTION CAN BE REVISED, NOT ONLY DESTROYED.
@@ -1097,14 +1330,218 @@ try {
     'Make the retry policy concrete, with numbers.',
   );
   await page.click('.gly-rail-band .gly-thread .gly-thread-edit-save');
-  await page.waitForFunction(async () =>
-    (await (await fetch('/_galley/pending')).json()).instructions.some(
-      (i) => i.text === 'Make the retry policy concrete, with numbers.',
-    ),
-  );
+  // POLLED: `waitForFunction(async …)` resolves on its first poll whatever the
+  // fetch says (a promise is truthy), and this check was `true` behind it.
+  let editReached = false;
+  for (let i = 0; i < 40 && !editReached; i++) {
+    editReached = await page.evaluate(async () =>
+      (await (await fetch('/_galley/pending')).json()).instructions.some(
+        (i) => i.text === 'Make the retry policy concrete, with numbers.',
+      ),
+    );
+    if (!editReached) await page.waitForTimeout(100);
+  }
   check(
     'and the edit reaches the instruction the agent will actually be handed',
-    true,
+    editReached,
+  );
+
+  // AN EDITED INSTRUCTION KEEPS A TYPED LINE BREAK: Shift-Enter breaks the
+  // line, Enter saves, and the words saved are the words typed.
+  // The save repaints the rail; wait for the card to carry the saved words
+  // before pressing its edit again, or the press lands on a card being rebuilt.
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(
+        '.gly-rail-band .gly-thread .gly-thread-edit-text',
+      ) &&
+      (
+        document.querySelector('.gly-rail-band .gly-thread .gly-thread-entry p')
+          ?.textContent || ''
+      ).includes('with numbers.'),
+  );
+  await page.waitForTimeout(300);
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
+  await page.waitForSelector(
+    '.gly-rail-band .gly-thread .gly-thread-edit-text',
+    { timeout: 5000 },
+  );
+  await page
+    .locator('.gly-rail-band .gly-thread .gly-thread-edit-text')
+    .click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Shift+Enter');
+  await page.keyboard.type('Say how many.');
+  await page.keyboard.press('Enter');
+  const editedTo =
+    'Make the retry policy concrete, with numbers.\nSay how many.';
+  let editedOK = false;
+  for (let i = 0; i < 40 && !editedOK; i++) {
+    editedOK = await page.evaluate(
+      async (want) =>
+        (await (await fetch('/_galley/pending')).json()).instructions.some(
+          (i) => i.text === want,
+        ),
+      editedTo,
+    );
+    if (!editedOK) await page.waitForTimeout(100);
+  }
+  await page.waitForTimeout(300);
+  const editedCard = await page.evaluate(
+    () =>
+      document.querySelector('.gly-rail-band .gly-thread .gly-thread-entry p')
+        ?.innerText || '',
+  );
+  check(
+    'an edited instruction keeps a typed line break — saved, and shown on its card',
+    editedOK && editedCard === editedTo,
+    JSON.stringify({ editedOK, editedCard }),
+  );
+
+  // AN EDIT TO AN INSTRUCTION THAT IS GONE KEEPS THE REVIEWER'S WORDS. The
+  // instruction is deleted over the wire while its edit box is open (an
+  // agent's send clears it the same way). Two ways the box can go: the save
+  // answers that the key is not pending, or the next poll repaints the rail
+  // without the card. Either way the words move to the whole-document box with
+  // the reason, rather than vanishing with the card.
+  const strandedReason =
+    'this instruction was sent or deleted — your edit was not saved';
+  const fileDocComment = (text) =>
+    page.evaluate(async (said) => {
+      const res = await fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'comment_document', text: said }),
+      });
+      const view = await res.json();
+      return view.instructions.find((i) => i.text === said)?.key || '';
+    }, text);
+  const openEditOn = async (key, words) => {
+    const card = `.gly-thread[data-key="${key}"]`;
+    await page.waitForSelector(`${card} .gly-thread-edit`, { timeout: 10000 });
+    await page.click(`${card} .gly-thread-edit`);
+    await page.waitForSelector(`${card} .gly-thread-edit-text`);
+    await page.fill(`${card} .gly-thread-edit-text`, words);
+  };
+  const stranded = () =>
+    page.evaluate(() => {
+      const capture = document.querySelector('.gly-capture');
+      return {
+        shown: !!capture && !capture.hidden,
+        words: document.querySelector('.gly-overall-input')?.value || '',
+        note: capture?.querySelector('.gly-card-note')?.textContent || '',
+      };
+    });
+  const closeStranded = async () => {
+    if (await page.isVisible('.gly-capture-cancel')) {
+      await page.click('.gly-capture-cancel');
+    }
+  };
+  const savedKey = await fileDocComment('stranded by a save');
+  const savedWords = 'words typed into an edit\nthat the save could not keep';
+  await openEditOn(savedKey, savedWords);
+  const saveStatus = await page.evaluate(async (key) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const save = document.querySelector(
+      `.gly-thread[data-key="${key}"] .gly-thread-edit-save`,
+    );
+    if (save) save.click();
+    return !!save;
+  }, savedKey);
+  await page.waitForTimeout(2500);
+  const afterSave = await stranded();
+  check(
+    'an edit saved onto a deleted instruction keeps its words on the page and says why',
+    afterSave.shown &&
+      afterSave.words.includes(savedWords) &&
+      afterSave.note === strandedReason,
+    JSON.stringify({ saveStatus, afterSave }),
+  );
+  await closeStranded();
+  const polledKey = await fileDocComment('stranded by a poll');
+  const polledWords = 'words still being typed when the card went';
+  await openEditOn(polledKey, polledWords);
+  await page.evaluate(async (key) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+  }, polledKey);
+  await page.waitForFunction(
+    (key) => !document.querySelector(`.gly-thread[data-key="${key}"]`),
+    polledKey,
+    { timeout: 10000 },
+  );
+  const afterPoll = await stranded();
+  check(
+    'an edit whose instruction leaves the rail mid-sentence keeps its words on the page and says why',
+    afterPoll.shown &&
+      afterPoll.words.includes(polledWords) &&
+      afterPoll.note === strandedReason,
+    JSON.stringify(afterPoll),
+  );
+  await closeStranded();
+
+  // THE THREE COMMENT BOXES ARE ONE DESIGN. The whole-document box, the
+  // selected-text composer and the edit box each open at the same height and
+  // the same type size, grow with what is typed, and stop at half the window,
+  // where they scroll. Each is measured the moment it opens, then filled with
+  // sixty lines.
+  const boxNow = (sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      return {
+        h: +el.getBoundingClientRect().height.toFixed(1),
+        font: getComputedStyle(el).fontSize,
+        scroll: el.scrollHeight,
+        client: el.clientHeight,
+        half: window.innerHeight / 2,
+      };
+    }, sel);
+  const sixty = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join(
+    '\n',
+  );
+  const boxes = {};
+  const measureBox = async (name, sel) => {
+    // A frame after it opens, which is when a reviewer first sees it.
+    await page.waitForTimeout(100);
+    const opened = await boxNow(sel);
+    await page.fill(sel, sixty);
+    await page.waitForTimeout(100);
+    boxes[name] = { opened, full: await boxNow(sel) };
+  };
+  await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  await page.waitForSelector('.gly-overall-input:not([disabled])');
+  await measureBox('document', '.gly-overall-input');
+  await page.click('.gly-capture-cancel');
+  await selectPhrase(page, 'Nothing else in the pipeline');
+  await page.click('.gly-comment-button');
+  await page.waitForSelector('.gly-composer-form:not([hidden])');
+  await measureBox('selection', '.gly-composer-text');
+  await page.click('.gly-composer-cancel');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
+  await page.waitForSelector(
+    '.gly-rail-band .gly-thread .gly-thread-edit-text',
+  );
+  await measureBox('edit', '.gly-rail-band .gly-thread .gly-thread-edit-text');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit-cancel');
+  const all = Object.values(boxes);
+  check(
+    'the three comment boxes open at one height and one font size, and none grows past half the window',
+    all.length === 3 &&
+      all.every((b) => b.opened && b.full) &&
+      all.every((b) => Math.abs(b.opened.h - all[0].opened.h) <= 1) &&
+      all.every((b) => b.opened.font === all[0].opened.font) &&
+      all.every(
+        (b) => b.full.h <= b.full.half + 1 && b.full.scroll > b.full.client,
+      ),
+    JSON.stringify(boxes),
   );
 
   // Back to one, so the count checks below read the state they were written
@@ -1337,21 +1774,44 @@ try {
     JSON.stringify(exits) === JSON.stringify(['Revise', 'Revise & Approve']),
     JSON.stringify(exits),
   );
+  const beforeRevise = await windowMark(page);
   await page.click('.gly-verdict-revise');
-  await page.waitForFunction(
+  // The window, keyed to this press: the composer closes on the 204. See
+  // responseWindowOpen.
+  await responseWindowOpen(page, beforeRevise);
+  const leftPending = await page.evaluate(
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      0,
+      (await (await fetch('/_galley/pending')).json()).instructions.length,
   );
-  check('Revise sends and clears the instruction round', true);
+  check(
+    'Revise sends and clears the instruction round',
+    leftPending === 0,
+    `${leftPending} instruction(s) still pending`,
+  );
+  // WAITED FOR, NOT READ AT AN INSTANT. The page closes the composer and
+  // settles the trail when it hears the 204, which can be a frame after the
+  // window opened on the server.
   check(
     'and Revise closed the open whole-document composer — the unsent draft is discarded',
-    !(await page.locator('.gly-capture').isVisible()),
+    await page
+      .waitForSelector('.gly-capture', { state: 'hidden', timeout: 5000 })
+      .then(() => true)
+      .catch(() => false),
   );
+  const settled = await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll(
+          '.ProseMirror .gly-trail-ins, .ProseMirror .gly-trail-ghost',
+        ).length === 0,
+      null,
+      { timeout: 5000 },
+    )
+    .then(() => true)
+    .catch(() => false);
   check(
     'and Revise SETTLED the reviewer’s hand edits — no trail glow or ghost survives the send',
-    (await page.locator('.ProseMirror .gly-trail-ins').count()) === 0 &&
-      (await page.locator('.ProseMirror .gly-trail-ghost').count()) === 0,
+    settled,
     JSON.stringify({
       ins: await page.locator('.ProseMirror .gly-trail-ins').count(),
       ghost: await page.locator('.ProseMirror .gly-trail-ghost').count(),
@@ -1464,8 +1924,12 @@ try {
     await page.waitForTimeout(900);
   }
   async function sendRound(asks) {
+    const already = await page.evaluate(
+      async () =>
+        (await (await fetch('/_galley/pending')).json()).instructions.length,
+    );
     for (const [i, ask] of asks.entries()) {
-      await addOverallInstruction(page, ask, i + 1);
+      await addOverallInstruction(page, ask, already + i + 1);
     }
     // BY TEXT, NEVER BY POSITION. `/_galley/pending` sorts threads by key, so
     // the order an instruction was typed in is not the order it comes back in
@@ -1481,6 +1945,7 @@ try {
     const asked = new Map(listed);
     if (!(await page.locator('.gly-verdict-menu').isVisible()))
       await page.click('#gly-revise');
+    const before = await windowMark(page);
     await page.click('.gly-verdict-revise');
     // THE WINDOW, NOT THE CLEARED PENDING SET. The press clears the
     // instructions in its FIRST mutation and opens the response window several
@@ -1488,10 +1953,7 @@ try {
     // so `instructions.length === 0` goes true while `s.watch` is still nil —
     // and the ack the agent sends next is refused 409 "nothing has been asked
     // of you". `handoff` is the flag openResponseWindow sets LAST.
-    await waitForWire(
-      page,
-      async () => (await (await fetch('/_galley/revise')).json()).handoff,
-    );
+    await responseWindowOpen(page, before);
     return asked;
   }
 
@@ -1530,6 +1992,45 @@ try {
   // claims, which is the ask-only card: nothing the reviewer sent may ever
   // disappear, and a fixture where everything was answered certifies that it
   // does not.
+  // A BLOCK INSTRUCTION WITH A BLANK LINE, filed through the section grip and
+  // sent in the next round: two paragraphs on its card, in the amber box under
+  // its heading, and in History once the round is sent.
+  const blockSaid = 'Say who the review is for.\n\nAnd why it matters now.';
+  await openSectionForm(page);
+  await page.fill('.gly-composer-text', blockSaid);
+  await page.click('.gly-composer-send');
+  await waitForWire(
+    page,
+    async (want) =>
+      (await (await fetch('/_galley/pending')).json()).instructions.some(
+        (i) => i.text === want,
+      ),
+    blockSaid,
+  );
+  await page.waitForTimeout(600);
+  const blockShown = await page.evaluate(async (want) => {
+    const key = (
+      (await (await fetch('/_galley/pending')).json()).instructions.find(
+        (i) => i.text === want,
+      ) || {}
+    ).key;
+    const card = [...document.querySelectorAll('.gly-rail .gly-thread')].find(
+      (c) => c.dataset.key === key,
+    );
+    const words = document.querySelector(
+      `.gly-note[data-comment-id="${key}"] .gly-note-words`,
+    );
+    return {
+      key,
+      card: card?.querySelector('.gly-thread-entry p')?.innerText || '',
+      amber: words ? words.innerText : '',
+    };
+  }, blockSaid);
+  check(
+    'a block instruction with a blank line shows two paragraphs on its card and in the amber box',
+    blockShown.card === blockSaid && blockShown.amber === blockSaid,
+    JSON.stringify(blockShown),
+  );
   const ask2 = await sendRound([
     'Say what the default budget is, in numbers.',
     'Name the queue and its retention.',
@@ -1722,7 +2223,12 @@ try {
       cards: [...rail.querySelectorAll('.gly-versions-round')].map((b) => ({
         round: b.dataset.round,
         head: b.querySelector('.gly-card-head').textContent,
-        ask: b.querySelector('.gly-versions-ask').textContent,
+        ask: [...b.querySelectorAll('.gly-versions-ask')]
+          .map((p) => p.textContent)
+          .join('\n'),
+        asks: [...b.querySelectorAll('.gly-versions-ask')].map(
+          (p) => p.innerText,
+        ),
         answer:
           (b.querySelector('.gly-versions-answer') || {}).textContent || '',
         foot: b.querySelector('.gly-versions-foot').textContent,
@@ -1784,6 +2290,20 @@ try {
       // after a → as though the reviewer had said them.
       landing?.cards.every((c) => /^v\d+ · /.test(c.foot)),
     JSON.stringify(landing?.cards),
+  );
+  // EACH INSTRUCTION IS ITS OWN LINE IN HISTORY, with its own line breaks.
+  // The server used to hand History one `·`-joined sentence per round, which
+  // ran every instruction together and every line of each into one.
+  const round2 = landing?.cards.find((c) =>
+    c.asks.some((a) => a.includes('Say what the default budget is')),
+  );
+  check(
+    'History lists each instruction of a round separately, and keeps a blank line inside one',
+    !!round2 &&
+      round2.asks.length === 4 &&
+      round2.asks.every((a) => a.startsWith('→ ') && !a.includes(' · ')) &&
+      round2.asks.includes(`→ ${blockSaid}`),
+    JSON.stringify(round2),
   );
   // THE TWO ARROWS MEAN WHAT THEY SAY. `Round.Instruction` is the ask on the
   // reviewer's cut and the agent's sentence on the landing, and roundCards
@@ -2717,12 +3237,10 @@ try {
 
   await addOverallInstruction(page, 'Final trusted pass.', 1);
   await page.click('#gly-revise');
+  const beforeTrust = await windowMark(page);
   await page.click('.gly-verdict-trust');
-  await page.waitForFunction(
-    async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      0,
-  );
+  // The window this press opened, before the ack. See responseWindowOpen.
+  await responseWindowOpen(page, beforeTrust);
   await ack(page, 'failed', 'cannot complete the trusted pass');
   await page.waitForTimeout(1700);
   check(

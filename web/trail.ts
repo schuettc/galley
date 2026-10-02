@@ -3,7 +3,7 @@
 // The reviewer's edits apply directly (the reviewer's-hand cut) and nothing
 // waits on them — but the review keeps the story (the 2026-08-15 trail spec).
 // This plugin watches REVIEWER-originated transactions, records each text edit
-// as a trail entry {old, new, blockKey, prefix/suffix, at}, and renders the
+// as a trail entry {old, new, blockKey, prefix/suffix}, and renders the
 // record as DECORATIONS: a deletion leaves its ghost — the removed text struck
 // in del-red at the spot it left — and an insertion glows in ins-teal. They
 // are decorations in ProseMirror's sense, NEVER content (note.ts's doctrine:
@@ -49,7 +49,7 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { ReplaceStep } from '@tiptap/pm/transform';
 import type { Step, Mappable } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import type { Node as PMNode, Slice, Mark } from '@tiptap/pm/model';
+import type { Node as PMNode, Slice } from '@tiptap/pm/model';
 import { ySyncPluginKey } from 'y-prosemirror';
 
 // isFence and isTable are the SUGGESTION PLUGIN'S predicates, imported rather
@@ -62,14 +62,13 @@ import { ySyncPluginKey } from 'y-prosemirror';
 import { isFence, isTable } from './suggestions.ts';
 
 // TrailEntryBase is what an entry carries either way: a text edit and the
-// evidence re-anchoring leans on. `before`/`after`/`proposal`/`placed` are
-// optional because several construction sites in this file build an entry
-// before that evidence exists yet — applyRecord's `merged` is filled in by the
-// caller's own contextOf spread a line later, and a legacy sidecar row may
-// carry none of them at all (see loadedEntry, serializeEntries). Every reader
-// already treats a missing one exactly as it treats an explicit `null` — see
-// `side`/`flag` below — so leaving them optional states the real contract
-// rather than papering over it with a default.
+// evidence re-anchoring leans on. `before`/`after`/`placed` are optional
+// because several construction sites in this file build an entry before that
+// evidence exists yet — applyRecord's `merged` is filled in by the caller's own
+// contextOf spread a line later, and `placed` is only written by a settle.
+// Every reader already treats a missing one exactly as it treats an explicit
+// `null` — see `side` below — so leaving them optional states the real
+// contract rather than papering over it with a default.
 interface TrailEntryBase {
   id: number;
   old: string;
@@ -79,9 +78,7 @@ interface TrailEntryBase {
   suffix: string;
   before?: string | null;
   after?: string | null;
-  proposal?: string | null;
   placed?: boolean | null;
-  at: string;
   reachFrom?: number | null;
   reachTo?: number | null;
 }
@@ -143,7 +140,6 @@ export interface TrailStepRecord {
   to: number;
   old: string;
   ins: string;
-  proposal: string | null;
   blockKey?: string;
 }
 
@@ -168,23 +164,6 @@ export interface ReanchorEntry {
   before?: string | null;
   after?: string | null;
   placed?: boolean | null;
-}
-
-// SerializedTrailEntry is the wire shape POST /_galley/trail takes and the
-// sidecar's own review.Change record — both serializeEntries' output and
-// loadedEntry's input, since a sidecar row loaded back is read by the same
-// shape it was written in.
-export interface SerializedTrailEntry {
-  old?: string;
-  new?: string;
-  blockKey?: string;
-  prefix?: string;
-  suffix?: string;
-  before?: string | null;
-  after?: string | null;
-  proposal?: string | null;
-  placed?: boolean | null;
-  at?: string;
 }
 
 // TrailPluginState is trailPlugin's own state field: the entries and the
@@ -229,8 +208,8 @@ interface EmptyCandidate extends Neighbours {
 export const trailPluginKey = new PluginKey<TrailPluginState>('galleyTrail');
 
 // How much context travels with an entry, each side. Enough to discriminate
-// an ordinary sentence; small enough that the sidecar stays a record and not
-// a copy of the document.
+// an ordinary sentence; small enough that an entry stays a record and not a
+// copy of the document.
 export const TRAIL_CONTEXT_CHARS = 32;
 
 // Entry identity for the widget decoration's `key` — a stable key is what
@@ -262,110 +241,11 @@ function textOfSlice(slice: Slice): string | null {
   return textOnly ? text : null;
 }
 
-// The two marks an AGENT PROPOSAL wears. `highlight` is deliberately not one:
-// a highlight is a comment's anchor on text that is already in the document,
-// not a proposed change, and editing under one is editing prose — the
-// conversation about it is settled by resolving the thread, never by typing.
-// Spelled here rather than imported from MARK_KINDS because that table is
-// keyed by what the SERVER calls each mark and this is a question about
-// proposals; a fourth mark added there must not silently join this set.
-const PROPOSAL_MARKS = new Set(['ins', 'del']);
-
-// attrString narrows a mark attribute — typed `any` by prosemirror-model's own
-// Attrs — to the string it is meant to be, or '' for anything else. The same
-// discipline suggestions.ts's attrString uses, restated here rather than
-// imported: it is a private narrowing helper in both files, not a shared rule.
-function attrString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-/**
- * onProposalAt reports WHOSE proposal a range of the document the reviewer is
- * about to change carries: the author on the mark, or null if there is no
- * proposal there at all.
- *
- * IT IS READ HERE OR IT IS NOT READ AT ALL, and that is why this travels all
- * the way to the ledger. Deleting text under a pending mark removes that
- * mark (CLAUDE.md's reviewer's-hand rule), so by the time the trail entry
- * reaches the server — one debounce later at best, and the record is written
- * on the SETTLE, one save after that — the evidence is gone. The document the
- * step applied TO still has it, and this is the only moment anything does.
- *
- * IT RETURNS THE AUTHOR RATHER THAN A BOOLEAN, because every other proposal
- * record in the ledger carries the author off the mark (serve.ProposalRecord's
- * `p.Author`) and a boolean would make the hand record the one that could not.
- * `galley suggest --author NAME` puts a non-agent proposal in the document, so
- * accepting such a span would file `approved`/that-author while rewriting it
- * filed `hand`/agent — the same invariant disagreeing with itself across two
- * verbs on one span. `''` is a mark with NO author, which is a real case (a
- * mark parsed straight out of a file, where CriticMarkup has nowhere to write
- * one); the default for that is serve.ProposalRecord's and is applied on the Go
- * side, so there is one rule for it and not a second one here that agrees for
- * now. Hence null-versus-'' rather than a truthiness test — the same
- * distinction review.Change's Before/After pointers already carry.
- *
- * A REPLACEMENT ASKS ABOUT WHAT IT REPLACED; a caret insertion asks about the
- * text it lands INSIDE. Typing at the edge of a proposal is not typing on it —
- * a keystroke immediately after an inserted word is prose of the reviewer's own
- * — and THE EDGES ARE THE SCHEMA'S JOB, ALREADY DONE. `ins`, `del` and
- * `highlight` are all `inclusive: false` (entry.ts's suggestionMark), and
- * ResolvedPos.marks() drops an `inclusive: false` mark at a text-node boundary
- * unless the node on the OTHER side carries it too. So `marks()` alone answers
- * both questions: at an outer edge one side has the mark and the other does
- * not, and it comes back absent.
- *
- * THERE USED TO BE A `textOffset > 0` GUARD HERE AND IT WAS A FALSE NEGATIVE.
- * It re-asked the question the schema had already answered, and it got a
- * DIFFERENT one wrong: a proposal split across text nodes by formatting inside
- * it — `{++a **bold** word++}`, one ins run over three text nodes, the normal
- * multi-inline shape CLAUDE.md's run entry describes — has interior boundaries
- * where textOffset is 0 and the mark is on BOTH sides. Measured on this schema:
- * positions 7 and 11 of that span reported `marks: ins` and answered false, so
- * a caret insertion strictly inside the agent's proposal was recorded `edited`
- * under the reviewer instead of `hand` under the agent, and the rewrite never
- * reached AgentFate.Rewritten. probe.mjs carries the split fixture, because the
- * single-text-node one cannot see a boundary that only exists when a proposal
- * is split.
- *
- * @param doc the document the step applied to
- * @returns the proposal's author ('' if the mark carries none),
- *   or null where there is no proposal
- */
-function onProposalAt(doc: PMNode, from: number, to: number): string | null {
-  const proposed = (marks: readonly Mark[] | null | undefined) =>
-    (marks || []).find((m) => PROPOSAL_MARKS.has(m.type.name));
-  const authorOf = (mark: Mark | null | undefined): string | null =>
-    mark ? attrString(mark.attrs.author) : null;
-  try {
-    if (to > from) {
-      let hit: Mark | null = null;
-      doc.nodesBetween(from, to, (node) => {
-        if (hit) {
-          return false;
-        }
-        if (node.isText) {
-          hit = proposed(node.marks) || null;
-        }
-        return !hit;
-      });
-      return authorOf(hit);
-    }
-    const $pos = doc.resolve(from);
-    return authorOf(proposed($pos.marks()));
-  } catch {
-    return null;
-  }
-}
-
 /**
  * recordOf reads one step against the document it applied to and reports the
  * text edit it made, or null for anything the trail does not record: a
  * non-Replace step (marks, attrs), a step that crosses a block boundary (a
  * join, a split), a slice carrying nodes, and a step that changed no text.
- *
- * `proposal` names the AUTHOR of the proposed span the edit landed on, and is
- * null when it landed on none — see onProposalAt, and review.Change on the Go
- * side for what it decides.
  *
  * @param doc the document the step applied to
  */
@@ -397,7 +277,6 @@ export function recordOf(doc: PMNode, step: Step): TrailStepRecord | null {
     to: step.to,
     old,
     ins,
-    proposal: onProposalAt(doc, step.from, step.to),
   };
 }
 
@@ -576,31 +455,6 @@ export function expandToWord(
 // --- merging: a keystroke joins the edit it continues ----------------------
 
 /**
- * proposalOf is the sticky rule in one place: the coalesced entry's proposal is
- * the FIRST one anything in it reached, and it only ever turns on.
- *
- * Spelled as a function rather than inline because "on" is no longer a boolean
- * — `''` is a proposal whose mark carries no author, so `||` and `!!` are both
- * wrong here, and a second site writing the test by hand would get exactly that
- * wrong.
- *
- * @param rec the step just recorded
- * @param touching the entries it merged with, in
- *   document order — the same order `id` and `at` are taken from
- */
-function proposalOf(
-  rec: { proposal?: string | null } | null | undefined,
-  touching: { proposal?: string | null }[],
-): string | null {
-  const on = (v: string | null | undefined) => v !== null && v !== undefined;
-  const held = touching.find((e) => on(e.proposal));
-  if (held) {
-    return held.proposal ?? null;
-  }
-  return on(rec && rec.proposal) ? ((rec && rec.proposal) ?? null) : null;
-}
-
-/**
  * reachFrom / reachTo are THE REGION AN ENTRY'S STORY COVERS, which is not the
  * same as the minimal diff stored in `from`/`to`.
  *
@@ -626,11 +480,8 @@ function proposalOf(
  * region the reviewer actually rewrote rather than of the sub-range the
  * trimming left behind.
  *
- * SESSION-ONLY, DELIBERATELY. `serializeEntries` names its eight fields and
- * this is not among them: the reach is the shape of a gesture in progress, and
- * a reloaded entry is not being typed into. An entry with no reach falls back
- * to its own stored region, which is what every pre-existing entry does and
- * what the trail did everywhere before this.
+ * An entry with no reach falls back to its own stored region, which is what
+ * the trail did everywhere before this.
  */
 const reachFrom = (e: { from: number; reachFrom?: number | null }): number => {
   const r = e.reachFrom;
@@ -674,13 +525,11 @@ const reachTo = (e: { to: number; reachTo?: number | null }): number => {
  * "not filled in yet".
  *
  * @param docBefore the doc the step applied to
- * @param at ISO instant for a fresh entry
  */
 export function applyRecord(
   entries: TrailEntry[] | null | undefined,
   docBefore: PMNode,
   rec: TrailStepRecord,
-  at: string,
 ): { keep: TrailEntry[]; merged: TrailEntry | null } {
   const keep: TrailEntry[] = [];
   const touching: AnchoredTrailEntry[] = [];
@@ -734,22 +583,6 @@ export function applyRecord(
       // construction — trimming only ever takes from the ends.
       reachFrom: lo,
       reachTo: lo + next.length,
-      at: touching.length ? touching[0].at : at,
-      // STICKY, AND IT ONLY EVER TURNS ON. An entry that ever touched an
-      // agent's proposed span rewrote one, and a later keystroke on plain
-      // text beside it does not un-rewrite it — the coalesced entry is ONE
-      // edit, and one edit that reached a proposal is the verdict by hand.
-      // The Go side keys its settle signature on this too, so an entry that
-      // grows onto a proposal takes one more save to settle rather than being
-      // recorded under the earlier reading.
-      //
-      // THE EARLIEST PROPOSAL WINS, which is the same rule `id` and `at` above
-      // already follow: a coalesced entry keeps the identity of the edit it
-      // started as, and the proposal it first reached is the one it is a
-      // verdict on. `null` is "no proposal" and `''` is "a proposal with no
-      // author on its mark" — a real case (see onProposalAt) — so this tests
-      // for null rather than for truthiness.
-      proposal: proposalOf(rec, touching),
       blockKey: carrier.blockKey || '',
       prefix: '',
       suffix: '',
@@ -925,8 +758,8 @@ function blockKeyAt(
 // tailChars and headChars bound a neighbour's text the same way contextOf
 // bounds an affix, and they are SURROGATE-GUARDED for the reason every other
 // walk in this file is: these strings are UTF-16, a code-unit cut can land
-// between a surrogate pair, and half a pair does not survive a JSON round trip
-// through the sidecar intact — the entry would come back not equal to itself.
+// between a surrogate pair, and half a pair is not text — compared against the
+// document it would match nothing, and the evidence would refuse forever.
 function tailChars(s: string, n: number): string {
   if (s.length <= n) {
     return s;
@@ -981,8 +814,8 @@ function neighboursAt(blocks: ReviewerBlock[], i: number): Neighbours {
 
 // A block outside the reviewer population (a fence, a table cell, a note) has
 // no neighbours to report, because emptyBlockAnchor will never look at it
-// again — null/null is the same "nothing recorded" a legacy record carries,
-// and it lands on the same place: refusal everywhere except a document whose
+// again — null/null is the same "nothing recorded" an entry with no evidence
+// carries, and it lands on the same place: refusal everywhere except a document whose
 // only block is the empty one.
 function blockNeighbours(doc: PMNode, blockPos: number): Neighbours {
   const blocks = reviewerBlocks(doc);
@@ -1109,17 +942,9 @@ function reviewerBlocks(doc: PMNode): ReviewerBlock[] {
 // side normalises one piece of neighbour evidence to the three states the
 // comparison knows: a string (that block's text, '' when the block is empty)
 // or null for "no block that side / nothing recorded". Anything that is not a
-// string — undefined from a legacy record, null from the wire — is the second,
-// and the wire cannot tell those two apart anyway: both mean there is no text
-// that side to be identified by.
+// string — undefined on an entry not yet given its evidence — is the second:
+// both mean there is no text that side to be identified by.
 const side = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-
-// flag is `side` for a boolean: true/false as themselves, and ANYTHING else —
-// undefined from a legacy record, null from the wire — as null, which reads
-// "we do not know". `placed` is the only field it is used for, and null is the
-// value that costs an entry its say in the order (see placeEmptyBlocks).
-const flag = (v: unknown): boolean | null =>
-  typeof v === 'boolean' ? v : null;
 
 // emptyCandidates lists, in DOCUMENT ORDER, every empty block a reviewer's
 // hand could have emptied, each carrying the neighbour evidence a
@@ -1230,12 +1055,11 @@ const TRAIL_SET_NODES = 600000;
  * trail is in document order — but it sorts entries with NO place to the end,
  * where their position in the list means nothing at all. So each entry carries
  * `placed`: true when it had a place at the settle that last wrote it, false
- * when it did not, and null for a record written before the field existed. An
- * entry is ORDERED — allowed to constrain and be constrained by the order —
- * exactly when that is true. A legacy record is therefore unordered, and an
+ * when it did not, and absent before its first settle. An entry is ORDERED —
+ * allowed to constrain and be constrained by the order — exactly when that is
+ * true. An entry no settle has written is therefore unordered, and an
  * ambiguity the order would have settled REFUSES for it, which is the honest
- * degradation: the field cannot be invented from a record that never carried
- * it.
+ * degradation: the field cannot be invented for an entry nobody has placed.
  *
  * WHAT IS NOT USED, AND WAS MEASURED RATHER THAN ASSUMED: how far a candidate
  * is from where the entry used to be. Every server-side mutation arrives as
@@ -1480,8 +1304,8 @@ export function placeEmptyBlocks(
  * neighbouring block within TRAIL_CONTEXT_CHARS of the boundary, and only
  * across a rebuild, loses a ghost into the log. That is the acceptable side.
  *
- * An entry with NO evidence (a record written by a build before these fields
- * existed, read back from the sidecar) carries nothing on either side and
+ * An entry with NO evidence (neither neighbour recorded) carries nothing on
+ * either side and
  * therefore matches only a candidate that has no neighbours on either side —
  * which is to say the document's ONLY block. That is not a special case bolted
  * on; it is the same comparison, and it lands on refuse everywhere refusal is
@@ -1711,9 +1535,8 @@ const contextless = (e: {
  * could be handed a neighbour's and the reviewer would read two deletions on a
  * line that lost one.
  *
- * AND EVERY ENTRY LEAVES CARRYING `placed`, which is what the NEXT settle — or
- * the next session, through the sidecar — reads to know whether this list's
- * order speaks for it. Written from the outcome, never assumed: an entry that
+ * AND EVERY ENTRY LEAVES CARRYING `placed`, which is what the NEXT settle reads
+ * to know whether this list's order speaks for it. Written from the outcome, never assumed: an entry that
  * ends this pass adrift is sorted to the end below, so its position in the
  * list stops meaning anything and it must not be allowed to constrain anyone.
  */
@@ -1922,207 +1745,6 @@ export function trailDecorations(
   return DecorationSet.create(doc, decos);
 }
 
-// serializeEntries is the wire shape POST /_galley/trail takes — and the
-// sidecar's review.Change, field for field. Positions stay home: the sidecar
-// records context, never coordinates, because coordinates die with the
-// session.
-export function serializeEntries(
-  entries: TrailEntry[] | null | undefined,
-): SerializedTrailEntry[] {
-  return (entries || []).map((e) => ({
-    old: e.old || '',
-    new: e.new || '',
-    blockKey: e.blockKey || '',
-    prefix: e.prefix || '',
-    suffix: e.suffix || '',
-    // The neighbouring blocks, and they are CARRIED rather than left in the
-    // session because they are the whole of a block-emptying deletion's
-    // identity (emptyBlockAnchor). An entry that reloads without them can
-    // never be placed again — honestly, since it would have nothing to be
-    // placed BY, but a record that could have kept its ghost across a reload
-    // and did not is a loss the sidecar can just as easily prevent.
-    //
-    // NULL TRAVELS AS NULL. '' is "the block that side is empty" and null is
-    // "there is no block that side" — a serializer that flattened the second
-    // into the first would put the conflation neighboursAt was fixed for back
-    // on the wire, where it would outlive the session in the sidecar. Go holds
-    // these as *string for the same reason (review.Change).
-    before: side(e.before),
-    after: side(e.after),
-    // WHAT THE SERVER CANNOT RE-DERIVE. Everything else on this line is text
-    // the server could in principle re-read from the document; this is the one
-    // fact that exists only at the instant the step was taken, because the edit
-    // itself removes the mark it is about. It decides whether the ledger
-    // records this as the reviewer rewriting a proposal — and WHOSE — or as the
-    // reviewer working on their own prose. See onProposalAt and, on the Go
-    // side, review.Change.Proposal.
-    //
-    // NULL TRAVELS AS NULL here too, for the same reason it does above: '' is a
-    // proposal whose mark carries no author and null is no proposal at all, and
-    // Go holds it as a *string to keep them apart.
-    proposal: side(e.proposal),
-    // WHETHER THIS ENTRY HAD A PLACE WHEN THE LIST WAS WRITTEN — the fact that
-    // makes the list's ORDER usable. settleEntries sorts by position, so the
-    // trail is in document order, but it sorts entries with no place to the
-    // END where their position means nothing. placeEmptyBlocks resolves the
-    // block-emptying entries as a set and leans on that order to tell two
-    // entries with identical evidence apart; it may only do so for entries the
-    // list can speak for, and this is how it knows which those are.
-    //
-    // A LEGACY ROW READS null AND IS THEREFORE UNORDERED, which is the only
-    // honest reading: nothing in a record written before this field existed
-    // says where in the prose it sat, and an ambiguity the order would have
-    // settled refuses instead. Go holds it as a *bool for exactly the
-    // Before/After reason — false is a real answer and a different one from
-    // absent.
-    placed: flag(e.placed),
-    at: e.at || '',
-  }));
-}
-
-// loadedEntry is serializeEntries' inverse: a sidecar change becomes an entry
-// with no position yet — settleEntries' retryAdrift pass is what anchors it.
-export function loadedEntry(
-  c: SerializedTrailEntry | null | undefined,
-): TrailEntry {
-  return {
-    id: nextTrailId(),
-    old: (c && c.old) || '',
-    new: (c && c.new) || '',
-    blockKey: (c && c.blockKey) || '',
-    prefix: (c && c.prefix) || '',
-    suffix: (c && c.suffix) || '',
-    // A sidecar record that carries no side at all — a legacy row, or one
-    // whose block stood at the document's edge — reads as null, which is what
-    // emptyBlockAnchor compares an absent neighbour against.
-    before: side(c && c.before),
-    after: side(c && c.after),
-    // Absent on a record written before the field existed, which reads null:
-    // "we do not know that this rewrote a proposal" is the honest default, and
-    // the alternative would invent rewrites out of old rows.
-    proposal: side(c && c.proposal),
-    // Absent on a legacy row, which reads null: "this list cannot speak for
-    // where this entry sat", and the set rule leaves such an entry out of the
-    // order it resolves by. See serializeEntries, and placeEmptyBlocks for what
-    // that costs and why it is the right cost.
-    placed: flag(c && c.placed),
-    at: (c && c.at) || '',
-    anchored: false,
-    from: null,
-    to: null,
-  };
-}
-
-// mergeAdopt is the FIRST adoption's shape: the sidecar's list and whatever
-// the reviewer already typed before the first pending payload landed, server
-// first, deduped by content-and-instant-and-PLACE. Skipping the server list
-// whenever a local entry existed — the first implementation — let one early
-// keystroke clobber a whole previous session's record.
-//
-// PLACE IS PART OF THE KEY BECAUSE `at` IS STAMPED ONCE PER TRANSACTION. Every
-// entry a single transaction records carries the same instant (the plugin's
-// `const at`), so a replace-all — or any multi-step transaction correcting the
-// same misspelling in two places — produces entries whose old and new are
-// byte-identical, whose instant is identical, and whose only difference is
-// WHERE they are. Keyed on content-and-instant alone those read as one record
-// and all but the first were dropped at the first adoption: an edit the
-// reviewer's own hand made, gone from the trail with nothing left to show it
-// ever existed. Same shape as the ordinals rule one layer out — text and a
-// timestamp are not identity, and two edits are two edits.
-//
-// SO IT IS A PAIRING AND NOT A KEY — one for one, and the local copy wins its
-// slot. The sidecar records context and never coordinates (serializeEntries),
-// so every loaded entry arrives UNPLACED: put the place in the key and a placed
-// local entry can never match the record of itself, and the trail carries that
-// edit twice from the adoption on — one deletion ghosted twice on one block,
-// now that a block-emptying entry re-anchors on its neighbours.
-//
-// THAT WAS DEFENCE, AND IT WAS WRITTEN DOWN AS DEFENCE RATHER THAN AS A BUG
-// REPORT. No gesture was known to reach it: `App.syncTrail` refused to POST
-// while `trailLoaded` was false and `adoptTrail` set that flag once and never
-// cleared it, so the merge ran EXACTLY ONCE per page load, and the locals it
-// met were keystrokes made between the editor opening and the first pending
-// payload landing — entries the server had never seen. For one to collide with
-// a sidecar record it would have had to share that record's text AND its
-// millisecond, and the millisecond was this page's own clock. The pairing was
-// what kept that true if the populations ever overlapped (an adoption after a
-// POST, a second merge path); it was never the cure for a symptom anyone had
-// produced.
-//
-// `App.syncTrail`, `adoptTrail` and the POST loop they describe are DELETED
-// (see the note in entry.ts where they were): the trail is an outgoing
-// message to the agent now, not a history with a server copy to adopt from.
-// Nothing in this file's production callers still sets `trailPluginKey`'s
-// `{ load: … }` meta that would run `mergeAdopt` below — the pairing logic
-// is kept as the record of a defence that was real while the adoption path
-// existed, not as a claim that the path still runs.
-//
-// Each loaded record may therefore be claimed by AT MOST ONE local entry of
-// the same content-and-instant, and the local entry takes the slot because it
-// is the copy that knows where it is. Two entries of one transaction still
-// find two records and stay two; a local edit the sidecar has no record of
-// runs the pairing out and is appended, which is the case the merge exists
-// for.
-//
-// AND THE INSTANT IS COMPARED AS AN INSTANT, NEVER AS THE STRING IT ARRIVED
-// AS, because the two sides do not spell it the same way. The browser mints
-// `new Date().toISOString()`, which always writes three fraction digits; Go
-// holds it as a `time.Time` and re-marshals RFC3339*Nano*, which TRIMS
-// trailing zeros. Measured through the round trip: `2026-08-15T10:00:00.100Z`
-// comes back `…:00.1Z`, and `…:00.000Z` comes back `…:00Z`. Keyed on the raw
-// string, every entry whose millisecond ends in a zero — roughly one in ten,
-// and EVERY entry landing on an exact second — could never pair with the
-// record of itself, which is the one thing this function is for. `Date.parse`
-// normalises both spellings to the same number; anything that is not a
-// parseable instant (a test's `T1`, an empty `at`) is kept as itself, so it
-// still pairs with its own copy and never with a different one.
-export function mergeAdopt(
-  loaded: TrailEntry[] | null | undefined,
-  local: TrailEntry[] | null | undefined,
-): TrailEntry[] {
-  // The instant, canonical: see above — the wire spelling is not stable.
-  const instant = (v: string): string => {
-    const ms = Date.parse(v);
-    return Number.isNaN(ms) ? `raw:${v}` : String(ms);
-  };
-  const sig = (e: TrailEntry): string =>
-    `${e.old}\u0000${e.new}\u0000${instant(e.at)}`;
-  const out = (loaded || []).slice();
-  // The unclaimed slots for each signature, in document order, so a pairing
-  // takes them one at a time rather than by chance.
-  const slots = new Map<string, number[]>();
-  out.forEach((e, i) => {
-    const k = sig(e);
-    if (!slots.has(k)) {
-      slots.set(k, []);
-    }
-    const bucket = slots.get(k);
-    if (bucket) {
-      bucket.push(i);
-    }
-  });
-  for (const e of local || []) {
-    const free = slots.get(sig(e));
-    const idx = free && free.length ? free.shift() : undefined;
-    if (idx !== undefined) {
-      out[idx] = e;
-    } else {
-      // APPENDED, WHICH IS THE ONE PLACE THE LIST IS NOT IN DOCUMENT ORDER.
-      // placeEmptyBlocks reads the order off the list and trusts `placed` to
-      // say whose position speaks; a local entry with no record of itself
-      // lands at the END carrying placed: true, so it would read as ordered
-      // while sitting somewhere its position means nothing. Not reachable
-      // today — such an entry is anchored and verifies, so settleEntries needs
-      // 'keep' for it and never asks the set rule — and the very next settle
-      // sorts the whole list by position anyway. If a future merge path can
-      // append an ADRIFT local entry, this is where the order breaks and the
-      // append has to clear `placed` on its way in.
-      out.push(e);
-    }
-  }
-  return out;
-}
-
 // --- the plugin ------------------------------------------------------------
 
 function mapEntry(e: TrailEntry, map: Mappable): TrailEntry {
@@ -2167,33 +1789,10 @@ export function trailPlugin(
       init: () => ({ entries: [], decos: DecorationSet.empty, gen: 0 }),
       apply(tr, prev) {
         // `Transaction.getMeta` is typed `any` by prosemirror-state's own
-        // declaration; `meta` is read once and every use below narrows it
-        // with a real check (`in`, `Array.isArray`) rather than trusting the
-        // caller's shape.
+        // declaration; `meta` is read once and narrowed with a real check
+        // (`in`) rather than trusting the caller's shape. The one meta left is
+        // the verdict's clear (App.clearTrail).
         const meta = tr.getMeta(trailPluginKey);
-        if (
-          meta &&
-          typeof meta === 'object' &&
-          'load' in meta &&
-          Array.isArray(meta.load)
-        ) {
-          // merge: the first adoption folds the sidecar's list in AROUND what
-          // the reviewer already typed (server first, deduped). Without the
-          // flag — an epoch re-adoption, a 409 recovery — the server's list
-          // REPLACES: the trail was retired or moved on elsewhere, and the
-          // server is the authority on a record this page's copy has lost.
-          const loaded = meta.load.map(loadedEntry);
-          const base =
-            'merge' in meta && meta.merge
-              ? mergeAdopt(loaded, prev.entries)
-              : loaded;
-          const entries = settleEntries(tr.doc, base, blocks(), true);
-          return {
-            entries,
-            decos: trailDecorations(tr.doc, entries),
-            gen: prev.gen + 1,
-          };
-        }
         if (meta && typeof meta === 'object' && 'clear' in meta && meta.clear) {
           return { entries: [], decos: DecorationSet.empty, gen: prev.gen + 1 };
         }
@@ -2245,13 +1844,12 @@ export function trailPlugin(
           };
         }
         // The reviewer's own hand.
-        const at = new Date().toISOString();
         for (let i = 0; i < tr.steps.length; i += 1) {
           const step = tr.steps[i];
           const rec = recordOf(tr.docs[i], step);
           if (rec) {
             rec.blockKey = blockKeyAt(tr.docs[i], rec.from, blocks());
-            const { keep, merged } = applyRecord(entries, tr.docs[i], rec, at);
+            const { keep, merged } = applyRecord(entries, tr.docs[i], rec);
             const map = step.getMap();
             entries = keep.map((e) => mapEntry(e, map));
             if (merged) {

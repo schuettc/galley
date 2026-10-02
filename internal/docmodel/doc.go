@@ -48,14 +48,14 @@ const (
 	// lives in Inlines as a single unmarked run — a comment is a note, not a
 	// document, so it carries no formatting.
 	//
-	// Unlike every other comment in galley, a Note is IN the document tree
-	// rather than lifted out of it. A range comment has a Highlight mark to
-	// hang on; a block or document comment has nowhere to attach, so the
-	// only way it can survive a round trip through the file — the zero-
-	// tooling promise, that any agent can read pending state from the .md
-	// alone — is to BE a block. markdown.Serialize therefore emits a Note as
-	// a "{>>…<<}" on its own line, which is the one place it emits comment
-	// syntax at all.
+	// A block comment's Note carries Attrs[CommentIDAttr] and no Inlines:
+	// its words live in the unsent round, and the file holds only its ID
+	// mark, "{>>@comment cb-…<<}" on a line of its own after the block it is
+	// about. A range comment has a Highlight mark to hang its ID on; a block
+	// comment has nowhere to attach, so its mark has to BE a block.
+	//
+	// A Note with words and no ID is a hand-typed "{>>…<<}" on its own line.
+	// It parses and round-trips as before, but nothing links it to a comment.
 	Note BlockKind = "note"
 
 	// FrontMatter is the YAML ("---") or TOML ("+++") metadata block a file may
@@ -101,6 +101,22 @@ const (
 	AnchorBlock    = "block"
 	AnchorDocument = "document"
 )
+
+// CommentIDAttr is the Attrs key carrying a reviewer comment's ID: on a
+// Highlight mark it names the comment that piece of highlighted text belongs
+// to, and on a Note block it names the block comment that note marks.
+//
+// Unlike RunAttr it IS serialized — it is the only thing the file carries for
+// a comment. The words live in the unsent round (internal/unsent), and the .md
+// holds a mark at the comment's place: "{>>@comment cm-…<<}" after each
+// highlighted piece, "{>>@comment cb-…<<}" on a line of its own after a block.
+// galley links a comment to its place by this ID and nothing else.
+//
+// The two keys are not the same identity. A comment's ID is minted once and
+// stored; a run is minted per session. Pieces that share an ID share a run
+// (markdown.Parse stamps it), so the run stays the session's grouping
+// coordinate and the ID is what survives the file.
+const CommentIDAttr = "id"
 
 // AlignAttr is the Attrs key carrying a table cell's column alignment:
 // "left", "right", "center", or absent for GFM's default.
@@ -150,24 +166,23 @@ const (
 // One edit, not one mark — a run is shared by every inline a single edit
 // touched, and a target of plain prose crossing a code span touches three. That
 // is what makes it a decision rather than a coordinate, and it is why
-// suggest.Replace and suggest.CommentOn stamp it themselves rather than leaving
+// suggest.CommentOn and its siblings stamp it themselves rather than leaving
 // it to suggest.MintRuns, which sees marks and cannot see edits. Two edits over
 // identical adjacent text still get two runs and stay two decisions; that is
 // what runs were introduced for and neither minter may collapse it.
 //
 // suggest.MintRuns mints for everything else as a document enters the edit
 // session, and it is deliberately NOT serialized. CriticMarkup has no slot for
-// it, and
-// inventing one would cost the property that any agent can read pending state
-// from a plain .md with no tooling at all.
+// it, and a run is a session coordinate, not an identity: what a comment keeps
+// across sessions is its ID (CommentIDAttr), below.
 //
 // So a run identifies a mark for as long as the document is loaded, and is
 // re-minted next time it loads. That is the right scope. Within a session —
 // which is when the editor needs to say "this card points at THAT mark" — it
 // is exact, and two suggestions over identical text stay distinguishable.
 // Across sessions, identity is a different question, already answered
-// differently: authorship by suggest.ReplayAttribution, threads by
-// suggest.CommentKey. Do not merge the two. Collapsing them is what produced
+// differently: a comment by the ID written into the file after its mark
+// (CommentIDAttr). Do not merge the two. Collapsing them is what produced
 // the unstable ordinal thread keys that were a Critical in phase 1.
 const RunAttr = "run"
 

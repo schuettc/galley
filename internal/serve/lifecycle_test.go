@@ -82,8 +82,8 @@ func TestAtomicWriteCreatesAMissingFile(t *testing.T) {
 	}
 }
 
-// ws.NewServer starts a per-room idle sweeper goroutine, and neither server
-// ever shut it down: a test binary that built thirty-odd servers ended with
+// ws.NewServer starts a per-room idle sweeper goroutine, and nothing ever shut
+// it down: a test binary that built thirty-odd servers ended with
 // thirty-odd live sweepers, and a `galley edit` process exited with its
 // websocket peers still attached. Close is the wiring, and both CLI shutdown
 // paths call it after the final flush.
@@ -99,30 +99,14 @@ func TestCloseReturnsGoroutinesToBaseline(t *testing.T) {
 
 	for i := 0; i < 8; i++ {
 		s := newEditServer(t, t.TempDir(), "doc.md", "# Title\n\nHello.\n")
-		r, err := New(mustPage(t, t.TempDir()), "")
-		if err != nil {
-			t.Fatal(err)
-		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("EditServer.Close: %v", err)
-		}
-		if err := r.Close(); err != nil {
-			t.Fatalf("Server.Close: %v", err)
 		}
 	}
 
 	if got := settledGoroutines(); got > base+2 {
-		t.Fatalf("goroutines = %d after 16 servers closed, baseline %d — Close is leaking", got, base)
+		t.Fatalf("goroutines = %d after 8 servers closed, baseline %d — Close is leaking", got, base)
 	}
-}
-
-func mustPage(t *testing.T, dir string) string {
-	t.Helper()
-	path := filepath.Join(dir, "review.html")
-	if err := os.WriteFile(path, []byte("<body></body>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 // settledGoroutines waits for the count to stop moving before reporting it:

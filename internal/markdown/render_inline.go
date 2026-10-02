@@ -506,10 +506,18 @@ func onlySuggestion(in docmodel.Inline, kind docmodel.MarkKind) bool {
 // the rest of the block and could come out backslashed.
 //
 // The suggestion's Attrs (author, at) are NOT written: CriticMarkup has
-// nowhere to carry them. They live in the sidecar; the file carries the
-// change itself.
+// nowhere to carry them. A comment's author and time are kept with its
+// words in pending.json; the file carries the change itself.
+//
+// The one attr that IS written is a highlight's comment ID, as its ID mark
+// "{>>@comment id<<}" flush after the closing "==}" — the spelling
+// critic.go's stampCommentID binds back to the highlight. Every segment of
+// a highlight gets its own, so a comment crossing emphasis or a code span
+// writes one mark per piece. It is written only when the highlight's own
+// markers were: a highlight with no spelling (its text holds "==}") has no
+// "==}" to follow, and the comment then reads as unplaced.
 func wrapCritic(body []pchar, in docmodel.Inline) ([]pchar, bool) {
-	emitted := false
+	emitted, highlighted := false, false
 	for i := len(suggestionKinds) - 1; i >= 0; i-- {
 		kind := suggestionKinds[i]
 		if !in.Has(kind) {
@@ -517,6 +525,10 @@ func wrapCritic(body []pchar, in docmodel.Inline) ([]pchar, bool) {
 		}
 		wrapped, ok := wrapSuggestion(body, kind)
 		body, emitted = wrapped, emitted || ok
+		highlighted = highlighted || (ok && kind == docmodel.Highlight)
+	}
+	if id := in.Attr(docmodel.Highlight, docmodel.CommentIDAttr); highlighted && validCommentID(id) {
+		body = append(body, literalChars("{>>"+commentMark(id)+"<<}")...)
 	}
 	return body, emitted
 }
@@ -540,8 +552,9 @@ func wrapCritic(body []pchar, in docmodel.Inline) ([]pchar, bool) {
 // When neither form is safe — text containing both "--}" and "~~}", or a
 // highlight containing "==}", which has no alternate spelling — the
 // markers are omitted and the text is written plainly. The suggestion
-// mark is lost; the text is not. Losing a mark is recoverable from the
-// sidecar, losing the author's words is not.
+// mark is lost; the text is not. A lost highlight costs its comment the
+// place (the comment, still in pending.json, reads as unplaced); lost
+// words cannot be recovered.
 //
 // The complete fix is to make CriticMarkup escapable, which means moving
 // backslash-unescaping to AFTER the marker scan so an escaped marker

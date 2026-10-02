@@ -7,19 +7,14 @@
 // of a fact that can disagree with the documents it came from. That half is
 // unconditional: no rendered diff reaches this directory in any phase.
 //
-// "EVERY VERSION IS A CLEAN DOCUMENT — NO MARKUP ON DISK, EVER" IS PHASE 3's
-// SENTENCE, and it is stated here in the future tense on purpose. It becomes
-// true the day the agent's changes are APPLIED rather than proposed (spec
-// decision 2), because then there is nothing undecided left for CriticMarkup to
-// spell. It is FALSE today, and saying otherwise in the present tense would be
-// an invariant a reader could rely on and a `galley suggest` could break: a
-// version equals the projection, the projection carries the agent's pending
-// ins/del/highlight marks, and `{--**bold**--}{++brave++}` on disk is exactly
-// what those are. Nothing here strips them — a version that differed from the
-// file would be a version of a document nobody has.
-// internal/serve's TestAVersionIsTheFileAndNoDiffReachesDisk holds both halves
-// against a fixture that carries an undecided proposal, which is the fixture
-// the claim needs to be checkable at all.
+// "EVERY VERSION IS A CLEAN DOCUMENT" IS THE CALLER'S RULE, NOT THIS
+// PACKAGE'S. The agent's changes are applied rather than proposed, and the edit
+// server lifts the unsent comments' marks (suggest.ClearInstructions) before
+// the seed and before a send cuts its version. But a version equals the
+// projection, and a suggestion mark read from a hand-written file —
+// `{--**bold**--}{++brave++}` — is still in the projection. Nothing here strips
+// it: a version that differed from the file would be a version of a document
+// nobody has.
 //
 // # Where they live, and why
 //
@@ -54,9 +49,8 @@
 // without inventing a trailer convention, and the pairing of a round with its
 // instruction is the whole reason the history is worth keeping.
 //
-// BESIDE THE DOCUMENT is what content does here already: the sidecar is
-// `<doc>.comments.json` in the same directory, and moving a document takes its
-// versions with it. In a repository whose documents sit at the root — the
+// BESIDE THE DOCUMENT, so moving a document's directory takes its versions
+// with it. In a repository whose documents sit at the root — the
 // common case, and this repository's own — that path is literally
 // `.galley/versions/<doc>/<n>.md`.
 //

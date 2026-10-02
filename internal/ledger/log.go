@@ -15,9 +15,8 @@
 // up: drift is self-healing rather than a class of bug.
 //
 // THE LEDGER IS MEMORY, NEVER TRUTH, and that is not a slogan — it is the
-// contract every function here is written to. Review state stays where it has
-// always been: the .md and its sidecar, files that diff and travel with the
-// branch. No review path may ever REQUIRE this package. So every failure here
+// contract every function here is written to. Review state stays where it
+// lives: the .md, its versions and its unsent round. No review path may ever REQUIRE this package. So every failure here
 // is a returned error the caller is free to drop on the floor — never a panic,
 // never a block, never a partially-applied review. `Append` on a read-only
 // filesystem loses a memory; it must not lose a decision. See
@@ -83,8 +82,8 @@ const (
 	KindEntrusted Kind = "entrusted"
 	// KindRejected: the proposal was discarded WITHOUT a reason. `reject` is
 	// decline minus the record — CLAUDE.md calls it "the record-free discard of
-	// an AGENT proposal", and that is a fact about the DOCUMENT and its
-	// sidecar, which gain nothing: no thread, no note, nothing an agent reading
+	// an AGENT proposal", and that is a fact about the DOCUMENT, which gains
+	// nothing: no thread, no note, nothing an agent reading
 	// the file can find. The ledger is the one place it is not record-free, and
 	// has to be: "which of my proposals were thrown away without comment" is
 	// the same family of question as "which were declined and why", and a
@@ -225,7 +224,7 @@ type Record struct {
 	// a new kind has to be put on one side of it.
 	//
 	// The vocabulary is TWO WORDS, AuthorAgent and AuthorReviewer, at every
-	// site — serve.ledgerAuthor is the boundary that keeps a third one out.
+	// site.
 	Author  string `json:"author"`
 	Old     string `json:"old"`
 	New     string `json:"new"`

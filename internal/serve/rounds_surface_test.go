@@ -2,6 +2,7 @@ package serve
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -49,5 +50,14 @@ func TestInstructionRangeSelectsTheExactDuplicate(t *testing.T) {
 	}
 	if view.Instructions[0].Key == "" || view.Instructions[0].Run == "" {
 		t.Fatalf("pending instruction lost its browser anchor: %+v", view.Instructions[0])
+	}
+	// THE SECOND "word", by its ID: the file says which one, and the key is
+	// that ID.
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	want := "word then {==word==}{>>@comment " + view.Instructions[0].Key + "<<}."
+	if md := readMD(t, s); !strings.Contains(md, want) {
+		t.Fatalf("the file does not mark the second word with the instruction's ID: %q, want %q", md, want)
 	}
 }

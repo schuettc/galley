@@ -2,11 +2,13 @@ package cli
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/schuettc/galley/internal/review"
+	"github.com/schuettc/galley/internal/unsent"
 )
 
 // THE ROUND HANDS OVER ITS KEYS, AND FOR THE WHOLE OF PHASE 3 IT DID NOT.
@@ -41,7 +43,7 @@ func TestTheLiveWireCarriesTheKeyIntoTheCLI(t *testing.T) {
 	  "at": "2026-08-22T15:02:17Z",
 	  "run": "r-1",
 	  "anchor": "block",
-	  "anchorKey": "md-4",
+	  "anchorKey": "bk-32ecc3d4929bae32",
 	  "blockKind": "paragraph"
 	}`
 
@@ -63,23 +65,57 @@ func TestTheLiveWireCarriesTheKeyIntoTheCLI(t *testing.T) {
 // is running. A key that only exists live is a key an agent cannot rely on.
 func TestTheOfflinePathCarriesTheKeyToo(t *testing.T) {
 	at := time.Date(2026, 8, 22, 15, 2, 17, 0, time.UTC)
-	threads := []review.Thread{{
-		Key:     "cd-dbdcfb4746a99476",
-		Heading: "the whole document",
-		Entries: []review.Entry{{
-			Author: review.AuthorCourt,
-			Text:   "in general this is good, but too many places where we're vague",
-			At:     at,
-		}},
-	}}
-
-	got := instructionsFromThreads(threads)
-	if len(got) != 1 {
-		t.Fatalf("built %d instructions, want 1", len(got))
+	// A text comment's key is a minted ID, never a digest of its words: the
+	// file carries it after the highlight, and pending.json carries the words.
+	textKey := unsent.NewID(unsent.KindText)
+	if !regexp.MustCompile(`^cm-[0-9a-f]{16}$`).MatchString(textKey) {
+		t.Fatalf("a text comment's key %q is not cm- and 16 hex digits", textKey)
 	}
-	if got[0].Key != "cd-dbdcfb4746a99476" {
-		t.Errorf("the offline path dropped the key: got %q — live and offline would disagree",
-			got[0].Key)
+	// A block comment's key is minted the same way, and the file carries it as a
+	// note on its own line after the block; a document comment's likewise, with
+	// no mark in the file at all.
+	blockKey, docKey := unsent.NewID(unsent.KindBlock), unsent.NewID(unsent.KindDocument)
+	for _, k := range []struct{ key, pattern string }{
+		{blockKey, `^cb-[0-9a-f]{16}$`}, {docKey, `^cd-[0-9a-f]{16}$`},
+	} {
+		if !regexp.MustCompile(k.pattern).MatchString(k.key) {
+			t.Fatalf("key %q does not match %s", k.key, k.pattern)
+		}
+	}
+	doc := writeDoc(t, t.TempDir(), "d.md",
+		"# T\n\n{==Hello.==}{>>@comment "+textKey+"<<}\n\n{>>@comment "+blockKey+"<<}\n")
+	// pending.json is the only place the words are, and offline they are read
+	// from there.
+	if err := unsent.Save(unsent.Path(doc), unsent.File{Comments: []unsent.Comment{{
+		Key: textKey, Kind: unsent.KindText, Author: review.AuthorCourt, At: at,
+		Text: "say more", Quote: "Hello.",
+	}, {
+		Key: blockKey, Kind: unsent.KindBlock, Author: review.AuthorCourt, At: at,
+		Text: "this paragraph is thin",
+	}, {
+		Key: docKey, Kind: unsent.KindDocument, Author: review.AuthorCourt, At: at,
+		Text: "in general this is good, but too many places where we're vague",
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := offlinePending(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := view.Instructions
+	if len(got) != 3 {
+		t.Fatalf("built %d instructions, want 3: %+v", len(got), got)
+	}
+	for i, want := range []string{textKey, blockKey, docKey} {
+		if got[i].Key != want {
+			t.Errorf("the offline path dropped the key: got %q, want %q — live and offline would disagree",
+				got[i].Key, want)
+		}
+	}
+	// Offline places the block comment by its mark, as the live server does.
+	if got[1].AnchorKey == "" {
+		t.Errorf("offline, the block comment is unplaced: %+v", got[1])
 	}
 }
 

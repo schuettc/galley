@@ -299,22 +299,13 @@
 .ProseMirror .gly-note[data-anchor='document'] {
   display: none;
 }
-/* A SETTLED NOTE MUST NOT READ LIKE A LIVE ONE. Resolving a note keeps every
-   word of it — the words are the content — so the block stays in the prose,
-   and without this it looks exactly like a conversation still waiting for an
-   answer. The marker says which it is; the words are untouched. */
-.ProseMirror .gly-note.gly-note-settled {
-  border-left-color: var(--gly-line);
-  background: transparent;
-  opacity: 0.62;
-}
-.ProseMirror .gly-note.gly-note-settled::before {
-  content: "settled \00b7 ";
-  font-family: var(--gly-mono);
-  font-size: 0.8em;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.8;
+/* A block note's words (note.ts's noteWordDecorations): painted from the
+   instruction data by the note's comment ID, as a widget inside the amber box.
+   A comment's line breaks are the reviewer's, so they are kept, and a long
+   unbroken token wraps rather than widening the column. */
+.ProseMirror .gly-note .gly-note-words {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Front matter (docmodel.FrontMatter): the YAML or TOML block a file opens
@@ -1096,89 +1087,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   font: var(--gly-card-font);
   z-index: 5;
 }
-/* The overall thread lives in the chrome, not in the rail.
-   It is the one card that is true of EVERY document, which is what made every
-   place in the rail wrong: at the top it stole from the map (measured at
-   1141px — 234px of card, the band starting at 299, a mark at 221 carded at
-   299), and at the foot it was furthest from the eye on exactly the long
-   documents where it matters. In the strip it is always reachable and costs
-   the band nothing in either state. */
-/* AND IT RESERVES ITS WIDTH, for the reason .gly-revise-count does. Its label
-   carries the count — `+ doc note` becomes `1 doc note` becomes `2 doc notes`
-   — and that count changes as a DIRECT RESULT of a click: filing a note in
-   the panel this handle opens. Measured on a 2000px window (against the old,
-   longer wording): filing the second note took the handle from 240.73 to
-   249.16px and slid all three of the bar's then-separate readouts 8.43px
-   right, from a click a thousand pixels away. There is one readout now, and
-   it slid just the same.
-
-   16ch is a BOUND, not a proof — the same shape as the count's 24ch beside
-   it. The arithmetic: `▾ 99 doc notes` is 14 units in the strip's own mono,
-   plus two units of slack — `ch` is the `0` glyph's advance, and the ▾
-   triangle's width is not guaranteed ≤ 1ch across the --gly-mono stack's
-   fallbacks; a bound the widest state can EXCEED is not a bound, because
-   `min-width` lets the button grow past the reserve and that growth is
-   exactly the click-jump this rule exists to prevent. Its predecessor kept a
-   unit of slack the same way (28ch over a 27-unit widest state). Past a
-   hundred whole-file notes the handle grows again, and a document in that
-   state has bigger problems than an 8px slide. The bound answers to
-   overallHandle's label pair (rail.ts) and was retuned with it when "on the
-   whole doc" was trimmed — the old 28ch reserve held ~86px of preposition at
-   every width and was a third of why the bar folded at ordinary desktop
-   widths. The padding and border are added back because the shell sets
-   `box-sizing: border-box`, so a bare `min-width` would reserve the border
-   box and under-reserve the text. */
-/* RADIUS IS A CASTE MARK (§1 of the visual-layers handoff): full pills are for
-   verbs on cards and passive chips, and every chrome control — this handle
-   included — is 6px in `.gly-census button` below.
-
-   THIS RULE DECLARES EXACTLY ONE PROPERTY, and that is the whole point of it.
-   `border-radius`, `padding`, `border`, `background`, `color`, `font`,
-   `font-size` and `cursor` were all declared here at one time or another, and
-   every one of them was dead: `.gly-census button` (0,1,1) out-specifies this
-   rule (0,1,0) for every property they share, so not one of them was ever
-   painted. They all happened to MATCH what the census painted, which is worse
-   than a mismatch and not better — a reader cannot tell "dead but agrees" from
-   "live", and will maintain it as though changing it would change the pixel.
-   Keeping `border-radius: 6px` here after the fact would have read as though
-   this rule were the one asserting the caste, when it is not; the same is true
-   of the other six, so they are gone too.
-   Browser-measured before that fix: the handle's actual padding was neither
-   this rule's old value NOR `.gly-census button`'s `3px 10px` — `.gly-bar
-   button`, then the shell's fallback style in edit.html, tied `.gly-census
-   button` on specificity and won the cascade by living in a later stylesheet,
-   so it was setting the real padding, font-size and color (and,
-   coincidentally, a `border-radius: 6px` of its own) on every button the
-   census appends into `.gly-bar`. THAT COLLISION IS FIXED — `.gly-bar button`
-   now lives in this file, above `.gly-census button`, so the census wins its
-   own paint. Measured after: `3px 10px`, 12px, the foreground colour.
-
-   The min-width calc that survives is the ONE live declaration — `.gly-census
-   button` never sets `min-width`, so nothing out-specifies it. Its `+ 1.2rem`
-   is an approximation of the padding rather than a transcription of it, and
-   it is a no-motion bound: the ch count moves only when the label pair in
-   overallHandle moves, never while tidying paint. The handle's type dropped
-   14px → 12px with the rest of the bar, and the reserve is stated in `ch`, so
-   it scaled with the text it bounds.
-
-   THE LABEL PAIR IS NOW A LABEL TRIO and 16ch still bounds it, which is
-   arithmetic rather than luck: the widest is `▾ ✓ 99 doc notes` at sixteen
-   characters, the ▸/▾ affordance included, because it is `content` on this
-   element's own ::before and inside this box. The settled face is new — see
-   overallHandle, where `+ doc note` meant both "none" and "one, settled" — and
-   it is one character wider than the open face it replaces at zero. Past 99
-   notes the box grows, which is what a BOUND means and is the same admission
-   `.gly-revise-count`'s 5ch makes. (It used to cite `.gly-census-count`'s
-   24ch; that box is hidden now and reserves nothing, and a citation of a
-   reserve that no longer exists is the next reader's excuse to delete this
-   one.) */
-.gly-census-overall {
-  min-width: calc(24ch + 1.2rem + 2px);
-}
-.gly-census-overall::before { content: "▸ "; opacity: 0.7; }
-.gly-census-overall.is-open { border-color: var(--gly-signal); color: var(--gly-signal); }
-.gly-census-overall.is-open::before { content: "▾ "; }
-
 /* THE FIXED PANEL IS DELETED, AND WITH IT THE ONLY SPELLING THAT WAS NOT THE
    RAIL'S. It was a full-bleed band hung off the bar's bottom edge, floating at
    z-index 21 over the rail, with its own column tokens, its own elevation
@@ -1189,7 +1097,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    lines below or was painting a surface nobody opens.
 
    A DEAD DECLARATION THAT HAPPENS TO MATCH IS WORSE THAN NO DECLARATION —
-   this file records the rule under `.gly-settled-card` — and a whole dead
+   this file records the rule under the deleted settled card — and a whole dead
    BLOCK is that failure at scale: every reader after this one would have had
    to work out which of its fifteen properties the rail spelling still let
    through. The element is still HIDDEN while there is no reason to show it,
@@ -1219,9 +1127,8 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    added to every card's position in the column.
 
    A RESERVED SLOT, which is the primitive the bar already uses for its own
-   label swaps (`.gly-reserved`, and `.gly-revise-count`'s reserve, and
-   `.gly-census-overall`'s): reserve the space and change what is painted in it,
-   never the space. Switching modes swaps the label; it does not swap the
+   label swaps (`.gly-reserved`, and `.gly-revise-count`'s reserve): reserve
+   the space and change what is painted in it, never the space. Switching modes swaps the label; it does not swap the
    layout. `min-height` rather than `height` because the three labels are within
    a couple of pixels of each other today and a fourth may not be — a slot that
    CLIPS is a worse failure than one that grows, and the growth is visible in
@@ -1268,11 +1175,23 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    one grey costume, and if the reviewer cannot tell them apart the presentation
    has already failed.
 
-   Settled conversations moved to the sheet, where `.gly-settled-head` (below,
-   shared) and `.gly-sheet-settled-list` (further down) render them. The trail
-   moved NOWHERE: it is an outgoing message to the agent, its count rides the
-   verdict button, and `.gly-change`, `.gly-change-line`, `.gly-change-who` and
-   `.gly-change-adrift` are deleted with the rows they painted. The one thing
+   Settled conversations moved to the sheet first, and that region is gone as
+   well: nothing resolves an instruction any more, so there is nothing settled
+   to draw, and `.gly-settled-head`, `.gly-sheet-settled*`,
+   `.gly-card.gly-resolved`, `.gly-card.gly-settled-card` and
+   `.gly-card.gly-declined` are deleted with it.
+
+   THE LESSON THE SETTLED CARD PAID FOR OUTLIVES IT, and other rules here cite
+   it. Its 0.8 dimming was written as a bare `.gly-settled-card` (0,1,0), which
+   lost outright to `.gly-card.gly-resolved` (0,2,0), and as
+   `.gly-card.gly-settled-card` declared a thousand lines EARLIER, which tied
+   and lost on source order. It painted resolve's 0.55 both ways, with a
+   `:hover` that lost too, while the stylesheet said 0.8. A declaration that
+   loses while appearing to apply is worse than none.
+
+   The trail moved NOWHERE: it is an outgoing message to the agent, its count
+   rides the verdict button, and `.gly-change`, `.gly-change-line`,
+   `.gly-change-who` and `.gly-change-adrift` are deleted with the rows they painted. The one thing
    `.gly-change-*` carried that nothing else did — red and green under a head
    naming whose hand it was, the declared exemption to "red is reserved for
    waiting on you" — needs no exemption now that no row exists, and there is no
@@ -1281,28 +1200,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    removal mark the product has.
 
    See docs/superpowers/specs/2026-08-16-the-rail-holds-live-work.md. */
-
-/* The settled region's HEAD, shared by nothing now but the sheet — kept under
-   its own name because it is the same handle saying the same thing it always
-   said, and probe pins the selector in the built css. */
-.gly-settled-head {
-  width: 100%;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--gly-line);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--gly-muted);
-  font: inherit;
-  font-size: 11px;
-  text-align: left;
-  cursor: pointer;
-}
-.gly-settled-head::before { content: "\25b8  "; opacity: 0.7; }
-.gly-settled-head.is-open::before { content: "\25be  "; }
-.gly-settled-head:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
-/* The settled card's own dimming is NOT declared here. It has to out-specify
-   and out-order `.gly-card.gly-resolved`, which every settled card also
-   carries, so it lives beside that rule — see `.gly-card.gly-settled-card`. */
 
 /* THE CARDS IN THE RAIL SHARE ONE LEFT EDGE, so the column reads as one column
    — the same work, in a different place.
@@ -1382,7 +1279,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    `.gly-rail-teach { border-style: dashed }` therefore loses on source order
    and paints solid: measured `border: "solid"` with the rule right there in the
    stylesheet. This file records the shape under `.gly-thread-delete` and under
-   `.gly-settled-card`; it is the same trap a third time. */
+   the deleted settled card; it is the same trap a third time. */
 .gly-card.gly-rail-teach {
   border-style: dashed;
   cursor: default;
@@ -1549,16 +1446,8 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    textarea is inline-block by default and would sit on a text baseline,
    leaving a descender's worth of gap under it that no rule here asked for;
    `resize: vertical` because a reviewer writing a long note should be able to
-   see it, and the panel floats, so growing it displaces nothing.
-
-   THE BOUND OUTLIVED THE CAP IT WAS HALF OF, AND IS KEPT AS ITS OWN CLAIM.
-   It was HALF the floating panel's `min(40vh, 22rem)`, because dragging the
-   grip past that cap pushed the form out through the panel's bottom and over
-   the prose. The panel is deleted; the box is in the rail's own flow now and
-   can grow without painting over anything. What the bound still buys is that
-   a reviewer who drags the grip to the bottom of the window does not push
-   every instruction card off the screen — room for several lines is the point
-   of the textarea, room for the whole rail was never asked for. */
+   see it. Its type and its cap, half the window, are the composer's and the
+   edit box's: see the one rule for all three below. */
 .gly-overall-input {
   display: block;
   width: 100%;
@@ -1568,9 +1457,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   border-radius: 4px;
   background: var(--gly-bg);
   color: var(--gly-fg);
-  font: 12px/1.5 var(--gly-sans);
   resize: vertical;
-  max-height: min(20vh, 11rem);
 }
 /* Amber says HERE, and a focused input is here — so the colour is right and
    §6's "remove the idle ring" is a no-op: there is no idle ring. What was too
@@ -1683,8 +1570,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    and it moves `.gly-composer-head` and `.gly-thread-who` earlier and
    `.gly-bubble-head` later. Nothing at (0,1,0) between the old positions
    declares any of these five properties on any of these four elements;
-   `.gly-versions .gly-card > .gly-card-head` and
-   `.gly-card.gly-declined .gly-card-head` are both higher and win either way.
+   `.gly-versions .gly-card > .gly-card-head` is higher and wins either way.
    `just layers` reads `.gly-card-head`'s computed font-family back off three
    different surfaces against `.gly-census`'s own. */
 .gly-bubble-head,
@@ -1759,39 +1645,38 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    reply to type. The rule is what the shared spelling was FOR — one box leaving
    the list costs one selector and changes nothing about the other two.
 
-   THE THIRD BOX IS NOT IN HERE AND THAT IS THE POINT of listing two. The
-   whole-document `.gly-overall-input` genuinely is a different box — a 4px
-   radius, the page's own ground rather than none, and a type of its own — and
-   folding it in would have meant either changing it or writing two exceptions,
-   which is the copy this rule deletes wearing a rule's clothes.
+   THE THIRD BOX IS NOT IN HERE. The whole-document `.gly-overall-input` has
+   a 4px radius and the page's own ground rather than none. Its type, padding,
+   rows and cap are the other two's, in the rule below this one, which is what
+   makes the three one design.
 
    Both selectors are (0,1,0) and stay so; `.gly-composer-text[disabled]` and
    the rest of the sealed-verbs list are (0,2,0) and beat this wherever they
    meet it, unchanged. */
 .gly-composer-text,
 .gly-thread-edit-text {
-  font: inherit;
   border: 1px solid var(--gly-line);
   border-radius: 6px;
   background: transparent;
   color: inherit;
   resize: vertical;
 }
-/* AND ITS CAP, WHICH IS WHAT MAKES THE GROWTH SAFE. `growOnInput` (web/rail.ts)
-   writes this box's height from what is typed into it and reads back what the
-   stylesheet allowed — so the number lives HERE, once, and not in the
-   TypeScript as a second cap that would disagree with this one the day either
-   moved. The claim is the whole-document box's own, restated for a popover:
-   room for several lines is the point of a textarea, room for the window was
-   never asked for, and this one floats over the prose it is about — a box that
-   grew to the height of the window would hide the passage the reviewer is
-   writing about. `box-sizing` because the height written is the BORDER box's
-   (`scrollHeight` plus the padding this rule adds) and a content-box would add
-   the padding twice, growing the box a little more on every keystroke. */
-.gly-composer-text {
-  padding: 0.4rem 0.5rem;
+/* THE THREE BOXES A COMMENT IS TYPED INTO ARE ONE DESIGN: the whole-document
+   box, the selected-text composer and the edit box. One type, one padding, so
+   five rows (each box's `rows`) open them at one height; and one cap, half the
+   window, past which the box scrolls. `growOnInput` (web/rail.ts) writes the
+   height from what is typed and reads this cap back, so the number lives
+   here once. `box-sizing` because the height written is the border box's, and
+   a content box would add the padding twice. Each box keeps its own radius and
+   ground above; what a reviewer types into them is the same. */
+.gly-overall-input,
+.gly-composer-text,
+.gly-thread-edit-text {
+  font: 13px/1.5 var(--gly-sans);
+  padding: 0.3rem 0.4rem;
   box-sizing: border-box;
-  max-height: min(30vh, 13rem);
+  max-height: 50vh;
+  overflow-y: auto;
 }
 /* THE ONE COLOUR ON THIS PAGE THAT IS IN NEITHER STYLESHEET WAS THE USER
    AGENT'S. This box declared a resting border and NO `:focus` rule at all, so
@@ -2111,18 +1996,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    nothing else, so a sheet card is not in the question — and the sheet covers
    the prose it would have lit. */
 
-/* The sheet's settled region, at the foot of its list — and the ONE settled
-   region there is. It wears `.gly-settled-head`, the same handle saying the
-   same thing it said at the foot of the rail, and its LIST is its own and IN
-   FLOW: the sheet is a scroll container whose foot is the end of the scroll, so
-   a region opening there grows downward and moves nothing already on screen,
-   which is what `a disclosure covers, it does not displace` asks for here. No
-   cap and no scroller of its own either — the sheet already scrolls, and a
-   scroller inside a scroller is the gesture trap the bubble had to be rescued
-   from. */
-.gly-sheet-settled { padding-top: 8px; }
-.gly-sheet-settled-list { padding-top: 8px; }
-
 /* Touch: 44px targets on every decision verb, per the handoff. Keyed on the
    pointer rather than the width — a touchscreen laptop is wide and still has
    fingers on it. */
@@ -2373,9 +2246,9 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    CONTAINER-SPECIFIED, and that is not a habit. `.gly-bar button` is (0,1,1)
    and declares `background`, `border` and `color`; a bare `.gly-revise` is
    (0,1,0) and would lose every one of them while appearing to set them — the
-   dead-declaration shape this file records under `.gly-settled-card`. The
-   plain `.gly-revise` block above survives only because that rule deliberately
-   declares no `display`.
+   dead-declaration shape this file records under the deleted settled card
+   (see THE RAIL'S SETTLED AND CHANGED SECTIONS). The plain `.gly-revise` block
+   above survives only because that rule deliberately declares no `display`.
 
    The disabled face is (0,3,0) so it beats `.gly-bar button[disabled]` at
    (0,2,1): a disabled PRIMARY has to give up its fill, or "dead" reads as
@@ -2639,12 +2512,10 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    `✗ all` (since retired — the measurement predates the sweep) slid 7.24px
    toward the cursor that had just pressed accept. That is the misclick this
    rule is about, one character at a time. The reserve outlives that button:
-   the whole-doc handle and the bar's one readout still sit downstream of this
-   width, and `✓ all` itself is still the click that changes it.
+   the bar's one readout still sits downstream of this width.
 
    24ch, in the strip's own mono, is `999 pending · 99 threads` and then some —
-   a BOUND rather than a proof, the same shape as the whole-doc handle's 16ch
-   below. Past it the count grows again; a document with a four-digit backlog
+   a BOUND rather than a proof. Past it the count grows again; a document with a four-digit backlog
    has bigger problems than a 7px slide.
 
    IT IS A BUTTON NOW, AND IT HAS TO LOOK LIKE ONE. It was a `<span>` — a pure
@@ -2657,15 +2528,14 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    width.
 
    The chrome comes from `.gly-census button` below and is not overridden,
-   which is the point: `.gly-census-overall` beside it was found only after
-   Court failed to find it and the diagnosis was that it looked like a readout
-   in a row of controls. A count that opens something has to be dressed as a
-   control or it is a control nobody presses.
+   which is the point: the whole-document handle that once sat beside it was
+   found only after Court failed to find it, and the diagnosis was that it
+   looked like a readout in a row of controls. A count that opens something has
+   to be dressed as a control or it is a control nobody presses.
 
    The padding and border are added back to the reserve because the shell sets
    `box-sizing: border-box` — a bare 24ch would reserve the BORDER box and
-   under-reserve the text, which is the same arithmetic `.gly-census-overall`
-   spells out at length. 20px of padding, 2px of border. */
+   under-reserve the text. 20px of padding, 2px of border. */
 /* `Instructions · N` IS DELETED FROM THE BAR, AND THE COUNT IS NOT.
    The number moved onto the primary (see .gly-revise-count) — one number, on
    the verb it is a number of, instead of a chip three controls away from the
@@ -2706,7 +2576,12 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    resize the button. Reserving the DIGITS rather than the label is still the
    answer to that question and is still spelled out — on `.gly-revise-secs` and
    `.gly-revise-count`, which is where the reserve now lives. */
-/* Chrome caste, 6px — see .gly-census-overall above for the full note.
+/* Chrome caste, 6px (§1 of the visual-layers handoff): full pills are for
+   verbs on cards and passive chips, and every chrome control is 6px.
+   A census control's paint belongs HERE and not on its bare class: a bare
+   class is (0,1,0) and this rule is (0,1,1), so every property the two share
+   is this rule's, and a dead declaration that happens to match reads exactly
+   like a live one.
    These declarations are LIVE again: they tie `.gly-bar button` at (0,1,1) and
    win on source order because that rule sits above them in this same file.
    While the shell owned `.gly-bar button` they were all dead, and the census
@@ -2789,6 +2664,15 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
     flex-wrap: wrap;
   }
 
+  /* The sealed readout wraps here for the same reason. Its sentence ends
+     `restart galley edit to reopen`, about 485px of `nowrap` mono, which left
+     a 390px window and scrolled the page sideways (layers §8 measured it).
+     The sealed bar has no verbs after it to push, so wrapping moves nothing. */
+  .gly-seal {
+    min-width: 0;
+    white-space: normal;
+  }
+
   /* The document's name truncates here rather than leaving the window. It is a
      readout, its text never changes, and `doc.md` fits anywhere — but a real
      filename is not `doc.md`, and the first item in the bar is the one item a
@@ -2813,7 +2697,14 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
 /* --- a comment is one card with one verb --- */
 .gly-thread { border-left: 3px solid var(--gly-hl); }
 .gly-thread-entry { margin-top: 0.4rem; }
-.gly-thread-entry p { margin: 0.15rem 0 0; }
+/* A COMMENT'S LINE BREAKS ARE ITS WORDS, so every surface that shows one —
+   rail, sheet, bubble and the whole-document panel all render this — keeps
+   them, and a long unbroken token wraps rather than widening the card. */
+.gly-thread-entry p {
+  margin: 0.15rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* `.gly-thread-who` is the chrome voice — see `.gly-card-head`, where the four
    spellings of it became one and this one's quieter opacity is its own line. */
 /* `.gly-thread-reply` AND `.gly-thread-resolve:hover` ARE DELETED, and the
@@ -2898,10 +2789,7 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    declared exemption in web/motion.mjs). */
 .gly-thread-editor { margin-top: 0.45rem; }
 .gly-thread-edit-text {
-  font-size: 13px;
   width: 100%;
-  box-sizing: border-box;
-  padding: 0.3rem 0.4rem;
 }
 .gly-thread-editor-actions { justify-content: flex-end; }
 /* The armed state is the only resting-adjacent red in the product, which is
@@ -2911,38 +2799,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   color: var(--gly-del);
   opacity: 1;
 }
-.gly-card.gly-resolved { opacity: 0.55; }
-/* A settled card is quieter than a live one and still fully operable — it
-   replies, it reopens, it deletes. Dimming says "this is done", never "this is
-   inert": the same distinction the fold clusters had to make, and the reason
-   §2's state table puts settled at 0.8 rather than at resolve's 0.55.
-
-   BOTH THE SHAPE AND THE PLACE ARE LOAD-BEARING. `paintSettled` gives every
-   settled card `gly-resolved` as well, so this rule has to beat the one
-   directly above it: a bare `.gly-settled-card` is (0,1,0) and loses outright,
-   and `.gly-card.gly-settled-card` declared up in the settled-region block
-   TIES at (0,2,0) and loses on source order. It was written both of those ways
-   at once and painted 0.55 in both, with a `:hover` that tied and lost too —
-   so settled rendered at resolve's value and hovering it did nothing, while
-   the stylesheet said 0.8 the better part of a thousand lines earlier — far
-   enough that nobody reading either end saw the other. Moving either of these
-   two rules above `.gly-card.gly-resolved` reinstates that bug in silence;
-   `just layers` asserts the 0.8 on a real settled card. */
-.gly-card.gly-settled-card { opacity: 0.8; }
-.gly-card.gly-settled-card:hover { opacity: 1; }
-
-/* A DECLINED NO STAYS VISIBLE. A declined proposal settles into the region
-   above as a thread whose head reads `declined · <what>` (entry.js writes the
-   words), and this rule paints that head in the deletion color — the one color
-   the prose already taught means "this goes". PAINT ONLY, deliberately: a
-   card-state rule at (0,2,0)+ can beat the band's placement rules on order,
-   and a kind rule that declared `position` for its own reasons once took every
-   replace card out of the band's absolute placement (see CLAUDE.md). This one
-   declares color and nothing else; (0,3,0) beats `.gly-card-head`'s (0,1,0)
-   outright, so it needs no source-order trick — it sits with the settled rules
-   because a declined card is always a settled card. */
-.gly-card.gly-declined .gly-card-head { color: var(--gly-del); }
-
 /* The stepped card, so j/k is legible in the rail as well as in the text. */
 .gly-card.gly-stepped { border-color: var(--gly-signal); box-shadow: 0 0 0 1px var(--gly-signal); }
 
@@ -3373,6 +3229,13 @@ body.gly-history-mode > main {
 .gly-versions .gly-card:hover {
   border-color: var(--gly-line);
 }
+/* History shows each instruction as it was typed, line breaks and all, and
+   the agent's answer and notes the same way. */
+.gly-versions-ask,
+.gly-versions-answer,
+.gly-versions-note {
+  white-space: pre-wrap;
+}
 .gly-versions-ask {
   margin: 0 0 6px;
   color: var(--gly-fg);
@@ -3756,8 +3619,6 @@ body.gly-history-mode > main {
 .gly-rail[hidden],
 .gly-refusal[hidden],
 .gly-sheet[hidden],
-.gly-sheet-settled[hidden],
-.gly-sheet-settled-list[hidden],
 .gly-strip[hidden],
 .gly-strip-dismiss[hidden],
 .gly-strip-fade[hidden],

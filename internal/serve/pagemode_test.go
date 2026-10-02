@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1358,23 +1359,12 @@ func TestOverlappingProjectionsReloadOnce(t *testing.T) {
 	}
 }
 
-// TestAStructuralReloadHasNoPendingInstructionsToLose is I3, and it pins an
-// ASSUMPTION rather than a mechanism. The reload replaces the whole model, so
-// every live instruction mark goes with it — the spec's "anchors within a
-// round" says that is safe because "the round's instructions are discharged
-// before the structure changes", and nothing asserted it. This is that
-// assertion, and the load-bearing line is the one AFTER THE SEND: the rail is
-// already empty when the agent is handed the round, so the reload that ends it
-// has nothing to lose.
-//
-// It is load-bearing rather than decorative: measured while writing this, an
-// instruction filed and NOT sent is simply gone from the pending set after the
-// structural round — the reload dropped it, silently, leaving exactly the same
-// empty rail a discharge leaves. Nothing here can tell those two apart
-// afterwards, which is why the assertion is placed at the send. Cross-reload
-// mark preservation is deliberately not built: Task 5's gate is where a live
-// thread surviving a fragment reload becomes visible.
-func TestAStructuralReloadHasNoPendingInstructionsToLose(t *testing.T) {
+// TestAStructuralReloadKeepsUnsentInstructions is the reload's half of "the
+// words live in pending.json". The reload replaces the whole model with what
+// the agent's page now yields, which carries no comment marks, so a comment
+// filed with no round in flight loses its place. It must not lose its words:
+// it stays in pending.json and on the rail, unplaced, and the log says so.
+func TestAStructuralReloadKeepsUnsentInstructions(t *testing.T) {
 	dir := t.TempDir()
 	page := writePage(t, dir, "page.html", fixturePage)
 
@@ -1383,60 +1373,66 @@ func TestAStructuralReloadHasNoPendingInstructionsToLose(t *testing.T) {
 		t.Fatalf("NewEditPage: %v", err)
 	}
 	defer func() { _ = s.Close() }()
-	// A revise with nothing listening is refused, and this test is about what the
-	// send does to the review rather than about who hears it.
-	s.OnRevise = "true"
+	var log bytes.Buffer
+	was := pageStderr
+	pageStderr = &log
+	defer func() { pageStderr = was }()
 
 	if err := s.Project(); err != nil {
 		t.Fatalf("Project (baseline): %v", err)
 	}
-	if rec := postRec(t, s, "/_galley/instruct", map[string]any{
-		"op": "comment", "target": "The reviewer highlights a sentence.", "text": "cut this section",
-	}); rec.Code >= 300 {
-		t.Fatalf("instruct: %d %s", rec.Code, rec.Body.String())
+	commentAs(t, s, "The reviewer highlights a sentence.", "cut this section")
+	key := onlyKey(t, s)
+	if err := s.Project(); err != nil {
+		t.Fatalf("Project (comment): %v", err)
 	}
-	before, err := s.pending()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(before.Instructions) != 1 {
-		t.Fatalf("the fixture filed %d instructions, not 1 — it cannot show the discharge", len(before.Instructions))
+	if v := pendingView(t, s).Instructions; len(v) != 1 || v[0].Run == "" {
+		t.Fatalf("precondition: the comment should be listed and placed before the reload: %+v", v)
 	}
 
-	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 && rec.Code != http.StatusConflict {
-		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
-	}
-	sent, err := s.pending()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(sent.Instructions) != 0 {
-		t.Fatalf("%d instruction(s) are still live when the agent is handed the round: %+v — "+
-			"the boundary reload replaces the whole model and will drop them",
-			len(sent.Instructions), sent.Instructions)
-	}
-
-	// The agent answers in the HTML and returns the file; the round boundary is
-	// the projection that closing the window cuts, and that is where the reload
-	// replaces the model.
 	if err := os.WriteFile(page, []byte(structuralPage(t)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s.closeHandoff()
 	if err := s.Project(); err != nil {
 		t.Fatalf("Project (structural): %v", err)
 	}
 	if n := s.pageRender.reloadCount(); n != 1 {
 		t.Fatalf("structural round reloaded %d times, want exactly 1", n)
 	}
-
-	after, err := s.pending()
-	if err != nil {
-		t.Fatal(err)
+	// The projections the reload itself schedules run too: the sweep must not
+	// read the lost place as the reviewer deleting the words.
+	if err := s.Project(); err != nil {
+		t.Fatalf("Project (after reload): %v", err)
 	}
-	if len(after.Instructions) != 0 {
-		t.Errorf("%d instruction(s) were live when the reload replaced the model: %+v — the whole-model reload drops them",
-			len(after.Instructions), after.Instructions)
+
+	if got := loadUnsent(t, s); len(got) != 1 || got[0].Key != key {
+		t.Errorf("pending.json after the reload holds %+v, want %s", got, key)
+	}
+	v := pendingView(t, s).Instructions
+	if len(v) != 1 || v[0].Key != key || v[0].Text != "cut this section" {
+		t.Fatalf("the rail after the reload lists %+v, want %s", v, key)
+	}
+	if v[0].Run != "" || v[0].AnchorKey != "" {
+		t.Errorf("the comment is still placed after its mark went with the old model: %+v", v[0])
+	}
+	if want := "1 unsent instruction(s) are kept, unplaced: their marks went with the replaced document"; !strings.Contains(log.String(), want) {
+		t.Errorf("the reload log does not say the comment was kept:\n%s", log.String())
+	}
+}
+
+// TestSameDocumentIgnoresCommentMarks: a comment mark is not a change
+// to the page, so it never routes a round down the structural path.
+func TestSameDocumentIgnoresCommentMarks(t *testing.T) {
+	for _, tc := range []struct{ a, b string }{
+		{"a {==b==}{>>@comment cm-1<<} c\n", "a b c\n"},
+		{"Para.\n\n{>>@comment cb-1<<}\n\nNext.\n", "Para.\n\nNext.\n"},
+	} {
+		if !sameDocument([]byte(tc.a), []byte(tc.b)) {
+			t.Errorf("sameDocument(%q, %q) = false, want true: a comment mark is not a change to the page", tc.a, tc.b)
+		}
+	}
+	if sameDocument([]byte("a {==b==}{>>@comment cm-1<<} c\n"), []byte("a x c\n")) {
+		t.Error("sameDocument ignored a real word change along with the mark")
 	}
 }
 
@@ -1601,5 +1597,62 @@ func TestPageModeServesTheAdvertisedPath(t *testing.T) {
 	defer func() { _ = srv.Close() }()
 	if got, want := srv.MdPath, AdvertisedPath(page); got != want {
 		t.Errorf("MdPath = %q, want the advertised path %q", got, want)
+	}
+}
+
+// A comment the reviewer already took back (its words deleted, so hidden and
+// out of pending.json) stays taken back through a structural reload. The
+// reload forgets which comments were placed, so that their lost marks are not
+// read as a retraction; it must not forget the ones already retracted, or the
+// next projection would write the comment back and the next send would hand
+// it to the agent.
+func TestAStructuralReloadKeepsARetractedCommentRetracted(t *testing.T) {
+	dir := t.TempDir()
+	page := writePage(t, dir, "page.html", fixturePage)
+	s, err := NewEditPage(page)
+	if err != nil {
+		t.Fatalf("NewEditPage: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	was := pageStderr
+	pageStderr = io.Discard
+	defer func() { pageStderr = was }()
+
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	commentAs(t, s, "The reviewer highlights a sentence.", "cut this section")
+	key := onlyKey(t, s)
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	reviewerDeletes(t, s, "The reviewer highlights a sentence.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if v := pendingView(t, s).Instructions; len(v) != 0 {
+		t.Fatalf("precondition: deleting the words should hide the comment: %+v", v)
+	}
+
+	if err := os.WriteFile(page, []byte(structuralPage(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := s.Project(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := s.pageRender.reloadCount(); n != 1 {
+		t.Fatalf("structural round reloaded %d times, want exactly 1", n)
+	}
+	for _, v := range pendingView(t, s).Instructions {
+		if v.Key == key {
+			t.Errorf("the reload brought back the comment the reviewer took back: %+v", v)
+		}
+	}
+	for _, c := range loadUnsent(t, s) {
+		if c.Key == key {
+			t.Errorf("the reload wrote the taken-back comment into pending.json: %+v", c)
+		}
 	}
 }

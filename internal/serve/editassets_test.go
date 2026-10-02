@@ -425,3 +425,24 @@ func TestEditServesAnUppercaseExtension(t *testing.T) {
 		t.Fatalf("GET /FIG.PNG = %s, want 200", resp.Status)
 	}
 }
+
+// Committed, never built, so it is served from any checkout, including one
+// where `just build`/`just assets` never ran.
+func TestFaviconIsAlwaysServed(t *testing.T) {
+	ts, _ := editAssetServer(t)
+	resp, err := http.Get(ts.URL + "/_galley/favicon.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || len(body) == 0 {
+		t.Fatalf("favicon.svg not served: %d, %d bytes", resp.StatusCode, len(body))
+	}
+	if got := resp.Header.Get("Content-Type"); got != "image/svg+xml" {
+		t.Fatalf("served as %q, want image/svg+xml", got)
+	}
+}

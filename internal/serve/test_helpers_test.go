@@ -8,7 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/reearth/ygo/crdt"
+	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/versions"
 )
 
@@ -71,4 +74,40 @@ func newEditServer(t *testing.T, dir, name, content string) *EditServer {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// waitFor blocks until at least want notifications have landed. AT LEAST: a
+// caller asserting an exact count must count again after a settling window of
+// its own — see TestNotifierFiresOnceTouchesSettle.
+func waitFor(t *testing.T, marker string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if countLines(t, marker) >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("notification never fired (%s)", marker)
+}
+
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(bytes.Fields(raw))
+}
+
+func threadByKey(doc *crdt.Doc, key string) (review.Thread, bool) {
+	for _, thread := range review.Read(doc) {
+		if thread.Key == key {
+			return thread, true
+		}
+	}
+	return review.Thread{}, false
 }

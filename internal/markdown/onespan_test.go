@@ -126,9 +126,8 @@ func TestTwoAdjacentSpansInTheFileAreTwoRuns(t *testing.T) {
 	}
 }
 
-// Runs must never reach the file. CriticMarkup has no slot for one, and
-// inventing one would cost the property that any agent can read pending state
-// from a plain .md with no tooling.
+// Runs must never reach the file. CriticMarkup has no slot for one, and a run
+// is a session coordinate: what persists is a comment's ID.
 func TestRunsAreNotSerialized(t *testing.T) {
 	src := "# T\n\n{~~The `retryBudget` value controls~>The retry budget controls~~} retries.\n"
 	out := string(Serialize(parseOrFail(t, src)))

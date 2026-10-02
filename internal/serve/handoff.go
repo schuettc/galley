@@ -21,7 +21,6 @@ import (
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/ondisk"
 	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.
@@ -108,7 +107,7 @@ func (s *EditServer) openHandoff(round int, fp string, approveOnAnswer bool) {
 // that puts the canonical document back on disk.
 func (s *EditServer) closeHandoff() {
 	s.handoffLive.Store(false)
-	s.stopWatcher()
+	_ = s.stopWatcher()
 	s.reviseMu.Lock()
 	s.handoffLease = nil
 	s.reviseMu.Unlock()
@@ -235,10 +234,12 @@ func (s *EditServer) startWatcher() {
 		s.reviseMu.Unlock()
 		return
 	}
-	stop := make(chan struct{})
-	s.handoffStop = stop
+	stop, done := make(chan struct{}), make(chan struct{})
+	s.handoffStop, s.handoffDone = stop, done
+	tickHook := s.testImportTick
 	s.reviseMu.Unlock()
 	go func() {
+		defer close(done)
 		tick := time.NewTicker(importPoll)
 		defer tick.Stop()
 		for {
@@ -246,6 +247,9 @@ func (s *EditServer) startWatcher() {
 			case <-stop:
 				return
 			case <-tick.C:
+				if tickHook != nil {
+					tickHook()
+				}
 				// An error here is HELD state, not a failure — the draft stays
 				// on disk, the readout says so, and the next save retries.
 				_, _ = s.importDraft()
@@ -254,13 +258,21 @@ func (s *EditServer) startWatcher() {
 	}()
 }
 
-func (s *EditServer) stopWatcher() {
+// stopWatcher tells the watcher to stop and returns a channel closed once its
+// goroutine has exited (nil when none was running). Only Close waits on it: an
+// import still under way when the window closes is already harmless (a closed
+// window gets no import mark; see importDraft), but one still under way when
+// the server shuts down would write after the caller was told it had finished.
+// Never wait on it from the watcher's own goroutine.
+func (s *EditServer) stopWatcher() <-chan struct{} {
 	s.reviseMu.Lock()
+	defer s.reviseMu.Unlock()
+	done := s.handoffDone
 	if s.handoffStop != nil {
 		close(s.handoffStop)
-		s.handoffStop = nil
+		s.handoffStop, s.handoffDone = nil, nil
 	}
-	s.reviseMu.Unlock()
+	return done
 }
 
 // importDraft loads the agent's saved file into the live document as one
@@ -294,32 +306,20 @@ func (s *EditServer) importDraft() (bool, error) {
 	if digest == l.Baseline || digest == l.LastImported {
 		return false, nil
 	}
-	model, comments, err := markdown.Parse(raw)
+	// THE DRAFT REPLACES THE MODEL, AND NOTHING ELSE. Comments the agent types
+	// into the file are not imported, by design: an inline {>>…<<} the parse
+	// lifts is discarded and leaves the .md at the next projection, a
+	// standalone one stays in the draft as the note it reads as, and no
+	// thread is opened for either. The reviewer's own
+	// comments are untouched: their words are in pending.json, and the ID
+	// marks the agent kept place them.
+	model, _, err := markdown.Parse(raw)
 	if err != nil {
 		s.setDraftError(err.Error())
 		return false, err
 	}
-	// Block/document notes new in this draft need threads; existing ones are
-	// matched by ReconcileNotes exactly as the startup import does.
-	_, orphans, _, _ := suggest.ReconcileNotes(model, review.Read(s.doc))
-	now := time.Now()
 	_, err = s.mutate(byAgent, func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
-		return model, func(doc *crdt.Doc, tx review.Tx) {
-			b := review.Bind(doc, tx)
-			// The parse LIFTED these out of the draft; dropping them would be
-			// the discarded-return-value deletion CLAUDE.md records. They are
-			// the agent's own margin notes, so the agent is their author, and
-			// Append upserts by key so a re-import cannot duplicate a thread.
-			for _, c := range comments {
-				b.Append(suggest.InlineCommentKey(c), suggest.InlineCommentHeading(model, c),
-					review.AuthorAgent, c.Text, now)
-			}
-			for _, n := range orphans {
-				nt := suggest.NewNoteThread(n, review.AuthorAgent, now)
-				b.Append(nt.Key, nt.Heading, review.AuthorAgent, n.Text, now)
-				b.SetAnchor(nt.Key, nt.Anchor, nt.AnchorKey, nt.BlockKind)
-			}
-		}, nil
+		return model, nil, nil
 	})
 	if err != nil {
 		s.setDraftError(err.Error())

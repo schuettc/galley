@@ -159,7 +159,7 @@ export function sealLine(
  *     reads this constant entire against a real fixture and requires every
  *     selector in it to match something, which is what would catch it.
  *   - `.gly-overall-input` files a note on the whole document through
- *     `/_galley/suggest`. It is the reply box's own case, on the panel instead
+ *     `/_galley/instruct`. It is the reply box's own case, on the panel instead
  *     of on a card, and it was missed because at the time it was an `<input>`
  *     and the sweep was reading for `<textarea>`. IT IS A `<textarea rows=2>`
  *     NOW — the whole-document note grew a second line so it could hold a
@@ -270,13 +270,11 @@ export const SEALED_VERBS =
  * elements a painter rebuilds or re-derives that is exactly right: writing
  * `false` over `paintCensus`'s quiet sweep — or over a box's own in-flight flag
  * — is this function inventing a second, wrong answer to a question another
- * owner already answers. But four of the elements the sweep reaches have no such
- * owner at all, and for those the one-way rule is the mirror-image bug — a
- * reopened review with four permanently dead controls:
+ * owner already answers. But some of the elements the sweep reaches have no
+ * such owner at all, and for those the one-way rule is the mirror-image bug: a
+ * reopened review with permanently dead controls. SEAL_ONLY_VERBS is the full
+ * list; how the first of them got there:
  *
- *   - `.gly-census-overall` is built ONCE in `makeCensus` and never rebuilt;
- *     `paintCensus` re-derives `✓ all` and nothing else. Dead, it is not that
- *     the whole-document panel looks wrong — it CANNOT BE OPENED.
  *   - `.gly-overall-input` survives every paint (it is `makeCaptureCard`'s, and
  *     the capture card is built ONCE — on the first press of the bar's door —
  *     and thereafter only shown and hidden). Its own submit handler is the only
@@ -334,8 +332,7 @@ export const SEALED_VERBS =
  * `.gly-census-count` IS THE SIXTH, AND IT JOINED THE MOMENT IT STOPPED BEING A
  * READOUT. It was a `<span>` — nothing to disable, nothing to re-enable — and
  * it is a button now, because the sheet is the review's whole list at every
- * width and this is how it is opened. Like `.gly-census-overall` beside it, it
- * is built ONCE in `makeCensus` and never rebuilt: `paintCensus` writes its
+ * width and this is how it is opened. It is built ONCE in `makeCensus` and never rebuilt: `paintCensus` writes its
  * TEXT on every poll and re-derives the `disabled` flag of `✓ all` and nothing
  * else. Left out of this list, the first seal would take the way into the
  * settled conversations away for the life of the tab, and Reopen would hand
@@ -590,8 +587,7 @@ export const sealMethods = {
     // REPLACES IT FOR A REVIEWER WHO APPROVED TOO SOON: the seal is in-memory
     // and per-process (see internal/serve/seal.go — one writer, one direction),
     // so ending the editor and running `galley edit` again is a live review on
-    // the same document, with the trail and the instructions still in the
-    // sidecar.
+    // the same document, with the unsent instructions still in pending.json.
     //
     // DONE IS THE OPPOSITE CASE AND IT IS RECORDED RATHER THAN QUIETLY TAKEN.
     // `/_galley/stop` EXISTS and works — `handleStop` runs `EditServer.OnStop`,
@@ -736,10 +732,10 @@ export const sealMethods = {
   // that gave the first version of it a real flag to read was itself deleted.
   //
   // ONE-WAY IS ONLY HALF A RULE, though, and the half without coverage is the
-  // same bug wearing the other face: four of the elements this reaches have no
+  // same bug wearing the other face: some of the elements this reaches have no
   // painter the unseal edge runs, and for them the return above is permanent.
   // They are `SEAL_ONLY_VERBS`, and `releaseSealOnlyVerbs` is their owner on
-  // the way back — see that constant for which four and why they are not given
+  // the way back — see that constant for which and why they are not given
   // painters instead.
   applySealedVerbs(this: AppShell) {
     if (!this.sealed) {

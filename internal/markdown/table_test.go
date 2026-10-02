@@ -395,9 +395,8 @@ func TestSerialize_TableCellStaysOnOneLine(t *testing.T) {
 //
 // Measured against the shipped serializer, which had no Note case at all:
 // "| x | {>>note here<<} | z |" came back "| x | note here | z |". The markers
-// were gone, the comment read as prose, and the only surviving copy was in the
-// sidecar — the zero-tooling promise (an agent reads pending state from the .md
-// alone) broken by opening the document and saving it.
+// were gone and the comment read as prose: opening the document and saving it
+// turned a note into the author's text.
 //
 // EVERY COLUMN POSITION, and the header row too. Unlike the blank-cell bug this
 // one is visible from a Go golden file at any position — cellTexts pads at the
@@ -416,6 +415,9 @@ func TestSerialize_NoteInACellStaysInTheFile(t *testing.T) {
 		{"two notes in one cell", "| a | b |\n| --- | --- |\n| x | {>>one<<} {>>two<<} |\n"},
 		{"a pipe in the note", "| a | b |\n| --- | --- |\n| x | {>>a\\|b<<} |\n"},
 		{"an asterisk in the note", "| a | b |\n| --- | --- |\n| x | {>>a \\*star\\* here<<} |\n"},
+		// A table cell's block comment is its ID mark, in the cell.
+		{"a comment's ID mark", "| a | b |\n| --- | --- |\n| x | {>>@comment cb-0123456789abcdef<<} |\n"},
+		{"an ID mark in a header cell", "| {>>@comment cb-0123456789abcdef<<} | b |\n| --- | --- |\n| x | y |\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -445,7 +447,7 @@ func TestSerialize_NoteInACellStaysInTheFile(t *testing.T) {
 // The other side of the position discriminator, held so the fix above cannot
 // be widened into it. A note with prose BESIDE it in the cell leaves that prose
 // behind, so the paragraph is not empty, so it is a RANGE comment at its offset
-// — lifted into the sidecar and never serialized again, exactly as the same
+// — lifted out of the model and never serialized again, exactly as the same
 // note would be at the end of a sentence in ordinary prose. The cell keeps its
 // text and loses the marker, and that is the whole-package rule for range
 // comments rather than anything table-shaped.
@@ -544,39 +546,5 @@ func TestSerialize_DocumentNoteInACell(t *testing.T) {
 				t.Errorf("the marker did not survive:\n got:  %q\n want: %q", out, tc.src)
 			}
 		})
-	}
-}
-
-// A note whose text cannot be spelled inside "{>>…<<}" at all takes renderNote's
-// own ruling in a cell as well: write the WORDS and drop the markers. Losing the
-// anchor is recoverable from the sidecar; losing the author's sentence is not.
-// Only a hand-built document can reach this — the scanner closes a span at the
-// first "<<}", so Parse never produces one.
-func TestSerialize_UnwritableNoteInACellKeepsItsWords(t *testing.T) {
-	doc := docmodel.Doc{Blocks: []docmodel.Block{{
-		Kind: docmodel.Table,
-		Children: []docmodel.Block{row(
-			cell(docmodel.TableHeader, "", docmodel.Inline{Text: "a"}),
-			cell(docmodel.TableHeader, "", docmodel.Inline{Text: "b"}),
-		), {Kind: docmodel.TableRow, Children: []docmodel.Block{
-			cell(docmodel.TableCell, "", docmodel.Inline{Text: "x"}),
-			{Kind: docmodel.TableCell, Children: []docmodel.Block{
-				markdown.NewNote(docmodel.AnchorBlock, "closes early <<} and runs on"),
-			}},
-		}}},
-	}}}
-	out := string(markdown.Serialize(doc))
-	if !strings.Contains(out, "closes early") || !strings.Contains(out, "runs on") {
-		t.Errorf("the author's words went missing: %q", out)
-	}
-	if n := strings.Count(out, "\n"); n != 3 {
-		t.Errorf("the cell broke its row (%d newlines, want 3): %q", n, out)
-	}
-	again, _, err := markdown.Parse([]byte(out))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	if k := again.Blocks[0].Kind; k != docmodel.Table {
-		t.Errorf("reparsed as %q, want a table: %q", k, out)
 	}
 }

@@ -3,22 +3,12 @@
 package cli
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
 	"strings"
-	"syscall"
-	"time"
 
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/serve"
 	"github.com/schuettc/galley/internal/version"
 	tools "github.com/schuettc/tools-common"
 	"github.com/schuettc/tools-common/localweb"
@@ -30,9 +20,9 @@ import (
 // so they can no longer drift from what galley actually dispatches.
 const about = `^ galley — review before the one-way door.
 
-The READING commands speak --json — comments, pending, wait, round and
-ledger — and that is where the machine-readable surface is; this
-line used to claim every command did, and most did not.
+The READING commands speak --json — pending, wait, round and ledger —
+and that is where the machine-readable surface is; this line used to
+claim every command did, and most did not.
 
 pending goes through a running server when there is one, and falls back to the
 file. The agent's revision is the file itself: edit the .md, then 'galley ack'.
@@ -41,7 +31,6 @@ listening, a 'galley wait' session or --on-revise's command, and without a
 server there is nothing to hand it to.
 
 galley pushes and pulls. Push wakes someone who is not here:
-  galley serve review.html --on-comment '<shell command>'
   galley edit doc.md --on-revise '<shell command>'
 
 Pull is for the agent session that already IS here, holding the branch and the
@@ -139,28 +128,6 @@ func newApp() *tools.App {
 		},
 	})
 	app.Register(tools.Command{
-		Name:     "serve",
-		Group:    "review",
-		Summary:  "serve a review page as a live document",
-		Synopsis: "serve <page.html> [flags]",
-		Help: "Serves a review page as a live document: the reviewer reads it in the\n" +
-			"browser and leaves comments on it, and --on-comment runs once those\n" +
-			"comments have sat unchanged for --quiet. Read them with `galley\n" +
-			"comments <page.html>`.",
-		NewFlags: func() *flag.FlagSet { fs, _ := newServeFlags(); return fs },
-		Run:      runServe,
-	})
-	app.Register(tools.Command{
-		Name:     "comments",
-		Group:    "review",
-		Summary:  "print the review conversation",
-		Synopsis: "comments <page.html> [flags]",
-		Help: "Prints the conversation a served page has collected, read from its\n" +
-			"projection file — so it works whether or not `galley serve` is running.",
-		NewFlags: func() *flag.FlagSet { fs, _ := newCommentsFlags(); return fs },
-		Run:      runComments,
-	})
-	app.Register(tools.Command{
 		Name:     "edit",
 		Group:    "review",
 		Summary:  "serve a markdown document as a live, TipTap editor",
@@ -179,7 +146,7 @@ func newApp() *tools.App {
 			"--on-revise example:\n" +
 			"  galley edit doc.md --on-revise 'muster send <alias> " +
 			"\"galley: revision requested — run: galley wait <doc>\" " +
-			"--from galley-serve --intent action-requested && muster nudge <alias>'",
+			"--from galley --intent action-requested && muster nudge <alias>'",
 		NewFlags: func() *flag.FlagSet { fs, _ := newEditFlags(); return fs },
 		Run:      runEdit,
 	})
@@ -312,225 +279,6 @@ func newApp() *tools.App {
 		Run:         runLedger,
 	})
 	return app
-}
-
-// serveFlags is galley serve's flag set, built by newServeFlags so the app
-// registry (NewFlags) and runServe share one side-effect-free construction.
-type serveFlags struct {
-	port      *int
-	comments  *string
-	noOpen    *bool
-	onComment *string
-	quiet     *time.Duration
-}
-
-func newServeFlags() (*flag.FlagSet, *serveFlags) {
-	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	v := &serveFlags{
-		port:      fs.Int("port", 0, "port to listen on (default: a free one; the URL is printed and the registry carries it)"),
-		comments:  fs.String("comments", "", "projection file (default: <page>.comments.json)"),
-		noOpen:    fs.Bool("no-open", false, "do not open a browser"),
-		onComment: fs.String("on-comment", "", "shell command to run once comments settle (e.g. 'muster nudge galley')"),
-		quiet:     fs.Duration("quiet", 8*time.Second, "how long comments must sit unchanged before --on-comment fires"),
-	}
-	return fs, v
-}
-
-func runServe(args []string, out, errw io.Writer) error {
-	fs, v := newServeFlags()
-	page, err := splitPositional(fs, args, out)
-	if err != nil {
-		return err
-	}
-	port, comments, noOpen, onComment, quiet := v.port, v.comments, v.noOpen, v.onComment, v.quiet
-
-	srv, err := serve.New(page[0], *comments)
-	if err != nil {
-		return err
-	}
-
-	if *onComment != "" {
-		srv.Notify = &serve.Notifier{
-			Command: *onComment,
-			Quiet:   *quiet,
-			Log: func(line string) {
-				fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), line)
-			},
-		}
-		// Whatever the last session left behind is not news.
-		srv.Notify.Seed(serve.Fingerprint(review.Read(srv.Doc())))
-		defer srv.Notify.Stop()
-	}
-
-	ln, url, err := serve.Listen(fmt.Sprintf("127.0.0.1:%d", *port))
-	if err != nil {
-		return fmt.Errorf("listen: %w", err)
-	}
-	if err := srv.Announce(url); err != nil {
-		return fmt.Errorf("announce: %w", err)
-	}
-	defer srv.Withdraw()
-
-	existing := review.Read(srv.Doc())
-	fmt.Printf("page      %s\n", srv.PagePath)
-	fmt.Printf("comments  %s\n", srv.CommentsPath)
-	fmt.Printf("room      %s\n", srv.Room)
-	fmt.Printf("serving   %s\n", url)
-	if len(existing) > 0 {
-		fmt.Printf("replayed  %d threads from the last session\n", len(existing))
-	}
-	if *onComment != "" {
-		fmt.Printf("on-comment  %s  (after %s of quiet)\n", *onComment, *quiet)
-	}
-	fmt.Println("\nComments sync as you type. Ctrl-C to stop.")
-
-	if !*noOpen {
-		openBrowser(url)
-	}
-
-	httpSrv := &http.Server{
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	errCh := make(chan error, 1)
-	go func() {
-		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = httpSrv.Shutdown(shutdownCtx)
-		// Flush synchronously: the debounced projection may still be pending,
-		// and the reviewer's last sentence must not die with the process.
-		if err := srv.Export(); err != nil {
-			return fmt.Errorf("final export: %w", err)
-		}
-		// AFTER the export, never before: Close drops the peer connections and
-		// stops the websocket server's idle sweeper, so anything still to be
-		// written must already be written.
-		if err := srv.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
-		}
-		fmt.Printf("\n%d threads in %s\n", len(review.Read(srv.Doc())), srv.CommentsPath)
-		return nil
-	}
-}
-
-// commentsFlags is galley comments's flag set, built by newCommentsFlags so
-// the app registry (NewFlags) and runComments share one construction.
-type commentsFlags struct {
-	file     *string
-	asJSON   *bool
-	openOnly *bool
-}
-
-func newCommentsFlags() (*flag.FlagSet, *commentsFlags) {
-	fs := flag.NewFlagSet("comments", flag.ContinueOnError)
-	v := &commentsFlags{
-		file:     fs.String("comments", "", "projection file (default: <page>.comments.json)"),
-		asJSON:   fs.Bool("json", false, "emit the projection verbatim"),
-		openOnly: fs.Bool("open", false, "only threads that are unresolved"),
-	}
-	return fs, v
-}
-
-func runComments(args []string, out, errw io.Writer) error {
-	fs, v := newCommentsFlags()
-	pos, err := splitPositional(fs, args, out)
-	if err != nil {
-		return err
-	}
-	file, asJSON, openOnly := v.file, v.asJSON, v.openOnly
-	page := pos[0]
-
-	f, live, err := loadReview(page, *file)
-	if err != nil {
-		return err
-	}
-
-	if *asJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(f)
-	}
-
-	threads := f.Threads
-	if *openOnly {
-		var keep []review.Thread
-		for _, t := range threads {
-			if t.Open() {
-				keep = append(keep, t)
-			}
-		}
-		threads = keep
-	}
-	if len(threads) == 0 {
-		fmt.Printf("no comments on %s\n", filepath.Base(page))
-		return nil
-	}
-
-	source := "on disk"
-	if live {
-		source = "live"
-	}
-	fmt.Printf("%d threads on %s (%s)\n\n", len(threads), filepath.Base(page), source)
-	for _, t := range threads {
-		mark := " "
-		if t.Resolved {
-			mark = "✓"
-		}
-		fmt.Printf("%s %s   [%s]\n", mark, t.Heading, t.Key)
-		for _, e := range t.Entries {
-			who := "court"
-			if e.Author == review.AuthorAgent {
-				who = "claude"
-			}
-			for i, line := range strings.Split(e.Text, "\n") {
-				prefix := fmt.Sprintf("  %-6s ", who)
-				if i > 0 {
-					prefix = "         "
-				}
-				fmt.Printf("%s%s\n", prefix, line)
-			}
-		}
-		fmt.Println()
-	}
-	return nil
-}
-
-// loadReview prefers a running server, whose document is ahead of the debounced
-// projection on disk.
-func loadReview(page, file string) (review.File, bool, error) {
-	if rt, ok := serve.FindRuntime(page); ok {
-		resp, err := http.Get(rt.URL + "/_galley/threads")
-		if err == nil {
-			defer func() { _ = resp.Body.Close() }()
-			var f review.File
-			if err := json.NewDecoder(resp.Body).Decode(&f); err == nil {
-				return f, true, nil
-			}
-		}
-	}
-	path := file
-	if path == "" {
-		abs, err := filepath.Abs(page)
-		if err != nil {
-			return review.File{}, false, err
-		}
-		path = serve.DefaultCommentsPath(abs)
-	}
-	f, err := serve.Load(path)
-	return f, false, err
 }
 
 func openBrowser(url string) {

@@ -95,7 +95,57 @@ func Parse(src []byte) (docmodel.Doc, []InlineComment, error) {
 	// comment is anchored in without moving the path that names it.
 	blocks = legalize(blocks)
 	doc, comments := extractCritic(docmodel.Doc{Blocks: blocks})
+	unifyCommentRuns(doc)
 	return doc, comments, nil
+}
+
+// unifyCommentRuns gives every highlight piece that carries one comment ID the
+// run of the first such piece, in document order.
+//
+// The scanner stamps one run per span it closes (applyMark), and that is right
+// for a span: it is the only thing that knows where the file's span boundaries
+// are. But one comment can be SEVERAL spans in the file — a highlight crossing
+// emphasis is written as one span per segment, and one crossing a paragraph as
+// one span per block — each followed by the same ID mark. The ID is the
+// boundary the file draws around the comment, so this package, which reads it,
+// is the one that stamps the run that follows it. suggest.MintRuns cannot: it
+// sees marks, not the file.
+//
+// Pieces that become identical in their marks are merged again, which keeps
+// Parse's maximal-run invariant.
+func unifyCommentRuns(d docmodel.Doc) {
+	runs := map[string]string{}
+	docmodel.Walk(d, func(_ []int, b *docmodel.Block) {
+		changed := false
+		for i, in := range b.Inlines {
+			for k, m := range in.Marks {
+				id := m.Attrs[docmodel.CommentIDAttr]
+				if m.Kind != docmodel.Highlight || id == "" {
+					continue
+				}
+				run, seen := runs[id]
+				if !seen {
+					runs[id] = m.Attrs[docmodel.RunAttr]
+					continue
+				}
+				if m.Attrs[docmodel.RunAttr] == run {
+					continue
+				}
+				attrs := make(map[string]string, len(m.Attrs))
+				for key, v := range m.Attrs {
+					attrs[key] = v
+				}
+				attrs[docmodel.RunAttr] = run
+				marks := cloneMarks(in.Marks)
+				marks[k] = docmodel.Mark{Kind: m.Kind, Attrs: attrs}
+				b.Inlines[i].Marks = marks
+				changed = true
+			}
+		}
+		if changed {
+			b.Inlines = mergeAdjacent(b.Inlines)
+		}
+	})
 }
 
 // legalize makes every container in the tree a shape the BROWSER'S SCHEMA CAN
