@@ -414,8 +414,8 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	}
 	// THE INLINE NOTES THE PARSE LIFTS ARE DISCARDED, and that is a deletion:
 	// a hand-typed {>>words<<} inside a sentence leaves the .md at the first
-	// projection. Comments hand-typed into the .md are not imported (the
-	// comment design's "dropped" cases); a reviewer comment's words live in
+	// projection. Comments hand-typed into the .md are not imported, by
+	// design: they are dropped. A reviewer comment's words live in
 	// pending.json and its place is an ID mark, which the parse keeps.
 	model, _, err := markdown.Parse(src)
 	if err != nil {

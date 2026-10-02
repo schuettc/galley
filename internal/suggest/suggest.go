@@ -463,10 +463,8 @@ func digestKey(prefix string, parts ...string) string {
 // overall document order, mixing kinds, which is what List presents.
 //
 // Substitutions are paired into single spans BEFORE the counter runs, so
-// "{~~brown~>red~~}" takes one id rather than two consecutive ones. The
-// ordinal stays the display and CLI coordinate it always was — `galley
-// accept s1` keeps working — and after grouping there is simply one fewer
-// id in the list.
+// "{~~brown~>red~~}" takes one id rather than two consecutive ones; after
+// grouping there is simply one fewer id in the list.
 func listSpans(d docmodel.Doc) []span {
 	suggestions := append(spansForMark(d, docmodel.Ins), spansForMark(d, docmodel.Del)...)
 	sortSpans(suggestions)

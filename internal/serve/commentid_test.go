@@ -73,7 +73,7 @@ func readMD(t *testing.T, s *EditServer) string {
 
 const foxDoc = "# T\n\nthe quick fox jumps.\n\nSecond para here.\n"
 
-// TestEditingAHighlightedWordKeepsTheInstruction is bug 3. The reviewer
+// TestEditingAHighlightedWordKeepsTheInstruction: the reviewer
 // changes a word their own comment highlights; the comment is about the same
 // place, so it stays, placed. Linking by the highlighted words lost it.
 func TestEditingAHighlightedWordKeepsTheInstruction(t *testing.T) {

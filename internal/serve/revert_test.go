@@ -150,7 +150,7 @@ func changeKeyOf(t *testing.T, s *EditServer, kind string) string {
 	return ""
 }
 
-// TestRevertingOneEditKeepsEveryInstructionMark is bug 4. Revert rebuilt the
+// TestRevertingOneEditKeepsEveryInstructionMark: revert once rebuilt the
 // document from the plain text the rail compares, so putting back one
 // paragraph lifted every instruction's mark in the document with it.
 func TestRevertingOneEditKeepsEveryInstructionMark(t *testing.T) {

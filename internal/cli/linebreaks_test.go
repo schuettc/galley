@@ -14,8 +14,8 @@ import (
 )
 
 // A COMMENT WITH A BLANK LINE IN IT IS READ BACK LINE BY LINE: every line in
-// order, each indented two spaces, the blank one too (Open question 8 of the
-// one-comment-system plan keeps formatInstructions' format as it is).
+// order, each indented two spaces, the blank one too: formatInstructions'
+// format is unchanged, so a line break reads as a new indented line.
 func linesOf(t *testing.T, out string, want ...string) {
 	t.Helper()
 	got := strings.Split(out, "\n")

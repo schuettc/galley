@@ -376,8 +376,8 @@ func TestParse_AStandaloneCommentIDIsANoteWithNoWords(t *testing.T) {
 }
 
 // TestParse_AWordNoteIsReadAsBefore pins what a hand-typed note with words
-// still parses to: the spec drops this case, and this is the default
-// behaviour it gets, not a feature.
+// still parses to: galley does not import a hand-typed comment, and this is
+// the default behaviour it gets, not a feature.
 func TestParse_AWordNoteIsReadAsBefore(t *testing.T) {
 	doc, _, err := markdown.Parse([]byte("para\n\n{>>legacy words<<}\n"))
 	if err != nil {

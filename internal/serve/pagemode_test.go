@@ -1420,7 +1420,7 @@ func TestAStructuralReloadKeepsUnsentInstructions(t *testing.T) {
 	}
 }
 
-// TestSameDocumentIgnoresCommentMarks is bug 8: a comment mark is not a change
+// TestSameDocumentIgnoresCommentMarks: a comment mark is not a change
 // to the page, so it never routes a round down the structural path.
 func TestSameDocumentIgnoresCommentMarks(t *testing.T) {
 	for _, tc := range []struct{ a, b string }{

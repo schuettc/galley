@@ -294,10 +294,10 @@ func (s *EditServer) importDraft() (bool, error) {
 		return false, nil
 	}
 	// THE DRAFT REPLACES THE MODEL, AND NOTHING ELSE. Comments the agent types
-	// into the file are not imported (the comment design's "dropped" cases):
-	// an inline {>>…<<} the parse lifts is discarded and leaves the .md at the
-	// next projection, a standalone one stays in the draft as the note it
-	// reads as, and no thread is opened for either. The reviewer's own
+	// into the file are not imported, by design: an inline {>>…<<} the parse
+	// lifts is discarded and leaves the .md at the next projection, a
+	// standalone one stays in the draft as the note it reads as, and no
+	// thread is opened for either. The reviewer's own
 	// comments are untouched: their words are in pending.json, and the ID
 	// marks the agent kept place them.
 	model, _, err := markdown.Parse(raw)

@@ -30,8 +30,7 @@ import (
 // pairing is equality. It used to recompute a digest of the highlighted words
 // and then fall back to matching the thread's heading against them, which lost
 // a comment the moment the reviewer edited a word inside its own highlight
-// (bug 3) and could hand one comment's conversation to another's identical
-// words.
+// and could hand one comment's conversation to another's identical words.
 //
 // A thread whose key is no span's ID has no place in this document, and the
 // honest answer is "unplaced", whatever its heading says.

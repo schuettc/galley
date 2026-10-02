@@ -44,9 +44,9 @@ import (
 // lifted (see plainText), so `before` and the change's words are clean; the
 // document it writes back is `afterMarked`, the live serialization with every
 // `{==…==}{>>@comment …<<}` and every ID note still in it. Rebuilding from the
-// clean side put the paragraph back and took every instruction's place with it
-// (bug 4). `clean` is applied one block at a time, to find a block by what it
-// says; the block written back is always its marked source.
+// clean side put the paragraph back and took every instruction's place with
+// it. `clean` is applied one block at a time, to find a block by what it says;
+// the block written back is always its marked source.
 func revertChange(before, afterMarked string, target ReviewerChange, clean func(string) string) (string, error) {
 	beforeBlocks, afterBlocks := diff.Blocks(before), diff.Blocks(afterMarked)
 	said := make([]string, len(afterBlocks))
@@ -279,9 +279,10 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		// the revert would be computed against a document that includes the
 		// instruction markup the rail deliberately strips. See plainText.
 		//
-		// THE MARKED SIDE IS SERIALIZED FIRST. ClearInstructions lifts marks in
-		// place, so after plainText the model no longer carries the marks this
-		// revert exists to keep.
+		// THE MARKED SIDE IS SERIALIZED FROM THE MODEL ITSELF. plainText
+		// compares a cleared copy (ClearInstructions never touches the model it
+		// is given), so the model still carries the marks this revert exists
+		// to keep.
 		marked := string(markdown.Serialize(model))
 		before = plainOf(before)
 		changes, _ := summarise(diff.Diff(before, plainText(model)))

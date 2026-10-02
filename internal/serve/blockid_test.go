@@ -51,7 +51,7 @@ func courtSaid(key string, kind unsent.Kind, text string) unsent.Comment {
 		At: time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)}
 }
 
-// Bug 2: editing a block comment to say something with a blank line in it put
+// Editing a block comment to say something with a blank line in it put
 // the words into the .md as prose, because the words were the note.
 func TestEditingABlockInstructionWithALineBreakChangesOnlyItsWords(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)

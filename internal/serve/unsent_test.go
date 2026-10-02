@@ -287,7 +287,7 @@ func TestReviseRecordsTheRoundBeforeEmptyingTheUnsentRound(t *testing.T) {
 	}
 }
 
-// Bug 5: the rail filtered a retracted instruction and the wait payload and
+// The rail once filtered a retracted instruction and the wait payload and
 // the notify fingerprint did not, so the agent was handed work the reviewer
 // had already taken back.
 //

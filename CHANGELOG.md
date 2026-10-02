@@ -6,13 +6,19 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 
 Every comment is now stored the same way, whatever it is on: selected text (including a selection across paragraphs), a section, a block, a figure or a rectangle on one, a table cell, a code block, or the whole document.
 
-- **Comments survive a galley restart.** Until you press Revise, every comment's words are kept in `.galley/versions/<doc>/pending.json`, which is written before the `.md` on every add, edit and delete. Stopping galley, or a crash, loses none of them: the next `galley edit` puts each one back in place, and one whose place is gone shows as unplaced instead of being lost. Revise sends them as the round and empties the file.
+- **Comments survive a galley restart.** Until you press Revise, every comment's words are kept in `.galley/versions/<doc>/pending.json`, which is written before the `.md` on every add, edit and delete. Stopping galley, or a crash, loses none of them: the next `galley edit` of the same `.md`, or of the same `page.html` while the page has not changed outside galley, puts each one back in place. One whose place is gone, including every comment on a `page.html` that was edited outside galley in between, shows as unplaced instead of being lost. Revise sends them as the round and empties the file.
+- `galley edit` refuses to start on a `pending.json` written by a newer galley, and leaves it untouched. An unreadable `pending.json` is moved aside to `pending.json.unreadable` and galley starts with no unsent comments.
 - **The `.md` carries only ID marks.** While a comment is unsent, the file holds a short mark at its place and never its words: `{>>@comment cm-…<<}` after the highlighted words, a `{>>@comment cb-…<<}` line after a block, and nothing for a whole-document comment. galley links a comment to its place by that ID alone, never by matching words. Revise removes the marks, so versions stay clean.
 - **Line breaks work in every comment.** A comment on a section, block or figure may now hold line breaks and blank lines; galley used to refuse them. Every comment box keeps them (Enter files, Shift-Enter breaks a line, including when editing a card), every card shows them, and they reach the agent, `galley round`, `galley pending`, the decision log and History.
 - The three comment boxes (on a selection, on the whole document, and a card's edit box) share one size and one behaviour.
 - **`galley serve` and `galley comments` are removed**, together with the `<page>.comments.json` file and the in-page review client they used. Review an HTML page with `galley edit page.html`.
 - **A hand-typed `{>>note<<}` is no longer imported as a comment.** One inside a sentence is dropped from the file at the next save. One on a line of its own is shown but never sent, and is removed when you press Revise.
+- A comment with no words, or on a selection with no words in it, is refused.
 - Deleting all the words a comment on selected text was about takes the comment back; undo brings it back. A taken-back comment stays taken back across a page reload and a restart, and is never sent.
+
+**Upgrade note:** send a review in progress on 0.10.4 (press Revise) before upgrading. Its unsent comments on selected text are not carried over, and its old section comments become notes that are shown but never sent.
+
+Developer note: the `just wasm`, `wasm-exec` and `serve` recipes are gone.
 
 Fixed:
 
@@ -30,6 +36,8 @@ Fixed:
 - A code block's comment left the caret inside the read-only fence.
 - The comment box was placed for the height it opened at, so as it grew it ran off a short window or down over the passage.
 - Sending a round could remove a table cell, or a whole blockquote, whose only content was a note.
+- Restarting `galley edit page.html` put every unsent comment back unplaced, because the page's prose was extracted afresh from `page.html`, which carries no comment marks. The prose galley kept is now reused while the page has not changed outside galley.
+- `galley pending page.html`, run with no editor open, read the page instead of the prose and unsent comments galley keeps for it.
 
 ## 0.10.4
 
