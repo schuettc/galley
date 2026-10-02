@@ -731,8 +731,8 @@ func TestSerialize_AdjacentSameKindLists_StayDistinct(t *testing.T) {
 // What is lost is the MARK, not the text: by the second write the outer
 // italic has degraded into escaped literal stars, and every letter is still
 // there. That is the same trade the rest of this package makes wherever a
-// mark has no spelling — losing a mark is recoverable from the sidecar,
-// losing the author's words is not — and it is why FuzzRoundTrip's
+// mark has no spelling — losing a mark costs formatting or a comment's
+// place, losing the author's words cannot be undone — and it is why FuzzRoundTrip's
 // alphanumeric property does not fire here. The bytes settle on the third
 // serialization, within the budget the fuzz target allows every input.
 //

@@ -6,7 +6,7 @@ Ask Claude to open a draft in galley and it returns a URL. On that page you read
 
 Claude's changes land in the document the way an assistant's edits would.
 
-Each time you send, and each time Claude answers, a copy of the file is saved beside it on your own machine. You can open any point in the review and see exactly what changed. Nothing is uploaded. The file remains ordinary Markdown throughout: instructions are held outside it, and none of them remain in the text.
+Each time you send, and each time Claude answers, a copy of the file is saved beside it on your own machine. You can open any point in the review and see exactly what changed. Nothing is uploaded. The file remains ordinary Markdown throughout: your instructions are held beside it, the file carries only a short ID mark where each one sits, and pressing Revise removes the marks.
 
 `galley edit` also accepts HTML files: `galley edit page.html` extracts the prose into a Markdown document, the review proceeds as normal, and every projection re-renders the page.
 

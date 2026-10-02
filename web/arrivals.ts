@@ -102,7 +102,7 @@ const KIND_WORD: Record<string, string> = {
  * `the agent` and never `claude`, which is the word this sentence carried for
  * its whole life. THE PARTY HAS ONE NAME EVERYWHERE ELSE: every card head reads
  * `REPLACE · AGENT · JUST NOW`, the standing sentence reads "the agent
- * proposes", and `galley suggest --author` defaults to `agent` and takes ANY
+ * proposes", and `galley suggest --author` defaulted to `agent` and took ANY
  * name — so a proposal filed by `galley suggest --author dana` was announced as
  * having come from claude, on the same screen as three cards saying DANA. The
  * strip was the only surface naming a vendor, and it named the wrong one as

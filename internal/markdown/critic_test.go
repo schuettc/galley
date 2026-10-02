@@ -89,7 +89,7 @@ func TestParse_CriticFixture(t *testing.T) {
 // TestParse_Comment_ExtractedOutOfBand is the {>>note<<} contract: the note
 // never becomes document text, it comes back as an InlineComment anchored at
 // a rune offset into the block's own text, and Serialize never writes it
-// back — comments live in the sidecar, not in the file.
+// back — what the caller does with a lifted note is not the file's business.
 func TestParse_Comment_ExtractedOutOfBand(t *testing.T) {
 	src := []byte("Check {==this claim==}{>>needs a citation<<} before merge.\n")
 	doc, comments, err := markdown.Parse(src)
@@ -300,8 +300,8 @@ func TestSerialize_SuggestionAttrsAreNotRepresentable(t *testing.T) {
 // write rather than the second, which is why this goes through
 // assertEscapeAcrossBoundary like every other shape.
 //
-// The authors themselves are still lost — CriticMarkup has nowhere to put them,
-// and the sidecar is what carries attribution across a write. What survives now
+// The authors themselves are still lost — CriticMarkup has nowhere to put
+// them. What survives now
 // is the span BOUNDARY, which is what decides how many decisions the file holds.
 func TestSerialize_DifferentAuthorsStayDistinctSpans(t *testing.T) {
 	doc := docmodel.Doc{Blocks: []docmodel.Block{
@@ -372,8 +372,7 @@ func TestSerialize_HardBreakSplitsASuggestion(t *testing.T) {
 //
 // This test previously asserted the opposite: the note was lifted out
 // out-of-band and the empty paragraph dropped, so `{>>just a note<<}`
-// vanished from the file on the first save with nothing but a sidecar thread
-// to show for it. That is the behaviour this change exists to replace.
+// vanished from the file on the first save. That is the behaviour this change exists to replace.
 func TestParse_CommentOnlyParagraph_IsABlockAnchor(t *testing.T) {
 	src := []byte("Before.\n\n{>>just a note<<}\n\nAfter.\n")
 	doc, comments, err := markdown.Parse(src)
@@ -432,7 +431,7 @@ func TestSerialize_InsertionContainingItsOwnCloser(t *testing.T) {
 
 // TestSerialize_SuggestionWithNoSafeSpelling states the limit: text that
 // breaks BOTH spellings (or a highlight, which has only one) is written
-// plainly. The mark is dropped — recoverable from the sidecar — and the
+// plainly. The mark is dropped and the
 // text survives exactly, which is the property that must never bend.
 func TestSerialize_SuggestionWithNoSafeSpelling(t *testing.T) {
 	for _, tc := range []struct {

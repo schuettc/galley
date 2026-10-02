@@ -16,7 +16,7 @@ import (
 // looks for a running server.
 
 // roomIdleTimeout is applied to every ws.Server this package constructs
-// (Server.New and EditServer.NewEdit). A galley process serves exactly one
+// (EditServer.NewEdit). A galley process serves exactly one
 // room for its whole lifetime, and pins doc = yjs.GetDoc(room) once, in the
 // constructor, before any peer can ever reconnect. ws.NewServer's default
 // RoomIdleTimeout is 0 — eager-evict: the room is destroyed the instant its
@@ -24,12 +24,12 @@ import (
 // network drop). The NEXT connection then creates a brand-new room with a
 // brand-new *crdt.Doc, and every later browser edit lands there — invisible
 // to the doc this process pinned, and so invisible to Project, /_galley/pending,
-// and the sidecar, which all read the pinned doc. Silent data loss.
+// and pending.json, which all read the pinned doc. Silent data loss.
 //
 // ws.Server's config surface has no "never evict" sentinel (RoomIdleTimeout
 // must be > 0 to switch out of eager-evict at all — see ygo's idle_sweep.go),
 // so this is set to a duration long enough that it cannot fire within the
-// life of any real `galley serve`/`galley edit` process: the server itself is
+// life of any real `galley edit` process: the server itself is
 // the room's only owner, and there is nothing else to reclaim the room from.
 const roomIdleTimeout = 100 * 365 * 24 * time.Hour
 
@@ -72,7 +72,7 @@ func (e *AlreadyServing) Error() string {
 //
 // Two `galley edit` servers on one file each parse it into their own *crdt.Doc
 // and each project their own back over it, and neither can see the other: A's
-// suggestion lands on disk, B's next projection writes B's pre-suggestion
+// edit lands on disk, B's next projection writes B's pre-edit
 // document over it, and A's shutdown flush writes A's over that. Measured, one
 // agent's whole session was erased with nothing logged, nothing warned, and
 // both processes exiting 0 — see TestTwoEditorsOnOneDocumentEraseEachOther,
@@ -85,8 +85,7 @@ func (e *AlreadyServing) Error() string {
 //
 // ANY live advert is a claim here, including one this process wrote: a process
 // that already advertises a document already has a server for it, so the second
-// constructor call is the second document whatever the PIDs say. Announce asks
-// the narrower question — see claimUnheldByAnother.
+// constructor call is the second document whatever the PIDs say.
 func claimDocument(runtimePath string) error {
 	if rt, ok := readRuntime(runtimePath); ok {
 		return &AlreadyServing{Runtime: rt}

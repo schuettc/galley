@@ -20,10 +20,9 @@ const exportDebounce = 400 * time.Millisecond
 // shape can recognise what it is reading.
 const schemaVersion = 1
 
-// debouncer schedules a delayed action, replacing any run still pending —
-// shared by Server and EditServer so a reviewer's page and an editor's
-// document debounce their disk projection identically rather than each
-// carrying its own near-copy of the same timer dance.
+// debouncer schedules a delayed action, replacing any run still pending: the
+// edit server's disk projection, scheduled on every change and run once the
+// document settles.
 type debouncer struct {
 	mu    sync.Mutex
 	timer *time.Timer

@@ -240,8 +240,7 @@ func TestTheInstallListKeepsBothCommands(t *testing.T) {
 // way. It is not refused either — `unsupported` is for constructs the MODEL
 // cannot represent, and this one it represents byte for byte. So the markers
 // STAY: a {>>…<<} with no anchor to be given is not a comment, it is text, and
-// the words remain where the author typed them and where the zero-tooling
-// promise reads them from.
+// the words remain where the author typed them.
 func TestANoteThatIsTheWholeOfAHeadingKeepsItsMarkers(t *testing.T) {
 	for _, src := range []string{
 		"# {>>write the title here<<}\n",

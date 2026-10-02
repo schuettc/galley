@@ -1,15 +1,16 @@
-// Package review defines the shape of a review conversation as a Yjs document.
+// Package review defines the shape of a review's unsent comments as a Yjs
+// document.
 //
 // The document is the live state: the browser edits it over the y-websocket
-// protocol, the agent edits it in-process, and neither has to poll the other.
+// protocol, the server edits it in-process, and neither has to poll the other.
 // Its durable mirror is the unsent round, internal/unsent's pending.json,
 // which the edit server writes after every change and replays at startup.
 //
 // Schema, rooted at the "threads" map:
 //
-//	threads: YMap                      key = slug of the section heading
-//	  <slug>: YMap
-//	    heading:  string               the section heading, for orphan reporting
+//	threads: YMap                      key = the comment's ID (unsent.NewID)
+//	  <id>: YMap
+//	    heading:  string               the quoted words the comment is on
 //	    resolved: bool
 //	    entries:  YArray               chronological
 //	      [n]: YMap
@@ -17,9 +18,8 @@
 //	        at:     RFC3339 string
 //	        text:   YText              character-level, so concurrent edits merge
 //
-// One YText per entry rather than one per thread is what makes an agent reply
-// arriving mid-sentence harmless: the reviewer's text and the reply are
-// different objects, so neither can clobber the other.
+// The reviewer's words are a YText, so an edit is the smallest delete and
+// insert (SetComment) and a concurrent edit from another peer merges.
 package review
 
 import (
@@ -46,8 +46,8 @@ const threadsRoot = "threads"
 // It exists because who owns the transaction differs by caller and the
 // difference is load-bearing. A plain doc.Transact mutates the document but
 // broadcasts to nobody; the websocket server's Apply captures the resulting
-// update and fans it out to connected peers. An agent reply written through the
-// first would be invisible in the reviewer's browser until they reloaded.
+// update and fans it out to connected peers. A server write through the first
+// would be invisible in the reviewer's browser until they reloaded.
 type Tx func(func(*crdt.Transaction))
 
 // Session binds a document to the transaction source that should carry its
@@ -79,7 +79,8 @@ type Entry struct {
 	Text   string    `json:"text"`
 }
 
-// Thread is the conversation attached to one section of the page.
+// Thread is one unsent comment: its key, the words it is on, and what the
+// reviewer wrote.
 //
 // Anchor says what the thread is ABOUT when that is not a range of prose:
 // "block" or "document". An empty Anchor means a range of prose.
@@ -116,16 +117,10 @@ type Thread struct {
 // phone. Fractions survive every reflow because they are defined relative to
 // the thing they are on.
 //
-// IT RIDES IN THE SIDECAR, NOT IN THE .md, and that is a deliberate asymmetry
-// rather than an oversight. A rectangle has no readable markdown spelling, and
-// inventing one would cost the property the whole design rests on: that a note
-// is legible in the file with no tooling. So the note's WORDS go into the file
-// as an ordinary block note on the figure — {>>…<<} under the image — and only
-// the rectangle lives beside the author and the timestamp, which are in the
-// sidecar for exactly the same reason.
-//
-// What that costs when the sidecar is lost is therefore bounded and known: a
-// region note degrades to a block note on the figure. It never loses the words.
+// IT IS KEPT WITH THE COMMENT, NOT IN THE .md. The file carries only the
+// comment's ID mark, {>>@comment cb-…<<} under the image, and the rectangle
+// is stored in pending.json beside the comment's words, author and time, like
+// every other fact about the comment.
 type Region struct {
 	X float64 `json:"x"`
 	Y float64 `json:"y"`
@@ -269,11 +264,11 @@ func readEntry(em *crdt.YMap) Entry {
 	return e
 }
 
-// ErrNoThread is returned when an operation names a section that has no thread.
+// ErrNoThread is returned when an operation names a key that has no thread.
 var ErrNoThread = errors.New("no thread for that section")
 
-// Append adds an entry to a thread, creating the thread if the section has
-// never been commented on.
+// Append adds an entry to a thread, creating the thread if the key names none
+// yet.
 //
 // Every read happens before the transaction opens, and every nested type is
 // reached through the prelim handle that created it. That is not a style
@@ -543,9 +538,8 @@ func (s *Session) SetOutcome(key, outcome string) error {
 // IT IS THE ONE DESTRUCTIVE OPERATION IN THIS FILE, and it is separate from
 // SetResolved because the two mean different things. Resolving settles a
 // conversation and keeps what everybody said; deleting is for a comment that no
-// longer applies at all, and it is irreversible outside git. Nothing calls this
-// except an explicit `galley delete`, the card's delete control, and the
-// endpoint behind them.
+// longer applies at all, and it is irreversible. Nothing calls this except
+// the card's delete control, the endpoint behind it, and the send's clear.
 //
 // The thread's absence is an ERROR rather than a no-op: a delete that silently
 // succeeds against a key naming nothing is a delete agreeing with a typo, and

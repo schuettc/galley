@@ -159,7 +159,7 @@ export function sealLine(
  *     reads this constant entire against a real fixture and requires every
  *     selector in it to match something, which is what would catch it.
  *   - `.gly-overall-input` files a note on the whole document through
- *     `/_galley/suggest`. It is the reply box's own case, on the panel instead
+ *     `/_galley/instruct`. It is the reply box's own case, on the panel instead
  *     of on a card, and it was missed because at the time it was an `<input>`
  *     and the sweep was reading for `<textarea>`. IT IS A `<textarea rows=2>`
  *     NOW — the whole-document note grew a second line so it could hold a
@@ -590,8 +590,7 @@ export const sealMethods = {
     // REPLACES IT FOR A REVIEWER WHO APPROVED TOO SOON: the seal is in-memory
     // and per-process (see internal/serve/seal.go — one writer, one direction),
     // so ending the editor and running `galley edit` again is a live review on
-    // the same document, with the trail and the instructions still in the
-    // sidecar.
+    // the same document, with the unsent instructions still in pending.json.
     //
     // DONE IS THE OPPOSITE CASE AND IT IS RECORDED RATHER THAN QUIETLY TAKEN.
     // `/_galley/stop` EXISTS and works — `handleStop` runs `EditServer.OnStop`,

@@ -317,7 +317,7 @@ process.on('exit', () => {
     rmSync(HERE, { recursive: true, force: true });
   } catch {
     // ENOTEMPTY, seen once: the server is being SIGTERMed at this exact moment
-    // and can write its sidecar back into the directory mid-removal. A tmpdir
+    // and can write its files back into the directory mid-removal. A tmpdir
     // left behind is nothing; an exit handler that THROWS turns a run where
     // every check passed into a non-zero exit, which is a gate reporting a
     // failure that did not happen.

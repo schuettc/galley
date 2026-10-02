@@ -1,6 +1,6 @@
 // suggestions.ts — the browser half of galley's suggestion grammar: the
 // guard over literal regions, the machinery that locates an AGENT's proposal
-// in the document, and the bubble that offers its accept/reject.
+// in the document, and the bubble that says what a mark is.
 //
 // Two pieces, one file because they are two halves of one idea:
 //
@@ -12,16 +12,13 @@
 //                     docs/superpowers/specs/2026-08-14-the-reviewers-hand.md).
 //                     Only the AGENT's proposals are tracked, and they arrive
 //                     server-stamped through the websocket.
-//   SuggestionUI      turns a click on an agent's ins/del/highlight mark into
-//                     a bubble whose buttons ask the SERVER to accept or
-//                     reject it.
+//   SuggestionUI      turns a click on an ins/del/highlight mark into a
+//                     bubble that says what the mark is. It offers no
+//                     verdict: accept and reject are gone (see render).
 //
-// The second half never touches the document. Accept and reject are server
-// transforms (internal/suggest, driven by /_galley/accept|reject); the server
-// rebuilds the whole fragment and the change arrives here over the websocket
-// like any other edit. A browser that also applied the transform locally would
-// be racing that rebuild with a second, subtly different implementation of the
-// same rules — so it doesn't have one.
+// The second half never touches the document. Every mark is written by the
+// server, which rebuilds the whole fragment, and the change arrives here over
+// the websocket like any other edit.
 //
 // WHAT USED TO LIVE HERE, and why it is gone rather than hidden. The plugin
 // converted every reviewer keystroke into a tracked mark — ins for typing,
@@ -1512,8 +1509,7 @@ function markOf(node: PMNode, typeName: string): Mark | null {
 //
 // So does anything before the epoch, which is not a hypothetical: CriticMarkup
 // has nowhere to write a suggestion's author or timestamp, so a suggestion
-// read straight out of a file with no sidecar beside it arrives with Go's
-// ZERO time — year 1 — and renders as "739833d ago" unless it is caught here.
+// read straight out of a file arrives with Go's ZERO time — year 1 — and renders as "739833d ago" unless it is caught here.
 export function age(iso: string | undefined): string {
   if (!iso) {
     return '';

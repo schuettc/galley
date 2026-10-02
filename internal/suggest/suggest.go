@@ -220,7 +220,7 @@ type span struct {
 	// note is set for a span that is a docmodel.Note BLOCK rather than a run
 	// of marked inlines — a block or document comment. start/end/markKind/
 	// author/at are all meaningless for one: the file has nowhere to record a
-	// note's author (the sidecar thread does), and there is no inline range
+	// note's author (pending.json does), and there is no inline range
 	// because the whole block is the anchor.
 	note bool
 	// ins is the INSERTED half of a KindReplace span, and nil for every

@@ -281,9 +281,8 @@ func TestFindUnique_IgnoresNoteText(t *testing.T) {
 	}
 }
 
-// A block key names a BLOCK; a comment key names a THREAD. They are stored in
-// the same sidecar and looked up by string, so a collision would attach a
-// conversation to the wrong thing. The prefixes are what keeps them apart, and
+// A block key names a BLOCK; a comment key names a THREAD. Both are looked up
+// by string, so a collision would attach a comment to the wrong thing. The prefixes are what keeps them apart, and
 // this test is what keeps the prefixes.
 func TestBlockKeysAndCommentKeysCannotCollide(t *testing.T) {
 	d := docmodel.Doc{Blocks: []docmodel.Block{

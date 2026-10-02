@@ -5,28 +5,26 @@
 // slogan. Review state stays exactly where it was — the .md and the unsent round —
 // and nothing here is on the path that puts it there. The whole surface is
 // EditServer.remember, which returns nothing: there is no error for a handler
-// to check, so no handler can be written to refuse an accept because a disk was
+// to check, so no handler can be written to refuse a send because a disk was
 // full. internal/ledger.Recorder does the rest (bounded queue, its own
-// goroutine, a recover around the append), and TestALedgerFailureCannotFailA
-// Decision drives a server whose every append fails and asserts the decisions
-// still land.
+// goroutine, a recover around the append), and its TestRecorderSwallowsAFailed
+// Append and TestRecorderSwallowsAPanickingAppend hold that.
 //
 // LATENCY: THE DECISION PATH PAYS A CHANNEL SEND AND NOTHING ELSE. The append
 // is a file write — a repo-root walk, a MkdirAll, a .gitattributes check and an
 // O_APPEND write — and on a network mount or a wedged disk that is unbounded.
 // None of it happens here. What happens here is building a small struct and
 // handing it to a buffered channel, which is why remember can be called from
-// inside a handler that has just decided forty proposals in one mutation
-// without the reviewer waiting on forty file writes. The trade is stated in
+// inside a handler that has just sent a forty-instruction round without the
+// reviewer waiting on forty file writes. The trade is stated in
 // Recorder: a process that exits without flushing loses whatever is queued.
 // `galley edit`'s shutdown and the CLI's exit both flush.
 //
 // EVERY RECORD IS TAKEN BEFORE THE MUTATION AND WRITTEN AFTER IT. Before,
 // because a Pending is meaningful only against the model it was listed from —
-// the ordinal-identity rule CLAUDE.md states, and the same reason handleDecline
-// captures its text inside the transform. After, because a transform that runs
-// and then fails to apply decided nothing, and a ledger that recorded it would
-// be remembering something that never happened.
+// the ordinal-identity rule CLAUDE.md states. After, because a transform that
+// runs and then fails to apply decided nothing, and a ledger that recorded it
+// would be remembering something that never happened.
 package serve
 
 import (

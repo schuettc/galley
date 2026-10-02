@@ -173,9 +173,8 @@ const (
 //
 // suggest.MintRuns mints for everything else as a document enters the edit
 // session, and it is deliberately NOT serialized. CriticMarkup has no slot for
-// it, and
-// inventing one would cost the property that any agent can read pending state
-// from a plain .md with no tooling at all.
+// it, and a run is a session coordinate, not an identity: what a comment keeps
+// across sessions is its ID (CommentIDAttr), below.
 //
 // So a run identifies a mark for as long as the document is loaded, and is
 // re-minted next time it loads. That is the right scope. Within a session —

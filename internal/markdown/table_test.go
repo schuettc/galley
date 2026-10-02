@@ -395,9 +395,8 @@ func TestSerialize_TableCellStaysOnOneLine(t *testing.T) {
 //
 // Measured against the shipped serializer, which had no Note case at all:
 // "| x | {>>note here<<} | z |" came back "| x | note here | z |". The markers
-// were gone, the comment read as prose, and the only surviving copy was in the
-// sidecar — the zero-tooling promise (an agent reads pending state from the .md
-// alone) broken by opening the document and saving it.
+// were gone and the comment read as prose: opening the document and saving it
+// turned a note into the author's text.
 //
 // EVERY COLUMN POSITION, and the header row too. Unlike the blank-cell bug this
 // one is visible from a Go golden file at any position — cellTexts pads at the
@@ -448,7 +447,7 @@ func TestSerialize_NoteInACellStaysInTheFile(t *testing.T) {
 // The other side of the position discriminator, held so the fix above cannot
 // be widened into it. A note with prose BESIDE it in the cell leaves that prose
 // behind, so the paragraph is not empty, so it is a RANGE comment at its offset
-// — lifted into the sidecar and never serialized again, exactly as the same
+// — lifted out of the model and never serialized again, exactly as the same
 // note would be at the end of a sentence in ordinary prose. The cell keeps its
 // text and loses the marker, and that is the whole-package rule for range
 // comments rather than anything table-shaped.

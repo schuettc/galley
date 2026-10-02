@@ -13,10 +13,10 @@ import (
 // Court: "if we highlight a sentence and add an instruction and then delete the
 // sentence, we should delete the instruction as well."
 //
-// It is the idiom this codebase already uses one population over. Deleting text
-// under an AGENT's pending mark has always been the verdict by hand — the
-// proposal vanishes. An instruction is the reviewer's own mark over their own words, and
-// removing those words retracts it.
+// It is the idiom this codebase used one population over: deleting text under
+// an AGENT's pending mark was the verdict by hand, and the proposal vanished.
+// An instruction is the reviewer's own mark over their own words, and removing
+// those words retracts it.
 //
 // A TEXT COMMENT'S PLACE IS ITS ID ON A HIGHLIGHT, and nothing else. Editing a
 // word inside the highlight keeps the ID, so the comment stays; deleting every

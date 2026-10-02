@@ -901,8 +901,8 @@ export const cardMethods = {
   },
 
   // railThreads drops the resolved ones — a settled thread has nothing
-  // pending about it and no highlight left to point at; it stays in the
-  // sidecar and in `galley pending`, and the map is for what is still open —
+  // pending about it and no highlight left to point at, and the map is for
+  // what is still open —
   // AND the document-anchored ones, which the overall card above owns.
   //
   // Split out of paintRailCards because it is `this`-bound (`this.held`,
@@ -921,8 +921,7 @@ export const cardMethods = {
       }
       if (thread.resolved) {
         // A settled thread has nothing pending about it and no highlight left
-        // to point at. It stays in the sidecar and in `galley pending`; the map
-        // is for what is still open.
+        // to point at; the map is for what is still open.
         continue;
       }
       // NOT `!!thread.run`. A thread has a run only if it hangs on a MARK, and
@@ -1221,8 +1220,8 @@ export const cardMethods = {
   // same contract every reply box in this file has.
   //
   // IT IS ONE MUTATION, NOT A DELETE AND A RE-FILE. See the "edit" case in
-  // handleInstruction: both halves of the change — the note in the .md and the
-  // entry in the sidecar — land together or neither does.
+  // handleInstruction: the words change in place, in the review map and in
+  // pending.json, and the comment's ID mark in the .md is not touched.
   editButton(
     this: AppShell,
     thread: Thread,

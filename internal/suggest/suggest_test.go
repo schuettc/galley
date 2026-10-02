@@ -287,9 +287,9 @@ func TestSuggestCannotTargetANote(t *testing.T) {
 // author's own file. The write side is correct — note.go escapes a body so it
 // survives verbatim — but only for words the note was built with.
 //
-// Not a regression (the same flattening always fed the sidecar), but this
-// branch promotes the flattened text to durable FILE content, so a reviewer
-// who pastes a link into a note now loses the URL from their document.
+// galley no longer writes words into a note (a comment's note is its ID
+// mark), so this reaches only a note typed into the file by hand: its link
+// destination is lost from the document at the next save.
 //
 // Skipped: fixing it means giving the note body its own escaped-source
 // extraction rather than reusing cellText, which is a larger change than the

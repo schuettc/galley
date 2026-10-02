@@ -146,7 +146,7 @@ func newApp() *tools.App {
 			"--on-revise example:\n" +
 			"  galley edit doc.md --on-revise 'muster send <alias> " +
 			"\"galley: revision requested — run: galley wait <doc>\" " +
-			"--from galley-serve --intent action-requested && muster nudge <alias>'",
+			"--from galley --intent action-requested && muster nudge <alias>'",
 		NewFlags: func() *flag.FlagSet { fs, _ := newEditFlags(); return fs },
 		Run:      runEdit,
 	})

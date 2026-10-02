@@ -576,8 +576,9 @@ func (s *EditServer) Doc() *crdt.Doc { return s.doc }
 
 // Close releases everything NewEdit started: the pending debounced projection,
 // and the websocket server's peer connections and per-room idle sweeper, which
-// ws.NewServer starts whether or not a peer ever connects. It closes peer connections, so it must run AFTER the final Flush:
-// a projection that has not reached disk by then never will.
+// ws.NewServer starts whether or not a peer ever connects. It closes peer
+// connections, so it must run AFTER the final Flush: a projection that has not
+// reached disk by then never will.
 func (s *EditServer) Close() error {
 	// The import watcher first: it calls mutate, and a mutation landing after
 	// the final flush is a write nothing will ever project. Stopping the
@@ -634,8 +635,9 @@ func (s *EditServer) SeedNotify() {
 func (s *EditServer) LastExport() time.Time { return s.exported.get() }
 
 // Project writes the live document back to disk: the fragment, read into the
-// document model, becomes canonical markdown at MdPath (atomically); pending
-// suggestions and comment threads become the sidecar beside it.
+// document model, becomes canonical markdown at MdPath (atomically). The
+// unsent comments' words are not written here: they are in pending.json,
+// which every instruction mutation writes before any projection runs.
 //
 // Code-block text is the one exception CriticMarkup cannot honestly render:
 // a fence's content is literal code, so it is left untouched by Serialize —
@@ -748,8 +750,8 @@ func (s *EditServer) project() error {
 	// A RUNNING GALLEY OWNS THE FILE, AND THE OVERWRITE USED TO BE SILENT.
 	// Every projection writes the CRDT over the document, so an edit made to
 	// the .md by hand while `galley edit` is serving is gone at the next
-	// settle. That is the design and not a defect — the document a browser,
-	// an agent and a sidecar are all bound to is the live one, and merging a
+	// settle. That is the design and not a defect — the document a browser
+	// and an agent are both bound to is the live one, and merging a
 	// foreign write back into a CRDT that cannot recognise a document it did
 	// not build is a different piece of work (see CLAUDE.md on why a fresh
 	// parse cannot be merged with the served doc). What WAS a defect is that
@@ -1262,16 +1264,15 @@ const (
 // AUTHOR, NOT TRANSPORT. The tempting alternative is to call a request with no
 // Origin header the agent's — serve.guard already treats a missing Origin as
 // "the CLI, curl, an agent" — but that is the wrong question asked of the right
-// evidence: the reviewer drives `galley accept` from a terminal too, and
-// classifying that as the agent would take the one decision the agent is
-// actually waiting for and make it silent.
+// evidence: a request with no Origin can be the reviewer's own, from curl or a
+// script, and classifying that as the agent would make the reviewer's own
+// change silent.
 //
 // The author is a distinction this server already carries and already trusts
 // for exactly this meaning: review.Read reads `Author == AuthorCourt` as "the
 // reviewer said this", and the editor bundle names itself on every mutating
 // request it sends (web/entry.js's AUTHOR). So anything that is NOT the
-// reviewer's own name is a write on the agent's behalf — including an explicit
-// `galley suggest --author alice`, which is likewise not news to whoever ran it.
+// reviewer's own name is a write on the agent's behalf.
 func requesterFor(author string) requester {
 	if author == review.AuthorCourt {
 		return byReviewer
@@ -1285,8 +1286,8 @@ func requesterFor(author string) requester {
 // server's Apply so peers see it.
 //
 // The mutex is what makes the read-transform-write sequence atomic WITH
-// RESPECT TO OTHER SERVER-SIDE WRITERS — the suggest/accept/reject endpoints,
-// Project, and Flush. Nothing in ygo offers that atomicity to piggyback on, so
+// RESPECT TO OTHER SERVER-SIDE WRITERS — the instruction and revert
+// endpoints, the send, the agent's import, Project, and Flush. Nothing in ygo offers that atomicity to piggyback on, so
 // there is nothing cheaper to use instead.
 //
 // In particular it cannot be Apply-scoped, and the reason is worth stating
@@ -1927,15 +1928,15 @@ func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bo
 //
 // Single-flight: a second POST while one command is still running is refused
 // with 409 rather than starting a rival process. Two agents revising the same
-// document concurrently would race each other's suggestions into the same
+// document concurrently would race each other's edits into the same
 // fragment, and an impatient double-click on the Revise button is the ordinary
 // way that happens.
 //
 // DELIBERATELY NO TIMEOUT. An agent revision legitimately runs for minutes —
-// reading the work order, thinking, writing suggestions back through
-// /_galley/suggest — and any timeout short enough to be useful against a
-// genuinely hung command would also kill real work mid-revision, leaving the
-// document half-suggested with no way to tell which half. Supervision is the
+// reading the work order, thinking, editing the file — and any timeout short
+// enough to be useful against a genuinely hung command would also kill real
+// work mid-revision, leaving the document half-revised with no way to tell
+// which half. Supervision is the
 // caller's: ReviseInFlight exposes the state, Log carries the outcome, and the
 // operator can see the process. If a bound is ever wanted it belongs in the
 // configured command itself (`timeout 600 …`), where the person who knows how
@@ -2742,8 +2743,8 @@ func (s *EditServer) ReleaseWaiters() {
 	}
 }
 
-// waitFingerprint is the cursor a blocking read compares against: the pending
-// suggestions and the comment threads, hashed by FingerprintPending — the same
+// waitFingerprint is the cursor a blocking read compares against: the document
+// and its live instructions, hashed by editFingerprint — the same
 // one answer to "has anything a reviewer could be waiting on changed" that the
 // notifier and the revision window both use. handleRevise takes the window's
 // fingerprint from here too, so there is exactly one of these in the file.

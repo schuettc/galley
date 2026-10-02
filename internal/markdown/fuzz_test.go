@@ -112,9 +112,9 @@ func FuzzRoundTrip(f *testing.F) {
 		outs := [][]byte{markdown.Serialize(doc)}
 		// lifted[k] is the text of the comments Parse pulled OUT of outs[k]
 		// on its way to producing outs[k+1]. Serialize never writes a
-		// comment back — they live in the sidecar by design — so text that
-		// ends up inside "{>>...<<}" leaves the file, and property (b) has
-		// to account for it or it reads as loss.
+		// lifted comment back — Parse returns it beside the model, by
+		// design — so text that ends up inside "{>>...<<}" leaves the file,
+		// and property (b) has to account for it or it reads as loss.
 		var lifted []string
 		// The known classes allowed extra rounds, both pre-existing and
 		// both out of scope for this task, are the EMPHASIS ones: the
@@ -208,8 +208,8 @@ func FuzzRoundTrip(f *testing.F) {
 			// second half is not a loophole: it is where the marker-soup
 			// class actually goes. "{=={>>0<<}==}" is literal text on one
 			// write and a real COMMENT on the next read, and the "0" leaves
-			// the file — but it leaves it for the sidecar, which is the
-			// designed behaviour, not a document eating a digit.
+			// the file — but it leaves as a lifted comment, which is the
+			// parser's designed behaviour, not a document eating a digit.
 			want := sortedAlnum(outs[k])
 			got := sortedAlnum(append(append([]byte{}, outs[k+1]...), lifted[k]...))
 			if got != want {
@@ -418,7 +418,7 @@ func alnum(b []byte) string {
 
 // sortedAlnum is alnum as a MULTISET rather than a sequence. Order is not
 // comparable across the two sides: a comment's text is lifted out of the
-// middle of a block, so what is left behind and what went to the sidecar
+// middle of a block, so what is left behind and what was lifted out
 // interleave differently than they appeared. What must hold is that every
 // letter and digit is still somewhere.
 func sortedAlnum(b []byte) string {
@@ -525,7 +525,7 @@ var handSeeds = []string{
 	"**{>>bold<<}**\n",
 	// A note in a TABLE CELL, which no seed and no test covered: renderCell
 	// had no Note case, so "| x | {>>n<<} | z |" wrote back "| x | n | z |"
-	// and the comment left the .md for the sidecar alone. Every column
+	// and the comment's markers left the .md. Every column
 	// position, plus the marker forms, since the escape has to be written
 	// through escapeCellText as well as through renderPlan.
 	"| a | b | c |\n| --- | --- | --- |\n| x | {>>n<<} | z |\n",

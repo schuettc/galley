@@ -216,12 +216,11 @@ export function railSurfaces({
  *
  * THAT JUSTIFICATION IS THIS SIDE'S AND DOES NOT TRAVEL. It rests on the bundle
  * and the server being one binary, which is true of the browser and false of
- * the CLI: `galley accept --all` is a separate process asking whatever `galley
- * edit` is running, with no version handshake in the protocol, so a newer CLI
- * against an older server really does see the field absent. There, absent means
- * ASK THE KIND — cmd/galley's sweepView, whose comment carries the measurement:
- * reading it as no printed `accepted 0` while the server swept every proposal.
- * A reader of this field outside the browser has to decide the question again.
+ * the CLI: `galley accept --all` was a separate process asking whatever `galley
+ * edit` was running, with no version handshake in the protocol, so a newer CLI
+ * against an older server really did see the field absent, and there absent
+ * meant ASK THE KIND. A reader of this field outside the browser has to decide
+ * the question again.
  *
  * WHAT IT GOVERNS IS WHAT IS OFFERED. Every surface that puts a ✓ or a ✗ in
  * front of the reviewer, or that `a`/`r` can land on, asks this: the rail's
@@ -1089,9 +1088,10 @@ export function settledThreads<T extends PendingThread>(
  * proposalThread pairs a live proposal card to the ONE open conversation about
  * it, or answers null.
  *
- * A change is a thread whose opening entry is a proposal: /_galley/reply takes
- * a RUN and files into (or creates) the proposal's own thread, and
- * /_galley/pending pairs that thread back by the same run (threadView.Run). So
+ * A change was a thread whose opening entry is a proposal: /_galley/reply
+ * (gone, like every proposal producer) took a RUN and filed into the
+ * proposal's own thread, and /_galley/pending paired that thread back by the
+ * same run. So
  * the proposal's card renders the thread's entries between the proposal's text
  * and the verbs, and the thread loops SKIP a paired thread — one conversation,
  * one object, which is R9's complaint ("a comment rendered as two objects")

@@ -382,7 +382,7 @@ export const composerMethods = {
     note.className = 'gly-composer-note';
 
     // Shown INSTEAD of the button where a comment cannot be made: a selection
-    // touching a code fence. A comment is not just a note — /_galley/suggest
+    // touching a code fence. A comment is not just a note — /_galley/instruct
     // writes a `highlight` mark over the anchored text, and ProseMirror will
     // not carry a mark inside a `code: true` block, so the request fails
     // server-side in a way that reads like a bug. Same predicate the
@@ -744,10 +744,10 @@ export const composerMethods = {
   // button, its refusal plumbing and suggestions.ts's strike helpers are all
   // retired together — deletion is the keyboard's, and the trail records it.)
 
-  // A comment is a server-side operation like every other suggestion: it
-  // highlights the target text in the document AND opens a thread carrying
-  // what was said. Both halves are written by /_galley/suggest, so the
-  // highlight arrives here over the websocket.
+  // A comment is a server-side operation: it highlights the target text in
+  // the document AND opens a thread carrying what was said. Both halves are
+  // written by /_galley/instruct, so the highlight arrives here over the
+  // websocket.
   sendComment(this: AppShell) {
     const c = this.composer;
     const text = c.input.value.trim();
@@ -1016,7 +1016,7 @@ export function composerPlacement(
   // A COMMENT IS ANCHORED BY THE SERVER, WHICH IS WHY INLINE `code` DOES NOT
   // DENY ONE. literalHit refuses a change wholly inside a code span — the span
   // is literal text, read-only in this editor — but a comment is not an edit
-  // to it. The browser posts a range to /_galley/suggest and the server builds
+  // to it. The browser posts a range to /_galley/instruct and the server builds
   // the highlight with an explicit mark array, which skips `excludes: '_'`
   // entirely. Measured before this exemption was written: `galley suggest
   // --comment --on retryBudget` on a paragraph reading "The `retryBudget`

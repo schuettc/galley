@@ -37,8 +37,8 @@
 // YOU write between two waits.
 //
 // The printed fingerprint is the document as it stood when this command
-// returned. If the loop then answers the review — `galley suggest`, `reply`,
-// `accept`, `reject` — the document moves, and the cursor in hand no longer
+// returned. If the loop then answers the review — edits the file, acks the
+// round — the document moves, and the cursor in hand no longer
 // describes it. Passing it back as --since is then a stale cursor, and the next
 // wait catches up IMMEDIATELY on the loop's own work.
 //

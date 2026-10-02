@@ -19,8 +19,8 @@ import (
 //     the block. There is no mark to lift, so the note itself is removed.
 //   - DOCUMENT: nothing. A document comment has no mark in the file.
 //
-// The sidecar half — dropping the conversation itself — is review.Session.
-// Delete, and every caller does both.
+// The other half — dropping the comment itself, and with it its words in
+// pending.json — is review.Session.Delete, and every caller does both.
 
 // PairFor reports the comment highlight a text comment's thread is about: the
 // comment span whose ID is the thread's key.

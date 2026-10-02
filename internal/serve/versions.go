@@ -87,7 +87,7 @@ func (s *EditServer) Versions() *versions.Store {
 //
 // AN INTENT MAY NEVER OUTLIVE THE PROJECTION IT ASKED FOR. project can return
 // before it ever reaches the cut — a refused snapshot (ydoc.ErrConcurrentWrite),
-// a failed write of the .md or of the sidecar — and an intent left lying in
+// a failed write of the .md or of pending.json — and an intent left lying in
 // pendingCut would then be committed by the NEXT projection, against bytes this
 // press never saw and after the press had already been told its round was v0.
 // That is precisely the instruction-to-diff pairing the history exists for, so
@@ -126,7 +126,7 @@ func (s *EditServer) markMovedByAgent() { s.movedByAgent = true }
 //
 // A PROPOSAL WAS ATOMIC AND A REVISION IS NOT, and that is the whole reason this
 // type exists. Phase 1 could treat the agent's return as one event — the first
-// projection whose pending fingerprint moved — because one `galley suggest` is
+// projection whose pending fingerprint moved — because one `galley suggest` was
 // one proposal and the reviewer decides it. A revision is six edits over ten
 // seconds, so cutting on the first of them would commit a round that holds one
 // sixth of the answer and leave the other five to be swept into whatever round
@@ -394,7 +394,7 @@ func digestOf(b []byte) string { return fileDigest(b) }
 // passes it that way for the reason every other round is a projection output. A
 // version is what galley READ, and the parse is where reading happens: a setext
 // heading is a `#`, a `*` bullet is a `-`, `__bold__` is `**bold**`, and an
-// inline {>>note<<} has been lifted into the sidecar and will never be written
+// inline {>>note<<} has been lifted out of the model and will never be written
 // back. Seed from the raw file and the very first diff attributes all of that to
 // the reviewer — including the disappearance of every margin note they wrote —
 // on any document that did not already arrive in canonical form. Nothing else in
@@ -433,8 +433,8 @@ func (s *EditServer) seedVersions(content []byte) {
 // their direct edits — and NOT re-derived in the browser, so the history and
 // the button cannot disagree about what was sent.
 //
-// IT IS STILL READ OFF THE THREADS, which is the only place it lives while the
-// sidecar exists — but it is now SAID ONCE.
+// IT IS READ OFF THE THREADS, the live state pending.json mirrors, and it is
+// SAID ONCE.
 //
 // AN INSTRUCTION BELONGS TO THE ROUND THAT CARRIED IT. Phase 1 recorded the
 // outstanding conversation on every round, and stated the consequence rather

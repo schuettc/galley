@@ -309,7 +309,7 @@ func shutdownEdit(srv *serve.EditServer, httpSrv *http.Server) error {
 // message does.
 //
 // KEPT DELIBERATELY SHORT. This prints on every single `galley edit`, unlike
-// `document`/`sidecar`/`room`/`serving` above it whose length is the path's
+// `document`/`room`/`serving` above it whose length is the path's
 // fault, not the label's. An early draft spelled out the full reasoning here
 // — why a waiter is dynamic, why a settle only wakes one in ● live — and
 // that reasoning is real, but it belongs somewhere a reader goes once

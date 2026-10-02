@@ -71,7 +71,7 @@ func drainHandshake(t *testing.T, conn *gws.Conn, doc *crdt.Doc) {
 // room is destroyed. The next connection then creates a FRESH room with a
 // FRESH *crdt.Doc, and every later browser edit lands there, invisible to
 // the s.doc this EditServer is holding and invisible to Project,
-// /_galley/pending and the sidecar, which all read s.doc. Silent data loss.
+// /_galley/pending and pending.json, which all read s.doc. Silent data loss.
 //
 // Before the fix (yjs.RoomIdleTimeout left at its zero-value default) this
 // test fails: s.yjs.GetDoc(s.Room) after disconnect+wait returns a *different*

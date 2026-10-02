@@ -11,7 +11,8 @@ import (
 )
 
 // Detach is the DOCUMENT half of deleting a thread: the trace the conversation
-// left in the file. Everything else about a delete is the sidecar's business.
+// left in the file. Everything else about a delete is the review map's and
+// pending.json's business.
 //
 // Two block comments on one block are the case that decides whether the
 // pairing is real or a coincidence: each thread takes the note carrying ITS ID,

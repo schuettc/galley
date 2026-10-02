@@ -24,13 +24,14 @@
 //     than refused, and what makes a rename loud is a golden key-set test in
 //     the owning package — the only check that can see a rename at all, since
 //     a reader cannot detect a key it was never told about. That is
-//     `rounds.jsonl`, `~/.galley/live/`, and the review sidecar.
+//     `rounds.jsonl` and `~/.galley/live/`.
 //
 //   - PRIVATE — written and read back by ONE galley, in a gitignored working
 //     directory, with a quarantine path already in place for a file it cannot
 //     read. Unknown fields are REFUSED and a newer version is REFUSED, because
 //     the file is scratch state whose loss costs a resume and whose silent
-//     misreading costs the round's attribution. That is the handoff lease.
+//     misreading costs the round's attribution. That is the handoff lease,
+//     and the unsent round, `pending.json`.
 //
 // # Fail closed, and which of the two ways
 //

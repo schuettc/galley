@@ -8,8 +8,8 @@ import (
 )
 
 // mutatingEndpoints is every request that changes state, with a body each will
-// accept. They are tested together on purpose: a guard that covers three of
-// four is the shape this whole class of bug takes.
+// accept. They are tested together on purpose: a guard that covers all but one
+// endpoint is the shape this whole class of bug takes.
 type mutatingEndpoint struct {
 	name string
 	path string

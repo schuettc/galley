@@ -1,28 +1,15 @@
-// decisions.go is the OFFLINE half of galley's memory: what this process
-// remembers when it decides something with no server in the room.
+// decisions.go is this process's handle on galley's memory, and the flush that
+// writes it out on the way out.
 //
-// EVERY COMMAND HERE HAS TWO PATHS AND ONLY ONE OF THEM IS VISIBLE. `galley
-// accept doc.md s1` posts to a running editor when there is one — and the
-// server records it, on the live path in internal/serve/ledger.go — or, when
-// there is not, rewrites the document and the sidecar itself. The offline path
-// is the one every feature that touched the live path has historically
-// forgotten, and it is the path an agent working through a terminal is most
-// often on. It is not a lesser copy: the file it writes is the document of
-// record.
-//
-// THE RECORD SHAPE IS THE LIVE HANDLER'S, imported rather than restated from
-// internal/serve/ledger.go. Two mappings from a decision to
-// a ledger line would be two answers to "what was decided", and a store whose
-// whole value is that its numbers can be trusted cannot have two.
-//
-// NO REVIEW ID, and that is honest rather than missing. A record's `review` is
-// a live session's room, minted per run of `galley edit`; a command run with no
-// server belongs to no round, and inventing an identifier for it would let a
-// consumer group decisions that were never grouped.
+// NO COMMAND HERE DECIDES ANYTHING OFFLINE. Every decision is made through a
+// running editor, which records it on the live path in
+// internal/serve/ledger.go, through ledger.DefaultRecorder: the recorder this
+// file flushes. The flush lives in the CLI because main is the one place that knows
+// the process is about to exit.
 //
 // THE LEDGER IS MEMORY, NEVER TRUTH: nothing here returns an error, so no
 // command in this package can fail for want of a record — see
-// internal/ledger.Recorder, and TestALedgerFailureCannotFailAnOfflineDecision.
+// internal/ledger.Recorder.
 package cli
 
 import (

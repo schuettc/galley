@@ -166,9 +166,9 @@ export const sheetMethods = {
     close.addEventListener('click', () => this.closeSheet());
     head.append(untracked, close);
     // The settled region, at the foot of the list — and THE ONLY ONE THERE IS.
-    // A RESOLVED THREAD MAY NEVER BE INVISIBLE-BUT-PRESENT: resolving a note
-    // keeps its words in the file, so a surface that simply dropped it says
-    // there is nothing there while the note goes on rendering in the prose.
+    // A RESOLVED THREAD MAY NEVER BE INVISIBLE-BUT-PRESENT: a surface that
+    // simply dropped it would say there is nothing there while its mark goes
+    // on rendering in the prose.
     //
     // It used to have a twin in the rail, and this one was added afterwards
     // because below the breakpoint the rail's was off screen and `↺ reopen`,
