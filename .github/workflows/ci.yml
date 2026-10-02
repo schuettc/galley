@@ -177,7 +177,7 @@ jobs:
           GALLEY: ${{ github.workspace }}/bin/galley
 
       # A CODE BLOCK TAKES A BLOCK-LEVEL INSTRUCTION, AND ONLY FROM ITS OWN
-      # GRIP. Hover a fence and a {} grip appears in the gutter; clicking it
+      # GRIP. A fence's grip sits in the gutter at rest; pressing it
       # opens the composer in BLOCK mode and sending files one block thread on
       # the fence's own key, with a card in the rail beside it — while a
       # SELECTION inside the fence still gets the deny line and no range

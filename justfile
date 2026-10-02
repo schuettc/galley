@@ -431,8 +431,8 @@ page: build
     GALLEY="$PWD/bin/galley" node web/page.mjs
 
 # A code block takes a block-level instruction, and only from its own grip. The
-# fence gate: hover a fence, the {} grip appears in the gutter, clicking it
-# opens the composer in BLOCK mode, sending files one block thread on the
+# fence gate: the fence's grip sits in the gutter at rest, pressing it opens
+# the composer in BLOCK mode, sending files one block thread on the
 # fence's key and a card lands in the rail beside it — while a SELECTION inside
 # the fence still gets the deny line and no range composer. Ends by stopping
 # the server and reopening the document, because the note's round trip is
