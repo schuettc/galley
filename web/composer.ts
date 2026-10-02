@@ -19,17 +19,19 @@
 // composerPlacement and docRange are private to this module: composerPlacement
 // was a free function in entry.ts with exactly one caller, placeComposerButton,
 // and docRange, in turn, was called only from composerPlacement. Both moved
-// here with their one caller. sectionSpan moved to web/figures.ts with
-// openSectionComposer and placeGrip, its two callers.
+// here with their one caller. sectionSpan lives in web/figures.ts with the
+// block grip, which opens a section's composer.
 
 import { postJSON } from './net.ts';
 import { submitOnEnter, growOnInput, elide, AUTHOR } from './rail.ts';
-import { isFence, literalHit, literalRegion } from './suggestions.ts';
+import { literalHit } from './suggestions.ts';
 import type { LiteralHit } from './suggestions.ts';
-import { TextSelection } from '@tiptap/pm/state';
 import type { EditorState } from '@tiptap/pm/state';
-import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model';
+import type { ResolvedPos } from '@tiptap/pm/model';
 import type { AppShell } from './appshell.ts';
+import { gripOn } from './grips.ts';
+import type { GripTarget } from './grips.ts';
+import { scopeKey } from './scope.ts';
 import type { Region } from './wire';
 import type { MenuItem } from './menu.ts';
 
@@ -52,9 +54,15 @@ const REFUSAL_DWELL_MS = 1500;
  * the moment either of them moves. */
 const COMPOSER_QUOTE_CHARS = 28;
 
+/** The same box, headed by a block grip: `INSTRUCTION · ON THE SECTION "…"`
+ * spends the twelve characters of `the section ` before the quote, so the
+ * words get that much less of it. The bound and the box are one pair, as
+ * above. */
+const SECTION_QUOTE_CHARS = COMPOSER_QUOTE_CHARS - 'the section '.length;
+
 // The block this comment will be filed against, when it is not a range
-// comment: {key, label, region}. Set by the section grip and by a figure
-// region, cleared by every ordinary selection. One field for both because
+// comment: {key, label, region}. Set by a block grip and by a figure region,
+// cleared by every ordinary selection. One field for both because
 // they are one write — a note on a block key — differing only in whether a
 // rectangle rides with it.
 export interface ComposerBlock {
@@ -80,7 +88,7 @@ export interface DocRange {
 // writes. `range`, `block` and `sending` are not part of the literal makeComposer
 // returns — they are written onto it afterwards, by placeComposerButton,
 // the grip/figure openers, and sendComment respectively — so they are
-// declared here rather than assumed always present.
+// declared here rather than assumed always present. `opener` likewise.
 export interface Composer {
   root: HTMLElement;
   bar: HTMLElement;
@@ -98,9 +106,10 @@ export interface Composer {
   block: ComposerBlock | null;
   range?: DocRange | null;
   sending?: boolean;
-  // gripFrom is where the selection a GRIP made starts, while its composer is
-  // up; null otherwise. See releaseGrip.
-  gripFrom?: number | null;
+  // opener is the block grip that opened this composer, while it is up; null
+  // otherwise. Esc hands focus back to it, and a composer with one is not
+  // driven by the selection (see placeComposerButton).
+  opener?: HTMLElement | null;
   // anchor is what the composer was last placed against, in PAGE coordinates
   // so a scroll between placing the button and opening the form does not move
   // it. See placeComposer and openComposerForm.
@@ -329,7 +338,7 @@ export const composerMethods = {
     // box rather than on the words. `INSTRUCTION · ON "…"` is the same head the
     // card in the rail will wear a moment later, so the thing being made and
     // the thing that appears are recognisably one object. It is written by
-    // whoever places the composer (placeComposerButton, openSectionComposer,
+    // whoever places the composer (placeComposerButton, openBlockComposer,
     // openRegionComposer) — the three functions that know what the anchor is.
     const head = document.createElement('div');
     head.className = 'gly-composer-head';
@@ -532,7 +541,10 @@ export const composerMethods = {
     return items;
   },
 
-  placeComposerButton(this: AppShell) {
+  // `byReviewer` is false for a selection change the reviewer did not make:
+  // a server-side mutation rebuilding the document, or keepPlace putting the
+  // caret back after one. The right-click menu calls this with the default.
+  placeComposerButton(this: AppShell, byReviewer = true) {
     const c = this.composer;
     // A region composer is not driven by the selection — it was opened by a
     // drag on a figure, and the caret never moved. Recomputing placement from
@@ -541,21 +553,14 @@ export const composerMethods = {
     if (c.block && c.block.region) {
       return;
     }
-    // NOR IS A GRIP'S, while its selection stands. The selection moves under
-    // it without the reviewer moving: the comment's own note arrives over the
-    // websocket INSIDE the section, often before the send's response, and the
-    // grown range used to re-place the composer as a range composer over the
-    // section, which dropped the block target and the grip's claim on the
-    // selection, so nothing collapsed it (see releaseGrip). Its start is what
-    // the reviewer would have to move to make a selection of their own.
-    const sel = this.editor.state.selection;
-    if (
-      !c.root.hidden &&
-      c.gripFrom !== null &&
-      c.gripFrom !== undefined &&
-      !sel.empty &&
-      sel.from === c.gripFrom
-    ) {
+    // NOR IS A BLOCK GRIP'S, against anything but the reviewer. The selection
+    // moves under it without the reviewer moving — the comment's own note
+    // arrives over the websocket inside the section, often before the send's
+    // response — and re-placing then would drop the block target and file the
+    // words as a range comment on whatever the rebuild left selected. A
+    // selection the reviewer makes is theirs to make: a range replaces the
+    // block composer, a caret closes it.
+    if (c.opener && !c.root.hidden && !byReviewer) {
       return;
     }
     // A hidden composer has nothing to keep, so it always re-places.
@@ -585,8 +590,8 @@ export const composerMethods = {
     // new selection — and a block target left behind would file the next
     // comment against the previous section's heading.
     c.block = null;
-    // And the selection is the reviewer's own now, so hiding must keep it.
-    c.gripFrom = null;
+    c.opener = null;
+    this.clearScope();
     c.button.disabled = false;
     // A PLACEMENT OUTRANKS A DEFERRED DISMISSAL. See the blur handler: its
     // zero-timeout check can be queued behind the very selection that opens
@@ -701,6 +706,23 @@ export const composerMethods = {
   // a head that quoted an empty string would read as an instruction about
   // nothing. Bounded, because a reviewer may select a paragraph and the head is
   // one line of chrome, not a second copy of the document.
+  // headBlockComposer is the head for a block grip's composer: what the
+  // instruction is ON, in the grip's own words (`on the section "Budget"`,
+  // `on this code block`), so the button pressed and the box it opened say
+  // one thing. Nothing is quoted from a fence or a table: a head holding the
+  // first characters of a shell command reads as an instruction about them.
+  headBlockComposer(
+    this: AppShell,
+    target: Pick<GripTarget, 'kind' | 'figure'>,
+    label: string,
+  ) {
+    this.composer.head.textContent = `INSTRUCTION · ON ${gripOn(
+      target,
+      label,
+      SECTION_QUOTE_CHARS,
+    )}`;
+  },
+
   headComposer(this: AppShell, quote: string) {
     // `elide` and not a second copy of it: the rail's card head and this head
     // quote the SAME anchor a moment apart, and two cuts made in two places is
@@ -714,7 +736,7 @@ export const composerMethods = {
   },
 
   hideComposer(this: AppShell) {
-    this.releaseGrip();
+    this.clearScope();
     this.composer.root.hidden = true;
     this.composer.form.hidden = true;
     this.composer.bar.hidden = false;
@@ -728,53 +750,20 @@ export const composerMethods = {
     this.composer.key = null;
     this.composer.anchor = null;
     this.composer.block = null;
+    this.composer.opener = null;
     this.composer.button.disabled = false;
+    // A block grip disables send for a block the server has not listed yet;
+    // the next composer starts from the seal's answer, never from that.
+    this.composer.send.disabled = !!this.sealed;
   },
 
-  // releaseGrip collapses the selection a GRIP made, when its composer goes —
-  // sent, cancelled, Esc, or dismissed by a click elsewhere.
-  //
-  // THE SECTION GRIP AND THE CODE GRIP SELECT THEIR WHOLE BLOCK so the reviewer
-  // can see what the comment will be about. Nobody swept that selection out by
-  // hand, and once the composer is gone it means nothing; left standing, the
-  // next keystroke replaced the section. Measured on 73ea80a in rounds-ux:
-  // send a section comment, click into the paragraph, type, and the file read
-  // `#  The budget is the subject.` — a click into a selection the editor
-  // regained focus with did not collapse it.
-  //
-  // THE CARET STAYS WHERE THE GRIP POINTED: at the section's heading, the
-  // selection's start, which is the place on screen the reviewer was just
-  // looking at. Nothing scrolls. A FENCE IS THE EXCEPTION: it is read-only, so
-  // a caret on its first line meets the fence's refusal on the next keystroke.
-  // The caret goes to the first text the reviewer can type into after it —
-  // NOT `Selection.near` past the fence, which lands in the comment's own
-  // note (a `text*` block, read-only on screen) that was just filed there.
-  // With nothing typeable after the fence it stays on the fence's first line.
-  //
-  // ONLY THE GRIP'S OWN SELECTION. `gripFrom` is cleared the moment a fresh
-  // placement takes over (the reviewer made a selection of their own), and the
-  // start is what is compared because the comment's own note lands INSIDE a
-  // section, after its heading, and moves the selection's end but not its
-  // start.
-  releaseGrip(this: AppShell) {
-    const c = this.composer;
-    const from = c.gripFrom;
-    c.gripFrom = null;
-    if (from === null || from === undefined) {
-      return;
+  // clearScope takes the block grip's outline away. Only when there is one:
+  // a transaction per hide would be a transaction per selection change.
+  clearScope(this: AppShell) {
+    const state = this.editor.state;
+    if (scopeKey.getState(state)?.range) {
+      this.editor.view.dispatch(state.tr.setMeta(scopeKey, null));
     }
-    const view = this.editor.view;
-    const sel = view.state.selection;
-    if (sel.empty || sel.from !== from) {
-      return;
-    }
-    const doc = view.state.doc;
-    const $to = sel.$to;
-    let at = from;
-    if (isFence($to.parent)) {
-      at = typeableAfter(doc, $to.after()) ?? from;
-    }
-    view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, at)));
   },
 
   // (applyStrike lived here until the trail cut. The Strike button was a
@@ -1086,28 +1075,6 @@ export function composerPlacement(
     denied,
     denyReason: denied && literal ? literal.reason : '',
   };
-}
-
-// typeableAfter is the first position at or after pos inside a textblock a
-// reviewer can type into: not in a read-only region (literalRegion: a fence, a
-// table, front matter, a math block) and not a note. Null when there is none.
-// See releaseGrip.
-function typeableAfter(doc: PMNode, pos: number): number | null {
-  let found: number | null = null;
-  doc.nodesBetween(pos, doc.content.size, (node, at) => {
-    if (found !== null) {
-      return false;
-    }
-    if (literalRegion(node) || node.type.name === 'note') {
-      return false;
-    }
-    if (!node.isTextblock) {
-      return true;
-    }
-    found = at + 1;
-    return false;
-  });
-  return found;
 }
 
 // grownHeight is the tallest the open composer can become: its box at the

@@ -97,7 +97,7 @@ import {
 import { coerceLevel } from './heading.ts';
 // sectionSpan and the nine figures/grip methods moved to web/figures.ts —
 // see that module's header.
-import { sectionSpan, codeBlockPos } from './figures.ts';
+import { sectionSpan } from './figures.ts';
 // The block grip's rules, which need no browser: which blocks get one, what its
 // face and label say, how many instructions it carries, and how two grips
 // closer than one grip's height are kept apart.
@@ -4432,7 +4432,7 @@ const unplacedEntry = (c) => {
 // same level OR SHALLOWER. "Up to the next heading" alone is wrong and wrong in
 // the direction that is hardest to notice: an h3 inside an h2's section would
 // end the h2, so the grip beside a section the reviewer can plainly see is six
-// paragraphs long would select the first one and open a thread about it. The
+// paragraphs long would outline the first one and file a thread about it. The
 // arithmetic is pure, so it is checked here rather than by dragging in a
 // browser.
 
@@ -4501,88 +4501,6 @@ const unplacedEntry = (c) => {
   check(
     'a position that is not a heading has no section span',
     sectionSpan(doc, posOf(1)) === null,
-  );
-}
-
-// --- the code-block grip's position ---
-//
-// The grip hovers a <pre> and has to name the codeBlock that <pre> renders.
-// posAtDOM is the only bridge, and a <pre> is NOT its node's contentDOM (the
-// <code> inside it is), so codeBlockPos accepts either answer and verifies it
-// against the document rather than trusting the arithmetic. Everything it can
-// get wrong is arithmetic over a document, so it is checked here rather than by
-// hovering in a browser — what a browser has to prove is that the grip appears
-// at all, which is Task 2's gate.
-
-{
-  const nested = schema.node('bulletList', null, [
-    schema.node('listItem', null, [
-      para('run this'),
-      schema.node('codeBlock', null, [schema.text('nested')]),
-    ]),
-  ]);
-  const doc = docOf(
-    para('intro'), // 0
-    schema.node('codeBlock', { language: 'bash' }, [
-      schema.text('npm install galley'),
-    ]), // 1
-    nested, // 2
-  );
-  const posOf = (i) => {
-    let at = 0;
-    for (let n = 0; n < i; n += 1) {
-      at += doc.child(n).nodeSize;
-    }
-    return at;
-  };
-  // A stub view is the whole of what codeBlockPos reads: one measurement and
-  // the document. Building a real EditorView here would need a DOM this file
-  // deliberately does not have.
-  const viewSaying = (answer) => ({
-    state: { doc },
-    posAtDOM: () => {
-      if (typeof answer !== 'number') {
-        throw answer;
-      }
-      return answer;
-    },
-  });
-  const fencePos = posOf(1);
-
-  check(
-    'a position inside the fence names the fence',
-    codeBlockPos(viewSaying(fencePos + 1), null) === fencePos,
-  );
-  check(
-    'and so does the position before it, whichever the browser hands back',
-    codeBlockPos(viewSaying(fencePos), null) === fencePos,
-  );
-  // Not a fence: the grip must say so rather than opening a block composer on
-  // a paragraph and calling it a code block.
-  check(
-    'a paragraph is not a code block',
-    codeBlockPos(viewSaying(posOf(0) + 1), null) === null,
-  );
-  // A fence in a list item is not a top-level block, so suggest.Blocks has no
-  // key for it — the same cut placeGrip makes for a nested heading.
-  let nestedFence = -1;
-  doc.descendants((node, pos) => {
-    if (node.type.name === 'codeBlock' && pos > posOf(1)) {
-      nestedFence = pos;
-    }
-    return true;
-  });
-  check(
-    'a fence inside a list item has no addressable position',
-    nestedFence > 0 && codeBlockPos(viewSaying(nestedFence + 1), null) === null,
-    nestedFence,
-  );
-  // posAtDOM throws for DOM the view no longer knows about — a <pre> from the
-  // frame before a NodeView rebuild. No grip is the answer; an exception out of
-  // a mouseover is not.
-  check(
-    'DOM the view cannot place hides the grip rather than throwing',
-    codeBlockPos(viewSaying(new RangeError('gone')), null) === null,
   );
 }
 
@@ -6902,23 +6820,16 @@ function bindsContentField(src) {
       src.includes('gly-figure') && src.includes('/_galley/mermaid.js'),
     );
 
-    // The section grip, and the refusal it reuses. CROSS_BLOCK_STRIKE reaches
-    // the bundle only through the one exported constant, so a grip that grew
-    // its own wording would fail this rather than quietly teaching the reviewer
-    // a second rule.
-    // The grip's strike refusal went with the Strike button (the trail cut) —
-    // the grip itself stays, and the check above pins the sentence's ABSENCE.
+    // The block grip: one button beside every block that takes a whole-block
+    // instruction. A bundle without it is a document where a section, a fence
+    // or a table cannot be instructed at all, and looks exactly like one where
+    // they can. The two hover grips it replaced are gone from the bundle, so
+    // no gutter offers two affordances for one gesture.
     check(
-      'the built bundle carries the section grip',
-      src.includes('gly-grip'),
-    );
-    // AND THE CODE BLOCK'S OWN, which is a different affordance in the same
-    // gutter: a bundle carrying only `gly-grip` is a document where a fence
-    // cannot be instructed at all, and looks exactly like one where it can.
-    check(
-      'the built bundle carries the code-block grip',
-      src.includes('gly-code-grip') &&
-        src.includes('instruct on this whole code block'),
+      'the built bundle carries the block grip, and not the hover grips it replaced',
+      src.includes('gly-block-grip') &&
+        src.includes('Add an instruction on ') &&
+        !src.includes('instruct on this whole code block'),
     );
 
     // R7. The placeholder is §11's verbatim string, and a bundle that lost it

@@ -140,17 +140,29 @@ export function gripLabel(
   label: string,
   count: number,
 ): string {
-  let on: string;
-  if (target.kind === 'heading') {
-    const words = elide((label || '').replace(/^#+\s*/, ''));
-    on = words ? `the section "${words}"` : 'this section';
-  } else if (target.kind === 'codeBlock' && target.figure) {
-    on = 'this diagram';
-  } else {
-    on = NOUNS[target.kind] || 'this block';
-  }
   const already = count > 0 ? ` (${count} already)` : '';
-  return `Add an instruction on ${on}${already}`;
+  return `Add an instruction on ${gripOn(target, label)}${already}`;
+}
+
+/**
+ * gripOn is what an instruction from this grip is ON, in words: `the section
+ * "Design"`, `this table`. The grip's label and the composer's head both say
+ * it, so it is said here once; each passes the bound its own box can draw,
+ * and the cut is `elide` either way.
+ */
+export function gripOn(
+  target: Pick<GripTarget, 'kind' | 'figure'>,
+  label: string,
+  max?: number,
+): string {
+  if (target.kind === 'heading') {
+    const words = elide((label || '').replace(/^#+\s*/, ''), max);
+    return words ? `the section "${words}"` : 'this section';
+  }
+  if (target.kind === 'codeBlock' && target.figure) {
+    return 'this diagram';
+  }
+  return NOUNS[target.kind] || 'this block';
 }
 
 /**

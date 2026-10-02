@@ -1677,8 +1677,8 @@ await page.waitForTimeout(300);
 // the comment's line breaks and wrap a long token, and only a real browser's
 // computed style can say it does.
 //
-// FILED THROUGH THE COMPOSER, the reviewer's own path: the section grip on the
-// title, its bar's button, the form. The note is then found by its ID — the
+// FILED THROUGH THE COMPOSER, the reviewer's own path: the grip beside the
+// title, then the form it opens. The note is then found by its ID — the
 // pending instruction's key — and by nothing else: no text is matched, and
 // nothing is written into the fragment by this check.
 //
@@ -1694,14 +1694,10 @@ await page.waitForTimeout(300);
   await page.evaluate(() =>
     window.galleyEdit.editor.commands.setTextSelection(1),
   );
-  // The § grip, then its bar's button, then the form: each waited for as a
-  // locator, since each only exists once the one before it was pressed.
-  await page.locator('.ProseMirror h1').hover();
-  for (const step of ['.gly-grip:not(.gly-code-grip)', '.gly-comment-button']) {
-    const control = page.locator(step);
-    await control.waitFor({ state: 'visible', timeout: 5000 });
-    await control.click();
-  }
+  // The title's grip is there at rest and opens the form directly.
+  const grip = page.locator('.gly-block-grip[data-kind="heading"]').first();
+  await grip.waitFor({ state: 'visible', timeout: 5000 });
+  await grip.click();
   await page
     .locator('.gly-composer-form')
     .waitFor({ state: 'visible', timeout: 5000 });

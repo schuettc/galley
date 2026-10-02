@@ -201,15 +201,11 @@ async function addOverallInstruction(page, text, want) {
   });
 }
 
-// The section grip on the document's title, then its bar's button: the form
-// that files a block comment on the section, open and ready to type in.
+// The grip beside the document's title: the form that files a block comment
+// on the section, open and ready to type in. The grip is there at rest, so
+// nothing is hovered first, and it opens the form with no bar to press.
 async function openSectionForm(page) {
-  await page.hover('.ProseMirror h1');
-  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
-    timeout: 5000,
-  });
-  await page.click('.gly-grip:not(.gly-code-grip)');
-  await page.click('.gly-comment-button');
+  await page.click('.gly-block-grip[data-kind="heading"]', { timeout: 5000 });
   await page.waitForSelector('.gly-composer-form:not([hidden])', {
     timeout: 5000,
   });
@@ -1220,23 +1216,7 @@ try {
   // document already destroyed. Filed by the section grip, the reviewer's own
   // gesture, and taken back out at the end so the rest of this gate counts
   // what it always counted.
-  await page.hover('.ProseMirror h1');
-  await page.waitForSelector('.gly-grip:not(.gly-code-grip):not([hidden])', {
-    timeout: 5000,
-  });
-  await page.click('.gly-grip:not(.gly-code-grip)');
-  // The section grip selects the section and offers the bar; its button opens
-  // the form on the heading's block.
-  await page.waitForSelector(
-    '.gly-comment-button:not([hidden]):not([disabled])',
-    {
-      timeout: 5000,
-    },
-  );
-  await page.click('.gly-comment-button');
-  await page.waitForSelector('.gly-composer-form:not([hidden])', {
-    timeout: 5000,
-  });
+  await openSectionForm(page);
   await page.fill('.gly-composer-text', 'Say who the review is for.');
   await page.click('.gly-composer-send');
   await waitForWire(
@@ -1267,26 +1247,32 @@ try {
       ),
     JSON.stringify({ blockKey, filed, unsent: readUnsent() }),
   );
-  // THE GRIP'S SELECTION ENDS WITH ITS COMPOSER. The section grip selects the
-  // whole section so the reviewer can see what the comment is about; once the
-  // comment is sent, that selection is nothing the reviewer made, and keeping
-  // it meant the next keystroke replaced the section. Measured on 73ea80a:
-  // typing after the send turned this fixture into `#  The budget is the
-  // subject.` on disk.
+  // NO SECTION IS LEFT SELECTED. A grip that selected the whole section to
+  // show what the comment is about left that selection standing once the
+  // comment was sent, and the next keystroke replaced the section. Measured on
+  // 73ea80a: typing after the send turned this fixture into `#  The budget is
+  // the subject.` on disk. The grip selects nothing now; this holds it there.
+  // Whatever the reviewer had selected before is still theirs — a phrase
+  // from earlier in this run — and the claim is that it is not the section:
+  // the title is not inside it.
   const afterSend = await page.evaluate(() => {
-    const s = window.galleyEdit.editor.state.selection;
-    return { empty: s.empty, from: s.from, to: s.to };
+    const state = window.galleyEdit.editor.state;
+    const s = state.selection;
+    return {
+      from: s.from,
+      to: s.to,
+      title: state.doc.child(0).nodeSize,
+    };
   });
   check(
     'sending a section comment leaves no section selected',
-    afterSend.empty,
+    !(afterSend.from <= 1 && afterSend.to >= afterSend.title - 1),
     JSON.stringify(afterSend),
   );
   // AND IT SURVIVES A PROJECTION THE BROWSER DROVE, which is the half a POST-
   // then-read cannot see: the server writes the block, and it is the round trip
   // through the editor's own schema that would take it back out again. Typed
-  // the way a reviewer types next — click into the paragraph and go on — with
-  // nothing collapsing the grip's selection for them.
+  // the way a reviewer types next — click into the paragraph and go on.
   await page.locator('.ProseMirror p').first().click();
   await page.keyboard.press('End');
   await page.keyboard.type(' The budget is the subject.');
@@ -1340,6 +1326,8 @@ try {
 
   // AND A CANCELLED GRIP LEAVES NOTHING SELECTED EITHER: the same selection,
   // the same keystroke waiting to replace it, with no comment sent at all.
+  // The grip opens with nothing selected and the section is never selected
+  // while it is open.
   await openSectionForm(page);
   const gripHeld = await page.evaluate(
     () => !window.galleyEdit.editor.state.selection.empty,
@@ -1351,7 +1339,7 @@ try {
   });
   check(
     'cancelling a section comment leaves no section selected',
-    gripHeld && afterCancel.empty,
+    !gripHeld && afterCancel.empty,
     JSON.stringify({ gripHeld, afterCancel }),
   );
 

@@ -130,6 +130,7 @@ import { NoteBlock, noteWordsKey } from './note.ts';
 import { FrontMatterBlock } from './frontmatter.ts';
 import { MathBlock } from './math.ts';
 import { litKey, litPlugin, sameRuns } from './lit.ts';
+import { scopePlugin } from './scope.ts';
 import { keyMethods } from './keys.ts';
 import { pendingMethods } from './pending.ts';
 import { sheetMethods } from './sheet.ts';
@@ -206,8 +207,6 @@ const POLL_MS = 1500;
 // How long a revealed mark keeps its ring lived here, beside `flash()`. Both
 // moved to web/card.ts with the whole reveal, because History was answering the
 // same question a second, shorter way — see that file's header.
-
-// GRIP_GUTTER_PX moved to web/figures.ts with placeGrip, its only reader.
 
 // The meta App.keepPlace stamps on the transaction it dispatches to put the
 // caret back, so it does not read its own correction as the reviewer moving.
@@ -532,6 +531,18 @@ function litMode() {
   });
 }
 
+// The block grip's scope: the outline over what a block instruction will be
+// about, while its composer is up. Meta from openBlockComposer and
+// hideComposer, for litMode's reason. See scope.ts.
+function scopeMode() {
+  return Extension.create({
+    name: 'galleyScopeMode',
+    addProseMirrorPlugins() {
+      return [scopePlugin()];
+    },
+  });
+}
+
 // The trail: the plugin that records the reviewer's direct edits and paints
 // their ghosts and highlights. getBlocks is injected for suggestionMode's
 // reason — the App that holds the block list does not exist yet.
@@ -661,6 +672,7 @@ function init(opts?: { room?: string; wsURL?: string }): void {
       }),
       trailMode(() => (app ? app.blocks : [])),
       litMode(),
+      scopeMode(),
       // PAGE MODE ONLY: quiet the `⟦ shell N ⟧` marker paragraphs. A node
       // decoration restyles them inert (hidden via CSS, contenteditable=false
       // so the caret skips them) while leaving the nodes — and content.md —
@@ -846,9 +858,10 @@ class App implements AppState {
   sealUI: { readout: HTMLElement };
   cancelBtn: HTMLButtonElement | null;
 
-  // --- the section grip, and the code block's own (web/figures.ts) ---
-  grip: HTMLButtonElement;
-  codeGrip: HTMLButtonElement;
+  // --- the block grips (web/figures.ts) ---
+  grips: HTMLElement;
+  scheduleGrips: () => void;
+  gripSizes?: ResizeObserver;
 
   // --- the right-click menu in the document (web/menu.ts) ---
   //
@@ -1002,9 +1015,9 @@ class App implements AppState {
     this.stepped = null;
     this.sheetCards = [];
 
-    // The addressable blocks, as the SERVER sees them. The section grip files
-    // its thread against a block key, and a key is a content hash the browser
-    // cannot compute — so the grip is only armed for a heading the last
+    // The addressable blocks, as the SERVER sees them. A block grip files its
+    // instruction against a block key, and a key is a content hash the browser
+    // cannot compute — so a grip's composer can send only for a block the last
     // /_galley/pending actually reported.
     this.blocks = [];
 
@@ -1012,10 +1025,20 @@ class App implements AppState {
     this.census = this.makeCensus();
     this.rail = this.makeRail();
     this.composer = this.makeComposer();
-    this.grip = this.makeGrip();
-    // A second grip, in the same gutter and with its own glyph: a code fence
-    // takes a BLOCK instruction even though it refuses every keystroke.
-    this.codeGrip = this.makeCodeGrip();
+    // ONE GRIP BESIDE EVERY BLOCK that takes a whole-block instruction, in a
+    // layer beside the document. Painted on one animation frame however many
+    // things ask in it: every doc change, every pending refresh, and every
+    // change in the document's size (an image loading, a diagram rendering,
+    // a line wrapping, the window resizing), which moves the blocks under the
+    // grips without changing the document.
+    this.grips = this.makeGripLayer();
+    this.scheduleGrips = coalesce(() => this.paintGrips());
+    if (typeof window.ResizeObserver === 'function') {
+      this.gripSizes = new window.ResizeObserver(() => this.scheduleGrips());
+      this.gripSizes.observe(editor.view.dom);
+    } else {
+      window.addEventListener('resize', () => this.scheduleGrips());
+    }
     this.refusal = this.makeRefusal();
     // The right-click menu, built once and on `body` — see web/menu.ts for
     // why `body` and never `.ProseMirror`.
@@ -1224,12 +1247,27 @@ class App implements AppState {
       this.paintReadout();
     });
 
-    editor.on('selectionUpdate', () => {
+    editor.on('selectionUpdate', ({ transaction }) => {
       // Moving the caret is the reader saying they got the message; a refusal
       // that outlives the edit it refused is just clutter. See dismissRefusal
       // for why this is not simply hideRefusal.
       this.dismissRefusal();
-      this.placeComposerButton();
+      // A REBUILD MOVES THE SELECTION WITHOUT THE REVIEWER: a server-side
+      // mutation replaces the document, and keepPlace puts the caret back.
+      // Neither is the reviewer choosing something new to comment on.
+      this.placeComposerButton(
+        !transaction.docChanged &&
+          !transaction.getMeta(ySyncPluginKey) &&
+          !transaction.getMeta(PLACE_META),
+      );
+    });
+    // A CLICK INTO THE PROSE CLOSES A BLOCK GRIP'S COMPOSER, even one that
+    // lands where the caret already was and so changes no selection. A
+    // selection made by that click places its own composer straight after.
+    editor.on('focus', () => {
+      if (this.composer.opener && !this.composer.root.hidden) {
+        this.hideComposer();
+      }
     });
     editor.on('blur', () => {
       // Not on blur alone: clicking the button itself blurs the editor, and
@@ -1292,6 +1330,9 @@ class App implements AppState {
     // it does not belong in the rAF-throttled anchor pass — an update is
     // exactly when it is needed and never more often than that.
     editor.on('update', () => this.paintFigures());
+    // The grips are reconciled against the document, so every change to it
+    // asks for a paint; the coalesce makes a burst of changes one paint.
+    editor.on('update', () => this.scheduleGrips());
     // A note's words are painted on every update, not only on a pending
     // refresh: every server-side mutation replaces the whole document (see
     // CLAUDE.md), and a note that arrives in that rebuild needs its words
@@ -2397,10 +2438,9 @@ Object.assign(App.prototype, cardMethods);
 // refused-fence note that shares its deny line, are their own module too —
 // see web/composer.ts — mixed in for the same reason.
 Object.assign(App.prototype, composerMethods);
-// The two ways a reviewer starts an instruction from a PLACE rather than
-// from a selection — a figure's ⊕ region button and a heading's § section
-// grip — are their own module too — see web/figures.ts — mixed in for the
-// same reason.
+// The ways a reviewer starts an instruction from a PLACE rather than from a
+// selection — the block grips and a figure's ⊕ region button — are their own
+// module too — see web/figures.ts — mixed in for the same reason.
 Object.assign(App.prototype, figureMethods);
 // History — the versions door, entering and leaving the reading mode,
 // restoring a version as a fresh draft, and the arrival strip that says a
@@ -2578,8 +2618,8 @@ export function spanIn(doc: PMNode, place: Place | null): Span | null {
   return caret === null ? null : { from: caret, to: caret, back: false };
 }
 
-// sectionSpan and indexOfChild moved to web/figures.ts with placeGrip,
-// openSectionComposer and figurePairs, their only readers.
+// sectionSpan and indexOfChild moved to web/figures.ts with the block grip
+// and figurePairs, their only readers.
 
 // cssEscape wraps CSS.escape, which every browser this editor supports has —
 // but jsdom and some headless harnesses do not, and a delegated listener that
