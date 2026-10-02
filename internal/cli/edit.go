@@ -645,7 +645,15 @@ func formatInstructions(instructions []instructionPayload) string {
 // loadPending reads the live server's pending view when one is running and
 // reachable, falling back to an offline parse. Unreachable falls through; a
 // real rejection does not.
+//
+// A page is read where its review lives: the editor on page.html advertises
+// and keeps its prose in the page's content.md, with the unsent round beside
+// it, and page.html itself carries no comment marks. serve.AdvertisedPath is
+// that one mapping, the same the editor uses.
 func loadPending(docPath string) (pendingPayload, bool, error) {
+	if abs, err := filepath.Abs(docPath); err == nil {
+		docPath = serve.AdvertisedPath(abs)
+	}
 	if rt, ok := serve.FindRuntime(docPath); ok {
 		resp, err := getPendingHTTP(rt.URL) //nolint:bodyclose // decodeOK closes it
 		if err == nil {
