@@ -102,6 +102,11 @@ func Path(mdPath string) string {
 
 // Load reads the unsent round at path. A missing file is an empty round, and
 // reading one creates nothing.
+//
+// The version is read first, leniently, and only a file this build knows is
+// decoded strictly: a newer galley may have added a key, and refusing that as
+// unreadable would have the caller quarantine the very file ErrFuture exists
+// to leave alone.
 func Load(path string) (File, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -110,13 +115,19 @@ func Load(path string) (File, error) {
 	if err != nil {
 		return File{}, err
 	}
+	var head struct {
+		V int `json:"v"`
+	}
+	if err := json.Unmarshal(raw, &head); err != nil {
+		return File{}, fmt.Errorf("%w %s: %w", ErrUnreadable, path, err)
+	}
+	if ondisk.Future(head.V, Version) {
+		return File{}, ondisk.Newer("the unsent round "+path, head.V, Version,
+			"galley leaves it untouched; open the document with that galley or move the file aside")
+	}
 	var f File
 	if err := ondisk.Strict(raw, &f); err != nil {
 		return File{}, fmt.Errorf("%w %s: %w", ErrUnreadable, path, err)
-	}
-	if ondisk.Future(f.V, Version) {
-		return File{}, ondisk.Newer("the unsent round "+path, f.V, Version,
-			"galley leaves it untouched; open the document with that galley or move the file aside")
 	}
 	return f, nil
 }
@@ -145,6 +156,10 @@ func Save(path string, f File) error {
 // The prefixes are `cm-`, `cb-` and `cd-`, never `bk-`, which is the block
 // key's prefix (suggest.BlockKey): a comment ID and a block ID must look
 // different.
+//
+// It panics on a kind other than the three above: that is a programming
+// error, and a guessed prefix would write a mark the .md reads as the wrong
+// kind of comment.
 func NewID(k Kind) string {
 	var b [8]byte
 	// crypto/rand.Read never returns an error on the platforms galley builds
@@ -159,8 +174,10 @@ func prefix(k Kind) string {
 		return "cb-"
 	case KindDocument:
 		return "cd-"
-	default:
+	case KindText:
 		return "cm-"
+	default:
+		panic(fmt.Sprintf("unsent: NewID: unknown comment kind %q", k))
 	}
 }
 

@@ -98,6 +98,19 @@ func TestANewerFileIsRefused(t *testing.T) {
 	}
 }
 
+// A NEWER GALLEY MAY ADD A KEY. The version is read before the strict decode,
+// or the new key reads as corruption and the caller quarantines the very file
+// ErrFuture exists to leave untouched.
+func TestANewerFileWithANewKeyIsRefusedAsNewerNotUnreadable(t *testing.T) {
+	_, err := Load(writeRaw(t, `{"v":2,"comments":[],"extra":1}`))
+	if !errors.Is(err, ondisk.ErrFuture) {
+		t.Fatalf("err = %v, want ondisk.ErrFuture", err)
+	}
+	if errors.Is(err, ErrUnreadable) {
+		t.Fatal("a newer file with a key this build does not know was called unreadable — the caller would quarantine it")
+	}
+}
+
 // PRIVATE MEANS STRICT: a key this build does not know is a shape it cannot
 // honour, and reading half of it misattributes the round.
 func TestAnUnknownFieldIsRefused(t *testing.T) {
@@ -145,6 +158,17 @@ func TestIDsCarryTheirKindAndNeverCollideWithBlockKeys(t *testing.T) {
 // THE LIVE STATE AND ITS MIRROR CARRY THE SAME VALUES. One thread of each
 // anchor kind, with the figure rectangle and block kind that only the file
 // keeps; a thread with no reviewer words is not an unsent comment.
+// AN UNKNOWN KIND IS A PROGRAMMING ERROR. Minting it a `cm-` ID would write a
+// mark the .md places as highlighted text, whatever the comment was really on.
+func TestNewIDPanicsOnAnUnknownKind(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewID minted an ID for a kind it does not know")
+		}
+	}()
+	NewID(Kind("figure"))
+}
+
 func TestThreadsRoundTrip(t *testing.T) {
 	at := time.Date(2026, 10, 1, 9, 30, 0, 0, time.UTC)
 	ts := []review.Thread{
