@@ -6093,7 +6093,7 @@ const placeComposer = (nth = 0) =>
   // `.gly-comment-button` is in SEALED_VERBS through `.gly-composer button`, so
   // the seal kills it; what it does NOT have is anything that hands it back on
   // the unseal edge. Its writers are all GESTURES — `placeComposerButton` on a
-  // selectionUpdate, `hideComposer`, `openSectionComposer` — and the edge runs
+  // selectionUpdate, `hideComposer`, `openBlockComposer` — and the edge runs
   // none of them. The gate could not see that because the only drive it made
   // came AFTER the reopen and moved the selection, which yields
   // `composerPlacement`'s `place` and re-enables the button on the way past;

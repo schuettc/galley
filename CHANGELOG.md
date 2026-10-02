@@ -4,8 +4,8 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 
 ## Unreleased
 
-- **One button for every block, always visible.** Every heading, code block, table, image, diagram, display-math block and front-matter block now has one square button in the left margin, level with its first line. It shows without hovering, and Tab reaches it from the keyboard after the document. Pressing it opens the instruction box on that block straight away, outlines what the instruction covers (a heading's whole section, or the block), and leaves your selection alone.
-- **Tables, display math and front matter can take an instruction.** Before, they took none at all. A table's card is headed with its column names (`on table: key, value`) instead of a line of markdown.
+- **One button for every block, always visible.** Every top-level heading, code block, table, image, diagram, display-math block and front-matter block now has one square button in the left margin, level with its first line. A block nested inside a list or a quotation has none. It shows without hovering, and Tab reaches it from the keyboard after the document. Pressing it opens the instruction box on that block straight away, outlines what the instruction covers (a heading's whole section, or the block), and leaves your selection alone.
+- **Tables, display math and front matter can take an instruction.** Before, the page offered no way to instruct a whole table. A table's card is headed with its column names (`on table: key, value`) instead of a line of markdown.
 - **A figure's region is reached from its button.** Pressing an image's or diagram's button opens an instruction on the whole figure, and **Mark a region** in that box lets you drag a rectangle to narrow it to part of the picture.
 - A block that already carries instructions shows how many on its button (`1`, `2`, up to `9+`).
 - Selecting inside a top-level table, fence, equation or front matter now says you can press the button to its left to instruct the whole block.
@@ -16,7 +16,7 @@ Fixed:
 
 - The **Add instruction** button sits next to the selection again. In 0.11.0 it could land at the foot of the window, far from the words.
 - A new instruction on a block was briefly listed without its place, so for a moment it could show as unplaced.
-- Pressing Enter in a block's box before galley had seen the block filed an instruction on nothing. It now does nothing until the block is known.
+- Pressing Enter in a block's box before galley had seen the block filed an instruction on nothing. It now does nothing until the block is known, and the box can be sent, with what you typed kept, as soon as galley sees the block.
 
 ## 0.11.0
 

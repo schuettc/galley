@@ -78,7 +78,7 @@ Once a block carries instructions, its button is filled and shows how many (`1`,
 
 The buttons are also reachable from the keyboard: Tab past the end of the document and they come next, in document order.
 
-They are not shown while there is nothing you can file: after the review is approved, while the agent holds the document, while you are reading History, and in the HTML view of a page. A block you have just typed has a button straight away, but until galley has seen the block the box says `not in the document yet — it lands on the next sync` and will not send.
+They are not shown while there is nothing you can file: after the review is approved, while the agent holds the document, while you are reading History, and in the HTML view of a page. A block you have just typed has a button straight away, but until galley has seen the block the box says `not in the document yet — it lands on the next sync` and will not send. When galley sees it, a second or so later, the note goes and the box sends, with what you typed still in it.
 
 ### Tables and figures
 
