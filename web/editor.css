@@ -998,6 +998,45 @@ body > main {
    viewport width, because there is no rail there to be beside. */
 body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(--gly-gutter); }
 
+/* THE GRIP'S GUTTER, AT EVERY WIDTH. Each block grip hangs off the column's
+   left edge into `--gly-grip-gutter`, so the text must start at least that far
+   from the window's edge. Where `main` is centred with room to spare its own
+   margin already gives it; where the window is too narrow for that, the left
+   padding grows by exactly what the margin no longer gives. `100%` is the
+   containing block's width, the max-width is the one in force, and half the
+   difference is the centring margin — so the inset is the shell's own gutter
+   wherever the margin suffices, and the column never moves at a width where
+   it did not have to. It is capped at the grip gutter, because a window
+   narrower than the max-width has no centring margin at all and the
+   difference goes negative.
+
+   SPELLED ONCE, AS TWO TOKENS, because the review sheet sets its cards on the
+   prose's own measure and has to start them where the prose starts: a custom
+   property keeps its `100%` until the rule that uses it, so each box resolves
+   it against its own container. Page mode is not here: its column is a pane,
+   and the pane keeps the gutter (see `body.gly-page.gly-view-both #editor`). */
+:root {
+  --gly-grip-inset: clamp(
+    var(--gly-gutter),
+    calc(
+      var(--gly-grip-gutter) -
+        (100% - (var(--gly-col) + var(--gly-rail-w) + var(--gly-gutter) * 2)) / 2
+    ),
+    var(--gly-grip-gutter)
+  );
+  --gly-grip-inset-wide: clamp(
+    var(--gly-gutter),
+    calc(var(--gly-grip-gutter) - (100% - var(--gly-col-wide)) / 2),
+    var(--gly-grip-gutter)
+  );
+}
+@media (min-width: 992px) {
+  body:not(.gly-page) > main { padding-left: var(--gly-grip-inset); }
+}
+body.gly-collapsed:not(.gly-page) > main {
+  padding-left: var(--gly-grip-inset-wide);
+}
+
 /* THE RAIL STILL ASKS WHERE THE BAR ENDS — BEING ABSOLUTE IS EXACTLY WHY.
 
    `top` was `var(--gly-bar-h)` under the fixed rail, and before that the
@@ -2007,8 +2046,14 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    FULL VIEWPORT, which is what stops the two centrings drifting apart the way
    they did when the sheet's own inset squeezed the space this is centred
    within — and it is the sheet's own centring, no longer a claim about where
-   `main` happens to sit at the same moment. */
-.gly-sheet-body { max-width: var(--gly-col-wide); margin: 0 auto; padding: 0 var(--gly-gutter); }
+   `main` happens to sit at the same moment. The LEFT padding is `main`'s grip
+   inset, not the bare gutter, so a card starts where the prose does at the
+   widths where the prose gives up room for the grips. */
+.gly-sheet-body {
+  max-width: var(--gly-col-wide);
+  margin: 0 auto;
+  padding: 0 var(--gly-gutter) 0 var(--gly-grip-inset-wide);
+}
 .gly-sheet-card { position: static; margin-bottom: var(--gly-rail-gap); }
 /* NOTHING TO SUPPRESS HERE, and its absence is the claim. A card used to carry
    its own connector leg and arm as children, so every surface the card renders
@@ -3832,6 +3877,18 @@ body.gly-page.gly-view-content #editor { flex-basis: 100%; }
 body.gly-page #editor .ProseMirror {
   max-width: var(--gly-col);
   margin-inline: auto;
+}
+
+/* THE GRIPS' GUTTER IS THE CONTENT PANE'S OWN. In Both view the pane's left
+   edge is a gutter's width from the live page, so a grip hung off the text
+   would sit over the page; the pane carries the grip gutter inside itself.
+   In Content view the centred column gives it, until the pane is too narrow
+   to centre with that much to spare, and then the column starts the gutter
+   in and gives up the rest on the right. */
+body.gly-page.gly-view-both #editor { padding-left: var(--gly-grip-gutter); }
+body.gly-page.gly-view-content #editor .ProseMirror {
+  margin-left: max(var(--gly-grip-gutter), calc((100% - var(--gly-col)) / 2));
+  margin-right: auto;
 }
 
 /* Both: two equal halves — the base flex-basis stands, both panes shown. */

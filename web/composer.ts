@@ -706,7 +706,13 @@ export const composerMethods = {
     gap = 8,
   ) {
     const c = this.composer;
-    const left = `${start.left + window.scrollX}px`;
+    // NOR PAST THE WINDOW'S RIGHT EDGE: in a narrow window a box starting at
+    // its anchor's left would run off the side, so it keeps its width and
+    // comes in from the edge instead.
+    const room =
+      document.documentElement.clientWidth -
+      c.root.getBoundingClientRect().width;
+    const left = `${Math.max(0, Math.min(start.left, room)) + window.scrollX}px`;
     c.anchor = {
       top: start.top + window.scrollY,
       left: start.left + window.scrollX,

@@ -23,7 +23,8 @@
 //   - a figure (an SVG served beside the document, as layers.mjs does) low
 //     enough on the page that a composer placed wrongly is visible;
 //   - closing paragraphs, enough that the last blocks can be scrolled near
-//     the top of the window with room for the form beneath them.
+//     the top of the window with room for the form beneath them;
+//   - a last heading too long for a composer's head to quote whole.
 //
 // The file's name is long on purpose: a short fixture name leaves the bar's
 // title room it never has for a real document, and the bar does not fold.
@@ -120,6 +121,8 @@ the form's grown height fits beneath it.
 Closing note 6: prose after the last block that takes a grip, so the page
 scrolls far enough to put the equation near the top of the window, where
 the form's grown height fits beneath it.
+
+### A heading long enough that the composer's head has to cut it short
 `;
 
 // The figure: an SVG rather than a raster, because it is three lines of text
@@ -227,6 +230,51 @@ await page.evaluate(() => {
     return view.nodeDOM(pos);
   };
   window.blockBox = (index) => window.blockDom(index).getBoundingClientRect();
+  // gripSeats reads every shown grip where a reviewer would press it: each is
+  // scrolled to the middle of the window first, so "pressable" is not asked
+  // under the bar. Positions are in PAGE coordinates, so grips read at
+  // different scrolls can be compared with each other.
+  window.gripSeats = async () => {
+    const view = window.galleyEdit.editor.view;
+    const doc = view.state.doc;
+    const out = [];
+    for (const g of document.querySelectorAll(
+      '.gly-block-grip:not([hidden])',
+    )) {
+      const index = Number(g.dataset.index);
+      const node = doc.child(index);
+      g.scrollIntoView({ block: 'center' });
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      const r = g.getBoundingClientRect();
+      const b = window.blockBox(index);
+      // A heading's line is its TEXT, not its box: in page mode the box
+      // carries the alignment padding above the words.
+      let pos = 0;
+      for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
+      const line =
+        node.type.name === 'heading' ? view.coordsAtPos(pos + 1).top : b.top;
+      const at = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      const y = window.scrollY;
+      out.push({
+        kind: g.dataset.kind,
+        index,
+        w: r.width,
+        h: r.height,
+        left: r.left,
+        right: r.right,
+        blockLeft: b.left,
+        top: r.top + y,
+        bottom: r.bottom + y,
+        line: line + y,
+        hit: !!at && g.contains(at),
+      });
+    }
+    window.scrollTo(0, 0);
+    return out;
+  };
 });
 
 {
@@ -299,10 +347,7 @@ await page.mouse.move(0, 0);
 
 // --- §2 a large target, in the gutter, level with its block --------------
 //
-// Each grip is scrolled to the middle of the window before it is read, so
-// "pressable" is asked where a reviewer would press it rather than under the
-// bar. Positions are in PAGE coordinates, so grips read at different scrolls
-// can be compared with each other.
+// Each grip is read where a reviewer would press it (gripSeats).
 //
 // THE PAIR IS MADE CLOSER THAN ONE GRIP. At this stylesheet's margins no two
 // blocks that take a grip sit closer than about 48px (measured at 1440: a
@@ -317,47 +362,7 @@ const closer = await page.addStyleTag({
 });
 await page.waitForTimeout(300);
 {
-  const seats = await page.evaluate(async () => {
-    const view = window.galleyEdit.editor.view;
-    const doc = view.state.doc;
-    const out = [];
-    for (const g of document.querySelectorAll(
-      '.gly-block-grip:not([hidden])',
-    )) {
-      const index = Number(g.dataset.index);
-      let pos = 0;
-      for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
-      const node = doc.child(index);
-      g.scrollIntoView({ block: 'center' });
-      await new Promise((r) => requestAnimationFrame(() => r()));
-      const r = g.getBoundingClientRect();
-      const b = view.nodeDOM(pos).getBoundingClientRect();
-      // A heading's line is its TEXT, not its box: in page mode the box
-      // carries the alignment padding above the words.
-      const line =
-        node.type.name === 'heading' ? view.coordsAtPos(pos + 1).top : b.top;
-      const at = document.elementFromPoint(
-        r.left + r.width / 2,
-        r.top + r.height / 2,
-      );
-      const y = window.scrollY;
-      out.push({
-        kind: g.dataset.kind,
-        index,
-        w: r.width,
-        h: r.height,
-        left: r.left,
-        right: r.right,
-        blockLeft: b.left,
-        top: r.top + y,
-        bottom: r.bottom + y,
-        line: line + y,
-        hit: !!at && g.contains(at),
-      });
-    }
-    window.scrollTo(0, 0);
-    return out;
-  });
+  const seats = await page.evaluate(() => window.gripSeats());
   const near = (a, b) => Math.abs(a - b) <= 2;
   check(
     'every grip is at least 32px square',
@@ -748,12 +753,25 @@ async function openGrip(ref) {
       () => true,
       () => false,
     );
+  // A figure the sync has just redrawn is a box with no picture in it for a
+  // moment; its box is read once every picture on the page has its height.
+  await page
+    .waitForFunction(
+      () =>
+        [...document.querySelectorAll('.ProseMirror img')].every(
+          (i) => i.complete && i.getBoundingClientRect().height > 0,
+        ),
+      null,
+      { timeout: 3000 },
+    )
+    .catch(() => {});
   const seat = await page.evaluate((index) => {
     const b = window.blockBox(index);
     const c = document.querySelector('.gly-composer').getBoundingClientRect();
     const deny = document.querySelector('.gly-composer-deny');
     const mark = document.querySelector('.gly-composer-region');
     return {
+      height: Math.round(b.height),
       below: Math.round((c.top - b.bottom) * 10) / 10,
       covers: c.top < b.bottom && c.bottom > b.top,
       deny: !!deny && !deny.hidden,
@@ -868,10 +886,12 @@ const cardBeside = (key, index) =>
 }
 
 // gripsNow reads every grip as the reviewer meets it: its face, its name,
-// whether it is painted as carrying instructions, and its box relative to
-// `#editor`, so a scroll between two reads is not a move.
-const gripsNow = () =>
-  page.evaluate(() => {
+// whether it is painted as carrying instructions, whether it is on the page
+// at all, and its box relative to `#editor`, so a scroll between two reads is
+// not a move. `centre` is in page coordinates, for asking later what is
+// under the place a grip stood.
+const gripsNow = (on = page) =>
+  on.evaluate(() => {
     const host = document.getElementById('editor').getBoundingClientRect();
     return [...document.querySelectorAll('.gly-block-grip')].map((g) => {
       const r = g.getBoundingClientRect();
@@ -882,6 +902,9 @@ const gripsNow = () =>
         label: g.getAttribute('aria-label'),
         title: g.title,
         commented: g.classList.contains('is-commented'),
+        shown: g.checkVisibility(),
+        off: g.hidden && g.disabled,
+        centre: [r.left + r.width / 2, r.top + r.height / 2 + window.scrollY],
         box: [r.left - host.left, r.top - host.top, r.width, r.height]
           .map((n) => Math.round(n * 10) / 10)
           .join(),
@@ -1346,6 +1369,352 @@ let regionFiled = '';
   );
 }
 
+// --- §19 the grips sit under the bar ------------------------------------
+//
+// The title's grip is scrolled until it is level with the sticky bar. The bar
+// is drawn over it, as it is over the prose, and every control in the bar is
+// still the thing under its own centre.
+{
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const under = await page.evaluate(async () => {
+    const grip = document.querySelector('.gly-block-grip[data-kind="heading"]');
+    const bar = document.querySelector('.gly-bar');
+    const g0 = grip.getBoundingClientRect();
+    const b0 = bar.getBoundingClientRect();
+    window.scrollBy(0, g0.top + g0.height / 2 - (b0.top + b0.height / 2));
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const g = grip.getBoundingClientRect();
+    const b = bar.getBoundingClientRect();
+    const at = document.elementFromPoint(
+      g.left + g.width / 2,
+      g.top + g.height / 2,
+    );
+    const controls = [...bar.querySelectorAll('button')]
+      .filter(
+        (c) =>
+          c.checkVisibility({ visibilityProperty: true }) &&
+          c.getBoundingClientRect().width > 0,
+      )
+      .map((c) => {
+        const r = c.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return { name: c.className || c.id, hit: !!hit && c.contains(hit) };
+      });
+    const z = (sel) =>
+      Number(getComputedStyle(document.querySelector(sel)).zIndex);
+    return {
+      level: g.top < b.bottom && g.bottom > b.top,
+      covered: !!at && !grip.contains(at) && !!at.closest('.gly-bar'),
+      controls,
+      layer: z('.gly-grips'),
+      rail: z('.gly-rail'),
+    };
+  });
+  check(
+    'a grip scrolled under the bar is covered by it, and every bar control is still the thing at its centre',
+    under.level &&
+      under.covered &&
+      under.controls.length > 0 &&
+      under.controls.every((c) => c.hit),
+    under,
+  );
+  check(
+    'and the grips are stacked no higher than the rail',
+    under.layer <= under.rail,
+    under,
+  );
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
+// --- §17 the keyboard ----------------------------------------------------
+//
+// The grips are the next stops after the document, in the document's order.
+// Enter on one opens its composer with the caret in it, and Esc puts the
+// reviewer back on the grip they came from.
+const focused = () =>
+  page.evaluate(() => {
+    const a = document.activeElement;
+    return a && a.classList.contains('gly-block-grip')
+      ? { index: Number(a.dataset.index), kind: a.dataset.kind }
+      : { tag: a ? a.tagName : null, cls: a ? String(a.className) : null };
+  });
+{
+  const order = await page.evaluate(() =>
+    [...document.querySelectorAll('.gly-block-grip')].map((g) => ({
+      index: Number(g.dataset.index),
+      kind: g.dataset.kind,
+      label: g.getAttribute('aria-label') || '',
+    })),
+  );
+  check(
+    'the grips are in the document’s order, and each is named for what it is on',
+    order.length === eligible.length &&
+      order.every((g, i) => i === 0 || g.index > order[i - 1].index) &&
+      order.every((g) => g.label.startsWith('Add an instruction on ')),
+    order,
+  );
+  // A click in the last block first: the browser walks the tab order from
+  // where the reviewer last pressed, and that is the document's end.
+  // The caret is put there with a synchronous focus: the editor's own focus
+  // command lands a frame later, and would take focus back from a grip.
+  await page.locator('.ProseMirror h3').click();
+  await page.evaluate(() => {
+    const editor = window.galleyEdit.editor;
+    editor.view.focus();
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+  });
+  await page.waitForTimeout(100);
+  // A control drawn INSIDE the document (a figure's region pin) is the
+  // document's own and comes first; the first stop past the document is the
+  // claim.
+  let first = null;
+  for (let tab = 0; tab < 8; tab += 1) {
+    await page.keyboard.press('Tab');
+    first = await focused();
+    const inside = await page.evaluate(
+      () => !!document.activeElement?.closest('.ProseMirror'),
+    );
+    if (!inside) break;
+  }
+  await page.keyboard.press('Tab');
+  const second = await focused();
+  check(
+    'Tab from the end of the document reaches the first grip, and Tab again the next',
+    order.length > 1 &&
+      first.index === order[0].index &&
+      first.kind === order[0].kind &&
+      second.index === order[1].index &&
+      second.kind === order[1].kind,
+    { first, second, order: order.slice(0, 2) },
+  );
+  await page.keyboard.press('Enter');
+  const opened = await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  const typing = await page.evaluate(
+    () => !!document.activeElement?.classList.contains('gly-composer-text'),
+  );
+  await page.keyboard.press('Escape');
+  const back = await focused();
+  const shut = await page.evaluate(
+    () => document.querySelector('.gly-composer').hidden,
+  );
+  check(
+    'Enter opens its composer with the caret in it, and Esc closes it and puts focus back on that grip',
+    opened &&
+      typing &&
+      shut &&
+      back.index === second.index &&
+      back.kind === second.kind,
+    { opened, typing, shut, back, second },
+  );
+}
+
+// ESC FINDS THE GRIP OF THE BLOCK, not the button that stood at its place.
+// A block written in above the one the composer is about renumbers every
+// grip after it; the grip Esc returns to is the one beside the same block.
+{
+  const blocks = (await pending()).blocks || [];
+  const math = blocks.find((b) => b.kind === 'mathBlock');
+  const title = blocks.find((b) => b.kind === 'heading');
+  await page.locator('.gly-block-grip[data-kind="mathBlock"]').focus();
+  await page.keyboard.press('Enter');
+  await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .catch(() => {});
+  const pre = await page.evaluate(() => ({
+    open: !document.querySelector('.gly-composer').hidden,
+    act: String(document.activeElement?.className),
+  }));
+  await page.evaluate(
+    (key) =>
+      fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 'comment_block',
+          target: key,
+          text: 'a note filed elsewhere',
+        }),
+      }),
+    title ? title.key : '',
+  );
+  const moved = await page
+    .waitForFunction(
+      (index) =>
+        document.querySelector('.gly-block-grip[data-kind="mathBlock"]')
+          ?.dataset.index === String(index),
+      math ? math.index + 1 : -1,
+      { timeout: 10000 },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+  const open = await page.evaluate(
+    () => !document.querySelector('.gly-composer').hidden,
+  );
+  await page.keyboard.press('Escape');
+  const back = await focused();
+  const note = ((await pending()).instructions || []).find(
+    (i) => i.text === 'a note filed elsewhere',
+  );
+  if (note) filed.push(note.key);
+  check(
+    'Esc returns to the grip of the block the composer was about, after a block lands above it',
+    moved &&
+      open &&
+      !!math &&
+      back.kind === 'mathBlock' &&
+      back.index === math.index + 1,
+    { pre, moved, open, back, math: math && math.index },
+  );
+}
+
+// headFits opens the grip of the block at `index` and reads its composer's
+// head: what it says, and whether it fits its box.
+const headFits = async (index, region) => {
+  await page.locator(`.gly-block-grip[data-index="${index}"]`).click();
+  await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .catch(() => {});
+  const head = await page.evaluate((r) => {
+    const app = window.galleyEdit.app;
+    // The region head is written by the same function a finished drag calls;
+    // only the drag is skipped.
+    if (r) app.headBlockComposer(app.composer.grip, '', true);
+    const h = document.querySelector('.gly-composer-head');
+    return { text: h.textContent, sw: h.scrollWidth, cw: h.clientWidth };
+  }, region);
+  await page.keyboard.press('Escape');
+  return head;
+};
+
+// --- a composer's head is never wider than its box -----------------------
+//
+// Every kind's head, the region's, and a heading too long to quote whole, at
+// the widest window and the narrowest.
+const headsAt = async (width) => {
+  await page.setViewportSize({ width, height: 900 });
+  await page.waitForTimeout(600);
+  const heads = [];
+  for (const b of (await pending()).blocks || []) {
+    if (!GRIP_KINDS.includes(b.kind)) continue;
+    heads.push(await headFits(b.index, false));
+    const fig = b.kind === 'codeBlock' && b.label.includes('graph');
+    if (fig) heads.push(await headFits(b.index, true));
+  }
+  check(
+    `at ${width}px no block composer’s head runs past its box`,
+    heads.length > eligible.length &&
+      heads.some((h) => h.text.includes('region')) &&
+      heads.every((h) => h.text && h.sw <= h.cw),
+    heads.filter((h) => !h.text || h.sw > h.cw),
+  );
+};
+await headsAt(1440);
+
+// --- §15 every width ------------------------------------------------------
+//
+// The column keeps the grip's gutter at every width a desktop window is
+// dragged to, so no grip is pushed off the window's left edge or under the
+// text, and the page never scrolls sideways to make room.
+for (const width of [1440, 1100, 992, 800, 390]) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.waitForTimeout(600);
+  const seats = await page.evaluate(() => window.gripSeats());
+  const fit = await page.evaluate(() => ({
+    iw: window.innerWidth,
+    sw: document.documentElement.scrollWidth,
+  }));
+  const bad = seats.filter(
+    (s) =>
+      !(
+        s.left >= 0 &&
+        s.right <= fit.iw &&
+        s.right <= s.blockLeft &&
+        s.w >= 32 &&
+        s.h >= 32 &&
+        s.hit
+      ),
+  );
+  check(
+    `at ${width}px every grip is in the window, in the gutter, 32px square and pressable`,
+    seats.length === eligible.length && bad.length === 0,
+    { n: seats.length, bad },
+  );
+  check(
+    `at ${width}px no two grips overlap, and nothing scrolls sideways`,
+    seats.every((s, i) => i === 0 || s.top >= seats[i - 1].bottom) &&
+      fit.sw <= fit.iw,
+    { fit, tops: seats.map((s) => [s.kind, Math.round(s.top)]) },
+  );
+}
+
+// --- §16 the narrowest window --------------------------------------------
+//
+// At 390 the table's composer still fits the window and leaves its grip
+// pressable; and the review sheet, open, is drawn over the grips.
+{
+  await headsAt(390);
+  const table = ((await pending()).blocks || []).find(
+    (b) => b.kind === 'table',
+  );
+  await page.evaluate(
+    (index) => window.scrollBy(0, window.blockBox(index).top - 150),
+    table ? table.index : 0,
+  );
+  await page.waitForTimeout(150);
+  await page.locator('.gly-block-grip[data-kind="table"]').click();
+  await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .catch(() => {});
+  const where = () =>
+    page.evaluate(() => {
+      const g = document
+        .querySelector('.gly-block-grip[data-kind="table"]')
+        .getBoundingClientRect();
+      const c = document.querySelector('.gly-composer').getBoundingClientRect();
+      const at = document.elementFromPoint(
+        g.left + g.width / 2,
+        g.top + g.height / 2,
+      );
+      return {
+        left: c.left,
+        right: c.right,
+        iw: window.innerWidth,
+        grip: !!at && !!at.closest('.gly-block-grip'),
+        over: at ? String(at.className) : null,
+        sheet: !!at && !!at.closest('.gly-sheet, .gly-bottombar'),
+      };
+    });
+  const narrow = await where();
+  check(
+    'at 390px the table’s composer is inside the window, and its grip is still pressable',
+    narrow.left >= 0 && narrow.right <= narrow.iw && narrow.grip,
+    narrow,
+  );
+  await page.keyboard.press('Escape');
+  await page.locator('.gly-bar-count').click();
+  await page
+    .waitForSelector('.gly-sheet:not([hidden])', { timeout: 3000 })
+    .catch(() => {});
+  const sheet = await where();
+  check(
+    'and with the review sheet open, the sheet is what is under a grip’s place, not the grip',
+    sheet.sheet && !sheet.grip,
+    sheet,
+  );
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+}
+
 await browser.close();
 
 // --- §6 the file holds the marks and nothing of the grip -----------------
@@ -1423,6 +1792,124 @@ await browser.close();
       near(region.w, 0.5) &&
       near(region.h, 0.35),
     region || list,
+  );
+
+  // --- §18 no grip while nothing can be filed ----------------------------
+  //
+  // On this second server, because the states end the review. History takes
+  // the document off the page and the grips with it. While the agent holds
+  // the round, and once the review is approved, the server refuses every
+  // instruction, so every grip is hidden AND disabled: a button hidden in CSS
+  // is still a button to the keyboard. The handoff ends, so the grips are
+  // shown to come back from it; approval does not.
+  // grips reads the layer and every grip on the second server's page, and
+  // whether anything at the places the grips stood live is still a grip.
+  let stood = [];
+  const grips = async () => {
+    const all = await gripsNow(view);
+    const under = await view.evaluate(
+      (pts) => ({
+        layer: !document.querySelector('.gly-grips').hidden,
+        hit: pts.some(([x, y]) => {
+          const at = document.elementFromPoint(x, y - window.scrollY);
+          return !!at && !!at.closest('.gly-block-grip');
+        }),
+      }),
+      stood,
+    );
+    return { ...under, all };
+  };
+  const live = (g) =>
+    g.layer && g.all.length > 0 && g.all.every((x) => x.shown && !x.off);
+  const gone = (g) =>
+    !g.layer &&
+    !g.hit &&
+    g.all.length > 0 &&
+    g.all.every((x) => !x.shown && x.off);
+  const until = (state) =>
+    view
+      .waitForFunction((s) => !!window.galleyEdit.app[s] === true, state, {
+        timeout: 10000,
+      })
+      .then(
+        () => true,
+        () => false,
+      );
+  const post = (path, body) =>
+    view.evaluate(
+      ([p, b]) =>
+        fetch(p, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(b),
+        }).then((r) => r.status),
+      [path, body],
+    );
+  await view.waitForSelector('.gly-block-grip', { timeout: 10000 });
+  await view.waitForTimeout(500);
+  const before = await grips();
+  // The places a reviewer could press a grip at this scroll.
+  stood = before.all.map((x) => x.centre).filter(([, y]) => y > 120 && y < 900);
+
+  await view.locator('.gly-versions-open').click();
+  await view.waitForTimeout(500);
+  const history = await view.evaluate(() =>
+    [...document.querySelectorAll('.gly-block-grip')].some((g) =>
+      g.checkVisibility(),
+    ),
+  );
+  await view.keyboard.press('Escape');
+  await view.waitForTimeout(500);
+  const after = await grips();
+  check(
+    'with History open no grip is shown, and closing it brings every grip back in its place',
+    live(before) &&
+      !history &&
+      live(after) &&
+      after.all.map((x) => x.box).join('|') ===
+        before.all.map((x) => x.box).join('|'),
+    { before: before.all.length, history, after: after.all.length },
+  );
+
+  const sent = await post('/_galley/revise', {});
+  const held = await until('handoff');
+  await view.waitForTimeout(500);
+  const holding = await grips();
+  const cancelled = await post('/_galley/handoff/cancel', {});
+  await view
+    .waitForFunction(() => !window.galleyEdit.app.handoff, null, {
+      timeout: 10000,
+    })
+    .catch(() => {});
+  await view.waitForTimeout(500);
+  const returned = await grips();
+  check(
+    'while the agent holds the round every grip is hidden and disabled, and they come back when it hands the document back',
+    sent < 300 && held && cancelled < 300 && gone(holding) && live(returned),
+    {
+      sent,
+      held,
+      cancelled,
+      holding: holding.all[0],
+      returned: returned.all[0],
+    },
+  );
+
+  const approved = await post('/_galley/revise', { verdict: 'approve' });
+  const sealed = await until('sealed');
+  await view.waitForTimeout(500);
+  const closed = await grips();
+  check(
+    'once the review is approved every grip is hidden and disabled, and nothing is pressable where one was',
+    sealed && stood.length > 0 && gone(closed),
+    {
+      approved,
+      sealed,
+      stood,
+      closed: closed.all[0],
+      layer: closed.layer,
+      hit: closed.hit,
+    },
   );
   await reopened.close();
   await stopped();

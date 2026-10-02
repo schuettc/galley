@@ -256,12 +256,18 @@ export function sealLine(
 // `elementFromPoint`, and `disabled` — the exact combination that reads as a
 // broken control rather than an absent one, which this codebase already rates
 // as the worse of the two.
+//
+// `.gly-block-grip` IS THE BLOCK GRIP, and it is hidden as well as killed:
+// paintGrips sets `hidden` and `disabled` on every grip while sealed, and the
+// seal edge runs it in both directions, so it needs no entry in
+// SEAL_ONLY_VERBS.
 export const SEALED_VERBS =
   '.gly-thread-delete, ' +
   '.gly-thread-edit, .gly-thread-edit-text, .gly-thread-edit-save, ' +
   '.gly-overall-input, .gly-census button:not(.gly-versions-open), ' +
   '.gly-composer button, ' +
-  '.gly-composer-text, .gly-capture button, .gly-capture-open';
+  '.gly-composer-text, .gly-capture button, .gly-capture-open, ' +
+  '.gly-block-grip';
 
 /** SEAL_ONLY_VERBS is the half of SEALED_VERBS the seal itself owns, because
  * NOTHING ELSE DOES — nothing, that is, that the unseal EDGE runs.
@@ -421,6 +427,8 @@ export const sealMethods = {
       } else if (!this.sealed) {
         this.editor.setEditable(!this.handoff);
       }
+      // The block grips leave with the document and come back with it.
+      this.paintGrips();
     }
     this.paintCancel();
     this.paintReadout();
@@ -502,6 +510,9 @@ export const sealMethods = {
   // and the rail's verbs go dead. Coming back is the exact inverse, plus the
   // one thing that only exists on this edge — the agent's reason.
   applySeal(this: AppShell, was: boolean, d: ReviseWatchView) {
+    // The block grips are hidden and disabled while sealed, and paintGrips
+    // is their owner in both directions.
+    this.paintGrips();
     if (this.sealed) {
       this.closeVerdictMenu();
       this.editor.setEditable(false);

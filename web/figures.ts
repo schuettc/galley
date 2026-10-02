@@ -220,9 +220,20 @@ export const figureMethods = {
 
   // paintGrips reconciles one grip per target and puts each beside its block.
   //
-  // BUTTONS ARE REUSED BY INDEX AND KIND, and moved only when they are out of
-  // order, so a grip holding focus keeps it across a repaint — paintRail's
-  // lesson, where a rebuilt card took the caret out of a reply.
+  // A BUTTON FOLLOWS ITS BLOCK. It is reused for the same block node first —
+  // ProseMirror and the sync both keep a block that did not change as the same
+  // node — and only then by index and kind, and moved only when it is out of
+  // order. So a grip holding focus keeps it across a repaint (paintRail's
+  // lesson, where a rebuilt card took the caret out of a reply), and a block
+  // written in above it renumbers the grip rather than handing its button to
+  // whichever block now stands at its old index: the composer's opener, and
+  // the grip Esc returns to, is still the one beside the block it was about.
+  //
+  // NO GRIP WHILE NOTHING CAN BE FILED. Sealed, or while the agent holds the
+  // round, the server refuses every instruction, so every grip is hidden AND
+  // disabled (a button hidden in CSS is still a button to the keyboard), and
+  // the layer with them. History and page mode's HTML view take `#editor` off
+  // the page, and the layer goes with it.
   //
   // EVERY TOP IS READ BEFORE ANY IS WRITTEN, paintAnchors' rule: interleaving
   // the two forces a layout per grip. Tops are relative to `#editor`, which
@@ -237,16 +248,33 @@ export const figureMethods = {
     const view = this.editor.view;
     const doc = view.state.doc;
     const targets = gripTargets(doc);
+    const off = !!this.sealed || !!this.handoff;
+    layer.hidden = off;
     const have = new Map<string, HTMLButtonElement>();
     for (const b of layer.querySelectorAll<HTMLButtonElement>(
       ':scope > .gly-block-grip',
     )) {
       have.set(`${b.dataset.index}:${b.dataset.kind}`, b);
     }
+    const kept = new Set<HTMLButtonElement>();
+    const claim = (b: HTMLButtonElement | undefined, t: GripTarget) =>
+      b &&
+      !kept.has(b) &&
+      b.parentElement === layer &&
+      b.dataset.kind === t.kind
+        ? b
+        : null;
     const grips = targets.map((t, i) => {
-      const id = `${t.index}:${t.kind}`;
-      const b = have.get(id) || makeBlockGrip(t);
-      have.delete(id);
+      const node = doc.child(t.index);
+      const b =
+        claim(gripOfNode.get(node), t) ||
+        claim(have.get(`${t.index}:${t.kind}`), t) ||
+        makeBlockGrip(t);
+      kept.add(b);
+      gripOfNode.set(node, b);
+      b.dataset.index = String(t.index);
+      b.hidden = off;
+      b.disabled = off;
       if (layer.children[i] !== b) {
         layer.insertBefore(b, layer.children[i] || null);
       }
@@ -266,7 +294,9 @@ export const figureMethods = {
       return b;
     });
     for (const gone of have.values()) {
-      gone.remove();
+      if (!kept.has(gone)) {
+        gone.remove();
+      }
     }
 
     const box = host.getBoundingClientRect();
@@ -419,6 +449,10 @@ export const figureMethods = {
     c.picking = pickRegion(pair.el, back, () => back(kept));
   },
 };
+
+// gripOfNode is the grip last painted for each block node. A node that is
+// gone from the document is unreachable here and goes with it.
+const gripOfNode = new WeakMap<PMNode, HTMLButtonElement>();
 
 // makeBlockGrip builds one grip. Its face, its label and its place are
 // paintGrips', which writes them on every paint.

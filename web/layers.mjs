@@ -6194,6 +6194,10 @@ const placeComposer = (nth = 0) =>
           return {
             sel,
             found: true,
+            // A control the seal takes off the page altogether (the block
+            // grips are hidden as well as disabled) has changed as plainly as
+            // one that dims, and its computed paint cannot say so.
+            shown: el.checkVisibility(),
             // PAINT AND NOT `cursor`: a disabled form control is handed `default`
             // by the user agent for free, and the check next door already excludes
             // the reply box from the pointer rule for exactly that reason. A
@@ -6593,7 +6597,10 @@ const placeComposer = (nth = 0) =>
     found: s.found && livePaint[i].found,
     live: livePaint[i].paint,
     sealed: s.paint,
-    changed: s.found && livePaint[i].found && s.paint !== livePaint[i].paint,
+    changed:
+      s.found &&
+      livePaint[i].found &&
+      (s.paint !== livePaint[i].paint || (livePaint[i].shown && !s.shown)),
   }));
   check(
     'every selector the seal kills was on screen both live and sealed, so this can fail',
@@ -6604,6 +6611,22 @@ const placeComposer = (nth = 0) =>
     'and every one of them PAINTS differently once it is dead — including the boxes that invite typing',
     paintPairs.every((p) => p.changed),
     paintPairs.filter((p) => !p.changed),
+  );
+  // THE BLOCK GRIPS DO NOT DIM, THEY GO. A sealed review takes no
+  // instruction, so a grip has nothing left to offer even to read; every one
+  // is hidden as well as disabled, and the layer with them.
+  const sealedGrips = await page.evaluate(() => ({
+    layer: document.querySelector('.gly-grips')?.hidden === true,
+    grips: [...document.querySelectorAll('.gly-block-grip')].map(
+      (g) => g.hidden && g.disabled && !g.checkVisibility(),
+    ),
+  }));
+  check(
+    'and every block grip is gone from a sealed page, hidden and disabled',
+    sealedGrips.layer &&
+      sealedGrips.grips.length > 0 &&
+      sealedGrips.grips.every(Boolean),
+    sealedGrips,
   );
 
   // AND THE REOPEN HALF OF §8 IS DELETED WITH THE BUTTON THAT DROVE IT.
