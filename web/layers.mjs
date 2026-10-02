@@ -271,6 +271,7 @@ const galley = (...args) =>
 const SETTLED_HEADING = 'the settled question';
 const RETRY_HEADING = 'the retry budget';
 const WITHDRAWN = 'the withdrawn phrase';
+const WITHDRAWN_ASK = 'does this still apply?';
 const FIGURE_LABEL = 'a figure with a caption';
 
 // --on-revise, and it is §8's alone: handleRevise refuses a verdict outright
@@ -416,7 +417,7 @@ await instruct({
 await instruct({
   op: 'comment',
   target: WITHDRAWN,
-  text: 'does this still apply?',
+  text: WITHDRAWN_ASK,
 });
 
 // AND ONE CONVERSATION ON A BLOCK — the shape that has no run BY CONSTRUCTION,
@@ -4357,7 +4358,7 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
   await instruct({
     op: 'comment',
     target: WITHDRAWN,
-    text: 'does this still apply?',
+    text: WITHDRAWN_ASK,
   });
   // AND THE FIGURE'S CONVERSATION, for the same reason and in the same breath:
   // §9's Revise took the seed's copy of that one too, and the check below it
@@ -4437,7 +4438,7 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
       !Array.from(document.querySelectorAll('.gly-rail .gly-thread')).some(
         (c) => (c.textContent || '').includes(q),
       ),
-    'does this still apply?',
+    WITHDRAWN_ASK,
     { timeout: 15000 },
   );
   check(

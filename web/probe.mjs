@@ -5648,7 +5648,10 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     '.gly-composer-text',
     '.gly-thread-edit-text',
   ];
-  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({
+  // INNERMOST RULES ONLY: a body may hold no brace, so a rule inside
+  // `@media (…) { … }` is read as itself rather than folded into the media
+  // block's body, where its selector could not be seen.
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
     sel: m[1].split(',').map((x) => x.trim()),
     body: m[2],
   }));
