@@ -471,6 +471,66 @@ try {
     JSON.stringify(teach),
   );
 
+  // --- THE BUTTON SITS BY THE WORDS IN A SHORT WINDOW ---
+  //
+  // THE ONE-BUTTON BAR NEVER GROWS, so it is placed for its own height. Placed
+  // for the height the open form can grow to (half the window), a selection in
+  // the middle of a short window had room for neither side and the button went
+  // to the window's foot, far from the words it was offered for. A tall window
+  // hides that: there is always room below. So the window is cut down until
+  // the phrase sits in its middle, and then until it sits just above the foot.
+  {
+    await selectRetryBudget(page);
+    const at = await selectionBox(page);
+    // The bar's box beside the selection's, read in one evaluation.
+    const barBeside = async (height) => {
+      await page.evaluate(() => {
+        const editor = window.galleyEdit.editor;
+        editor.commands.setTextSelection(1);
+      });
+      await page.setViewportSize({ width: 1440, height });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.waitForTimeout(200);
+      await selectRetryBudget(page);
+      await page.waitForTimeout(100);
+      return page.evaluate(() => {
+        const r = document
+          .querySelector('.gly-composer')
+          .getBoundingClientRect();
+        const s = window.getSelection().getRangeAt(0).getBoundingClientRect();
+        return {
+          top: +r.top.toFixed(1),
+          bottom: +r.bottom.toFixed(1),
+          selTop: +s.top.toFixed(1),
+          selBottom: +s.bottom.toFixed(1),
+          window: window.innerHeight,
+        };
+      });
+    };
+    const middle = await barBeside(Math.round(at.top + at.bottom));
+    const foot = await barBeside(Math.round(at.bottom + 30));
+    check(
+      'the Add instruction button sits just below words selected mid-window in a short window, not at its foot',
+      middle.top - middle.selBottom >= 0 &&
+        middle.top - middle.selBottom <= 16 &&
+        middle.bottom < middle.window - 40,
+      JSON.stringify(middle),
+    );
+    check(
+      'and just above words selected near the foot, inside the window',
+      foot.selTop - foot.bottom >= 0 &&
+        foot.selTop - foot.bottom <= 16 &&
+        foot.top >= 0,
+      JSON.stringify(foot),
+    );
+    await page.evaluate(() => {
+      window.galleyEdit.editor.commands.setTextSelection(1);
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(200);
+  }
+
   // --- ONE NOUN, ONE VERB, NO SYSTEM RING ---
   //
   // The surface is called Instructions, the card it makes says INSTRUCTION,

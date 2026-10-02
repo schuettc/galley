@@ -467,6 +467,10 @@ export const composerMethods = {
     // The bar was placed for its own height; the form can grow to half the
     // window, so it is placed again, against the same words, for that. The
     // box being clicked is the only thing that moves.
+    //
+    // The anchor is never null here: every path that shows the composer
+    // places it in the same call, and hideComposer clears the anchor only as
+    // it hides the root, which the guard above has already turned away.
     const a = c.anchor;
     if (a) {
       this.placeComposer(
@@ -680,6 +684,13 @@ export const composerMethods = {
       hang = 'translateY(-100%)';
       top = start.top - gap >= height ? start.top - gap : window.innerHeight;
     }
+    // NEVER OUTSIDE THE WINDOW, whatever the anchor: a selection scrolled
+    // past either edge still gets a box the reviewer can see. A hung box
+    // spans [top - height, top] and any other spans [top, top + height]; where
+    // the box is taller than the window, its top edge is the one kept.
+    const low = hang ? height : 0;
+    const high = hang ? window.innerHeight : window.innerHeight - height;
+    top = Math.max(low, Math.min(top, high));
     c.root.style.top = `${top + window.scrollY}px`;
     c.root.style.left = left;
     c.root.style.transform = hang;
