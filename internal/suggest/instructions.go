@@ -31,7 +31,13 @@ func clearInstructionBlocks(blocks []docmodel.Block) []docmodel.Block {
 			}
 			block.Inlines[i].Marks = marks
 		}
+		had := len(block.Children)
 		block.Children = clearInstructionBlocks(block.Children)
+		// The same refill removeBlockAt makes: a cell or a quote whose only
+		// content was a note is a node the browser's schema cannot build.
+		if had > 0 && len(block.Children) == 0 && mustHoldABlock(block.Kind) {
+			block.Children = []docmodel.Block{{Kind: docmodel.Paragraph}}
+		}
 		out = append(out, block)
 	}
 	return out

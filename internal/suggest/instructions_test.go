@@ -37,3 +37,18 @@ func TestClearInstructionsLeavesItsInputAlone(t *testing.T) {
 		t.Errorf("the cleared copy's marks = %+v, want bold only", got)
 	}
 }
+
+// A note that is the whole content of a cell, a header cell, a list item or a
+// quote leaves that parent empty, which the browser's schema cannot build: the
+// cell vanishes (shifting the columns) or the quote does. Sending a round
+// refills it the way deleting one note does (removeBlockAt).
+func TestClearInstructionsRefillsAParentItEmpties(t *testing.T) {
+	note := docmodel.Block{Kind: docmodel.Note, Attrs: map[string]string{"anchor": "block"}, Inlines: []docmodel.Inline{{Text: "words"}}}
+	for _, kind := range []docmodel.BlockKind{docmodel.TableCell, docmodel.TableHeader, docmodel.ListItem, docmodel.Blockquote} {
+		out := ClearInstructions(docmodel.Doc{Blocks: []docmodel.Block{{Kind: kind, Children: []docmodel.Block{note}}}})
+		got := out.Blocks[0].Children
+		if len(got) != 1 || got[0].Kind != docmodel.Paragraph {
+			t.Errorf("%s holding only a note, cleared: children %+v, want one empty paragraph", kind, got)
+		}
+	}
+}
