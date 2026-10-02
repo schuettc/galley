@@ -211,6 +211,7 @@ import {
   RAIL_GAP,
   RAIL_MIN_WIDTH,
 } from './rail.ts';
+import { strandedValue } from './cards.ts';
 
 let failures = 0;
 
@@ -8481,6 +8482,29 @@ function bindsContentField(src) {
       isNew && isNew[1],
     );
   }
+}
+
+// AN EDIT'S WORDS, HANDED TO THE WHOLE-DOCUMENT BOX WHEN ITS INSTRUCTION IS
+// GONE. Both callers (the save's 404, and paintRail finding the card gone) can
+// fire for one edit, so the words must not land twice; nothing typed has
+// nothing to keep; and words already in the box stay first.
+{
+  check(
+    'a stranded edit lands in an empty box as typed',
+    strandedValue('', 'a\n\nb') === 'a\n\nb',
+  );
+  check(
+    'a stranded edit follows a draft already in the box',
+    strandedValue('draft', 'mine') === 'draft\n\nmine',
+  );
+  check(
+    'the same stranded words handed twice land once',
+    strandedValue('draft\n\nmine', 'mine') === null,
+  );
+  check(
+    'an edit with no words strands nothing',
+    strandedValue('draft', '  \n ') === null,
+  );
 }
 
 process.exit(failures === 0 ? 0 : 1);

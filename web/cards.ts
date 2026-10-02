@@ -66,6 +66,22 @@ const REVERT_ARM_NOTE =
 const STRANDED_EDIT =
   'this instruction was sent or deleted — your edit was not saved';
 
+/**
+ * strandedValue is what the whole-document box holds once an edit's words are
+ * handed to it: the words after anything already there, or null when there is
+ * nothing to add. Both of strandEdit's callers (the save's 404, and paintRail
+ * finding the card gone) can fire for ONE edit, so words the box already ends
+ * with are not added a second time; an edit with no words keeps nothing.
+ */
+export function strandedValue(had: string, words: string): string | null {
+  const keep = words.trim();
+  const before = had.trimEnd();
+  if (!keep || before.endsWith(keep)) {
+    return null;
+  }
+  return before ? `${before}\n\n${keep}` : keep;
+}
+
 // makeOverallCard's return shape — the whole-document instructions already
 // filed. Named and exported here (its owning file) so appshell.ts can type
 // `AppState.overall` and `AppMethods.makeOverallCard` against one spelling
@@ -593,6 +609,12 @@ export const cardMethods = {
     }
     this.capture.root.hidden = true;
     this.capture.note.textContent = '';
+    // CLOSED IS EMPTY. openCapture keeps what an OPEN box holds, so words
+    // left in a closed one would be merged into the next edit stranded here.
+    // Closing is cancel, Revise, or a filed instruction, and none of them
+    // asks for its words to come back.
+    this.capture.input.value = '';
+    this.capture.input.dispatchEvent(new Event('input'));
     // Hiding it with `display:none` gives its flow space back, so the band
     // rises and the anchored cards re-floor. Same repaint openCapture fires.
     this.scheduleAnchors();
@@ -618,9 +640,11 @@ export const cardMethods = {
     // Unhidden even when the rail is (History, or a narrow window, where
     // openCapture returns early): the words are on the page when it returns.
     capture.root.hidden = false;
-    const had = capture.input.value.trimEnd();
-    capture.input.value = had ? `${had}\n\n${words}` : words;
-    capture.input.dispatchEvent(new Event('input'));
+    const next = strandedValue(capture.input.value, words);
+    if (next !== null) {
+      capture.input.value = next;
+      capture.input.dispatchEvent(new Event('input'));
+    }
     capture.note.textContent = STRANDED_EDIT;
     capture.input.focus();
     const end = capture.input.value.length;
