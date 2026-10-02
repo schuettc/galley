@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
-## Unreleased
+## 0.11.0
 
 Every comment is now stored the same way, whatever it is on: selected text (including a selection across paragraphs), a section, a block, a figure or a rectangle on one, a table cell, a code block, or the whole document.
 
