@@ -764,7 +764,10 @@ export const cardMethods = {
     // is painted whenever the sheet is open, at every width, whatever the map
     // holds. The old ordering hazard cannot recur because there is no return to
     // be ahead of.
-    this.paintNoteState();
+    //
+    // The rail's threads are the block notes' words, so they are handed over
+    // whenever the rail is rebuilt from a fresh payload.
+    this.paintNoteWords();
 
     // The census counts the SERVER's projection; the rail draws only what hold
     // is letting through. The two can honestly disagree, and this is the one

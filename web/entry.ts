@@ -15,7 +15,7 @@
 // 31 methods including the constructor, is not a handful and is not
 // leftover scraps: the arrival strip (makeStrip/showStrip/hideStrip/showMe),
 // the instruction rail itself (makeRail/paintRail), the trail
-// (trailEntries/clearTrail), note-state painting (paintNoteState), keeping
+// (trailEntries/clearTrail), note-words painting (paintNoteWords), keeping
 // the reviewer's place across a whole-document rebuild
 // (keepPlace/rememberPlace/restorePlace/findSpan/spanIsShown/sectionFor),
 // draft-carrying across that same rebuild
@@ -126,7 +126,7 @@ import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableCell from '@tiptap/extension-table-cell';
 import TableHeader from '@tiptap/extension-table-header';
-import { NoteBlock, settledNotesKey } from './note.ts';
+import { NoteBlock, noteWordsKey } from './note.ts';
 import { FrontMatterBlock } from './frontmatter.ts';
 import { MathBlock } from './math.ts';
 import { litKey, litPlugin, sameRuns } from './lit.ts';
@@ -180,7 +180,7 @@ import {
   ARRIVAL_FADE_MS,
   ARRIVAL_SUFFIX,
 } from './arrivals.ts';
-import { settledNotes, readSettledOpen, carryDrafts } from './rail.ts';
+import { readSettledOpen, carryDrafts } from './rail.ts';
 import { mountPreview } from './preview.ts';
 import { shellMarkerQuiet } from './marker.ts';
 import { headingAlign } from './headingalign.ts';
@@ -1300,15 +1300,11 @@ class App implements AppState {
     // it does not belong in the rAF-throttled anchor pass — an update is
     // exactly when it is needed and never more often than that.
     editor.on('update', () => this.paintFigures());
-    // The settled marker is a CLASS ON A PROSEMIRROR-RENDERED ELEMENT, and
-    // ProseMirror rebuilds that element from its node whenever the document
-    // changes — which every server-side mutation does, in full (see CLAUDE.md's
-    // "EVERY server-side mutation replaces the whole document"). Painting it
-    // only on a pending refresh therefore worked exactly until the rebuild
-    // arrived over the websocket a moment later and wiped it: measured, the
-    // note came back unmarked while the panel showed the thread as settled.
-    // Same shape as the figure NodeView's rebuild above, and the same answer.
-    editor.on('update', () => this.paintNoteState());
+    // A note's words are painted on every update, not only on a pending
+    // refresh: every server-side mutation replaces the whole document (see
+    // CLAUDE.md), and a note that arrives in that rebuild needs its words
+    // before the next poll. Same shape as the figure NodeView's rebuild above.
+    editor.on('update', () => this.paintNoteWords());
     document.addEventListener('keydown', (event) => this.onKey(event));
 
     // --- the right-click, and what it offers ---
@@ -2100,42 +2096,35 @@ class App implements AppState {
   // See rail.ts's outgoingCounts, and answer the question it poses there before
   // proposing any of this again.
 
-  // paintNoteState says which {>>…<<} blocks belong to settled threads, so a
-  // resolved note READS as settled in the document instead of looking exactly
-  // like a live one. The pairing is settledNotes — the browser's copy of the Go
-  // side's loose note match, and the only one available here, since a block key
-  // is a content hash this side cannot compute.
+  // paintNoteWords hands the block notes their words. A note in the
+  // document carries only its comment's ID; the words are the instruction's,
+  // and they reach the amber box by that ID alone (see note.ts). A
+  // whole-document instruction never has a note, and stays in the overall
+  // panel.
   //
-  // It goes in as transaction META and comes out as a DECORATION (see note.ts).
-  // Toggling a class on the rendered <aside> was tried and measured failing:
-  // ProseMirror rewrites those attributes on every redraw, and a redraw follows
-  // every server-side mutation.
+  // It goes in as transaction META and comes out as a DECORATION: anything
+  // appended inside .ProseMirror is content, and ProseMirror redraws its own
+  // elements after every server-side mutation.
   //
   // The dispatch is guarded by a comparison, and that guard is load-bearing —
   // this runs on every editor update, and an unconditional dispatch would be a
   // transaction per update forever.
-  paintNoteState() {
+  paintNoteWords() {
     const view = this.editor && this.editor.view;
     if (!view) {
       return;
     }
-    const notes: { anchor: string; text: string }[] = [];
-    view.state.doc.descendants((node) => {
-      if (node.type.name !== 'note') {
-        return true;
+    const words: Record<string, string> = {};
+    for (const thread of this.comments) {
+      if (thread.anchor === 'block' && thread.entries[0]) {
+        words[thread.key] = thread.entries[0].text || '';
       }
-      notes.push({
-        anchor: node.attrs.anchor || 'block',
-        text: node.textContent || '',
-      });
-      return false;
-    });
-    const settled = settledNotes(notes, this.comments);
-    const now = settledNotesKey.getState(view.state);
-    if (now && sameFlags(now.settled, settled)) {
+    }
+    const now = noteWordsKey.getState(view.state);
+    if (now && sameWords(now.words, words)) {
       return;
     }
-    view.dispatch(view.state.tr.setMeta(settledNotesKey, settled));
+    view.dispatch(view.state.tr.setMeta(noteWordsKey, words));
   }
 
   // --- where the chrome ends ---
@@ -2589,16 +2578,16 @@ function cssEscape(value: string): string {
     : s.replace(/["\\]/g, '\\$&');
 }
 
-// sameFlags compares two per-note settled lists. Cheap, and the reason
-// paintNoteState can run on every editor update without dispatching one.
-function sameFlags(
-  a: boolean[] | null | undefined,
-  b: boolean[] | null | undefined,
+// sameWords compares two words-by-ID maps. Cheap, and the reason
+// paintNoteWords can run on every editor update without dispatching one.
+function sameWords(
+  a: Record<string, string>,
+  b: Record<string, string>,
 ): boolean {
-  if (!a || !b || a.length !== b.length) {
-    return false;
-  }
-  return a.every((v, i) => !!v === !!b[i]);
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k])
+  );
 }
 
 // Guarded so probe.mjs can import this module in node — where there is no

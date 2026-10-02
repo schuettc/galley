@@ -569,7 +569,7 @@ export interface AppMethods {
   reveal(run: string, el: HTMLElement): void;
   clearTrail(): void;
   refreshVersions(): void;
-  paintNoteState(): void;
+  paintNoteWords(): void;
 
   // --- figures and the section grip (web/figures.ts) ---
   armFigure(el: HTMLElement, ref: BlockRef | null): void;

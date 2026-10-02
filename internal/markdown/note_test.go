@@ -465,3 +465,42 @@ func TestParse_AWordNoteIsReadAsBefore(t *testing.T) {
 		t.Errorf("a word note carries an id: %v", b.Attrs)
 	}
 }
+
+// TestNote_ADocumentNoteNeverWritesACommentID: a whole-document comment never
+// has a mark in the file (its words live in the unsent round, and there is no
+// place to point at). An ID mark always reads back as a BLOCK note, so a
+// document note that somehow carries an id must not be spelled as one — it
+// would come back as a comment on the block above it. It is written as the
+// @document form it is, and the id is left out.
+func TestNote_ADocumentNoteNeverWritesACommentID(t *testing.T) {
+	const id = "cd-0123456789abcdef"
+	for _, tc := range []struct {
+		name, text, want string
+	}{
+		{"with words", "needs a worked example", "{>>@document needs a worked example<<}"},
+		{"with no words", "", "{>>@document<<}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			note := markdown.NewNote(docmodel.AnchorDocument, tc.text)
+			note.Attrs[docmodel.CommentIDAttr] = id
+			model := docmodel.Doc{Blocks: []docmodel.Block{
+				{Kind: docmodel.Paragraph, Inlines: []docmodel.Inline{{Text: "Some prose."}}},
+				note,
+			}}
+			out := string(markdown.Serialize(model))
+			if strings.Contains(out, "@comment") {
+				t.Fatalf("Serialize = %q: a document note was written as an ID mark", out)
+			}
+			if want := "Some prose.\n\n" + tc.want + "\n"; out != want {
+				t.Errorf("Serialize = %q, want %q", out, want)
+			}
+			back, _, err := markdown.Parse([]byte(out))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if anchor, _ := noteAt(t, back, 0); anchor != docmodel.AnchorDocument {
+				t.Errorf("read back as a %q note, want document", anchor)
+			}
+		})
+	}
+}

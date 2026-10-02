@@ -321,11 +321,17 @@ func renderCellNote(b docmodel.Block) string {
 	return spellNote(b, lineContext{})
 }
 
-// spellNote writes a note's body between "{>>" and "<<}". A note carrying a
-// comment ID is written as its ID mark and nothing else: the comment's words
-// are not the file's to hold.
+// spellNote writes a note's body between "{>>" and "<<}". A BLOCK note
+// carrying a comment ID is written as its ID mark and nothing else: the
+// comment's words are not the file's to hold.
+//
+// A DOCUMENT note never is, whatever it carries. An ID mark always reads back
+// as a block note, so spelling one for a document note would turn a comment on
+// the whole file into a comment on the block above it. Document comments have
+// no mark at all; a document note that arrives with an id anyway is written as
+// the @document form it is, without the id.
 func spellNote(b docmodel.Block, ctx lineContext) string {
-	if id := b.Attrs[docmodel.CommentIDAttr]; validCommentID(id) {
+	if id := b.Attrs[docmodel.CommentIDAttr]; validCommentID(id) && NoteAnchor(b) == docmodel.AnchorBlock {
 		return renderPlan(literalChars("{>>"+commentMark(id)+"<<}"), ctx)
 	}
 	text := NoteText(b)

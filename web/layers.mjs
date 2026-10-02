@@ -1648,6 +1648,83 @@ await page.waitForTimeout(300);
 // is gone is the two-colour edge and the old→new body, because a component with
 // no data to build it from cannot be read off a screen.
 
+// --- §1e · a block note's words are a widget, painted by ID -----------------
+//
+// A block comment's note carries only its ID; the amber box gets the words from
+// the instruction data, as a WIDGET DECORATION inside the note (note.ts's
+// noteWordDecorations). Paint is what this file is for: the widget has to keep
+// the comment's line breaks and wrap a long token, and only a real browser's
+// computed style can say it does.
+//
+// THE FIXTURE HAS NO ID NOTE YET, so one is made here and put back. The
+// figure's block comment is filed through `comment_block`, which still writes
+// its words into a hand-typed-shaped note until the server switches to ID
+// marks. Stamping that thread's key onto its note as `id` is exactly the link
+// the product draws, so the widget painted below is the real one, from the
+// rail's own threads. Both writes skip the undo history, and the second one
+// restores the note before the projection's debounce can see the first.
+{
+  const words = await page.evaluate(async () => {
+    const app = window.galleyEdit.app;
+    const editor = window.galleyEdit.editor;
+    const thread = (app.comments || []).find(
+      (t) => t.anchor === 'block' && t.entries[0] && t.entries[0].text,
+    );
+    if (!thread) return { thread: null };
+    const want = thread.entries[0].text;
+    let at = -1;
+    editor.state.doc.descendants((n, pos) => {
+      if (at < 0 && n.type.name === 'note' && n.textContent === want) at = pos;
+      return at < 0;
+    });
+    if (at < 0) return { thread: thread.key, note: false };
+    const stamp = (id) => {
+      const node = editor.state.doc.nodeAt(at);
+      editor.view.dispatch(
+        editor.state.tr
+          .setNodeMarkup(at, null, { ...node.attrs, id })
+          .setMeta('addToHistory', false),
+      );
+    };
+    stamp(thread.key);
+    app.paintNoteWords();
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const aside = document.querySelector(
+      `.gly-note[data-comment-id="${CSS.escape(thread.key)}"]`,
+    );
+    const el = aside && aside.querySelector('.gly-note-words');
+    const cs = el && getComputedStyle(el);
+    const out = {
+      thread: thread.key,
+      note: true,
+      want,
+      text: el ? el.textContent : null,
+      whiteSpace: cs ? cs.whiteSpace : null,
+      overflowWrap: cs ? cs.overflowWrap : null,
+    };
+    stamp('');
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    out.left = document.querySelectorAll('.gly-note-words').length;
+    return out;
+  });
+  check(
+    'the fixture has a block comment whose note can carry its ID, so this can fail',
+    !!words.thread && words.note,
+    words,
+  );
+  check(
+    "a note carrying its comment's ID shows the comment's words in a widget",
+    words.text === words.want,
+    words,
+  );
+  check(
+    "the widget keeps the comment's line breaks and wraps a long token",
+    words.whiteSpace === 'pre-wrap' && words.overflowWrap === 'anywhere',
+    words,
+  );
+  check('and a note with no ID gets no widget', words.left === 0, words);
+}
+
 // --- §1 · radius is a caste mark --------------------------------------------
 //
 // Full pills belong to verbs on cards and to passive chips. Every chrome
@@ -5867,16 +5944,12 @@ const placeComposer = (nth = 0) =>
   // sealed (this check is that fact), so there is nothing to do with one, and
   // the single press that changes that is the press that brings the door back.
   //
-  // THE MITIGATION COVERS NOTES, AND ONLY NOTES — stated narrowly because the
-  // first version of this paragraph said "nothing is invisible-but-present" and
-  // that is wider than the evidence. `paintNoteState` marks a settled NOTE as
-  // settled in the prose, so a `{>>…<<}` still has a visible trace on a sealed
-  // page. A settled RANGE comment has none: resolving lifts its highlight — the
-  // asymmetry CLAUDE.md's two-verbs entry is about — so while the page is
-  // sealed that conversation has no surface at all. Nothing is LOST (the
-  // sidecar holds it whole, and `galley pending` prints it), and Reopen brings
-  // the door back; but on this page, for that population, the honest word is
-  // "notes" rather than "nothing".
+  // THERE IS NO MITIGATION IN THE PROSE. A settled note used to be marked as
+  // settled in the document, by matching its text to a thread; that marker is
+  // gone with the text matching, and a note now shows only the words of a
+  // PENDING block comment, found by ID. So while the page is sealed a settled
+  // conversation has no surface at all, note or range alike. Nothing is LOST
+  // (the rounds log holds every sent round).
   // THE SELECTORS ARE THE ONES THE PRODUCT BUILDS, AND ONLY THOSE. This list
   // named six controls that no longer exist — `.gly-card-accept` and
   // `.gly-card-reject` (the proposal card's pair), `.gly-thread-resolve` and

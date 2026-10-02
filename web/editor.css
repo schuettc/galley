@@ -299,22 +299,13 @@
 .ProseMirror .gly-note[data-anchor='document'] {
   display: none;
 }
-/* A SETTLED NOTE MUST NOT READ LIKE A LIVE ONE. Resolving a note keeps every
-   word of it — the words are the content — so the block stays in the prose,
-   and without this it looks exactly like a conversation still waiting for an
-   answer. The marker says which it is; the words are untouched. */
-.ProseMirror .gly-note.gly-note-settled {
-  border-left-color: var(--gly-line);
-  background: transparent;
-  opacity: 0.62;
-}
-.ProseMirror .gly-note.gly-note-settled::before {
-  content: "settled \00b7 ";
-  font-family: var(--gly-mono);
-  font-size: 0.8em;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.8;
+/* A block note's words (note.ts's noteWordDecorations): painted from the
+   instruction data by the note's comment ID, as a widget inside the amber box.
+   A comment's line breaks are the reviewer's, so they are kept, and a long
+   unbroken token wraps rather than widening the column. */
+.ProseMirror .gly-note .gly-note-words {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Front matter (docmodel.FrontMatter): the YAML or TOML block a file opens

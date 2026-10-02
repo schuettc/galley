@@ -157,7 +157,7 @@ import {
 import { FrontMatterBlock } from './frontmatter.ts';
 import { litDecorations, sameRuns } from './lit.ts';
 import { MathBlock } from './math.ts';
-import { NoteBlock, noteDecorations } from './note.ts';
+import { NoteBlock, noteWordDecorations } from './note.ts';
 import {
   contextOf,
   TRAIL_CONTEXT_CHARS,
@@ -196,7 +196,6 @@ import {
   railThreads,
   settledThreads,
   settledHandle,
-  settledNotes,
   proposalThread,
   readSettledOpen,
   writeSettledOpen,
@@ -392,8 +391,9 @@ for (const name of FRAGMENT_MARKS) {
 // fence and table boundary tables below, which is a change to checks this task
 // has no reproduction for; it belongs to whoever next touches those.
 
-// A note arrives as <note anchor="…"> holding one unmarked text run
-// (ydoc.writeBlock's `len(b.Inlines) > 0` branch). A node whose content
+// A hand-typed {>>words<<} note arrives as <note anchor="…"> holding one
+// unmarked text run (ydoc.writeBlock's `len(b.Inlines) > 0` branch), beside
+// the ID notes below that hold none. A node whose content
 // expression cannot hold that run is deleted by the same catch that deletes an
 // unknown one, so declaring the node is only half the fix — it has to be
 // declared with the shape the fragment actually carries.
@@ -424,9 +424,12 @@ for (const name of FRAGMENT_MARKS) {
 
 // A BLOCK COMMENT'S MARK is <note anchor id> with NO text run: its words live
 // in the unsent round, and the file carries only "{>>@comment cb-…<<}".
-// createChecked throws on an attribute the node does not declare, and the
-// catch deletes the note out of the fragment — so the id has to be declared in
-// the same commit Go starts writing it.
+// An attribute the node does not declare does NOT throw: prosemirror-model
+// (1.25.11, computeAttrs) silently drops it, so the note builds without its id
+// and the browser's next write takes the id out of the fragment and the file.
+// That silent drop is why this compares attrs.id rather than trusting the
+// build, and why `just schema`, which only sees deleted nodes, cannot catch
+// it — so the id has to be declared in the same commit Go starts writing it.
 {
   let built = null;
   try {
@@ -5747,105 +5750,124 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   );
 }
 
-// --- a settled note reads as settled IN THE DOCUMENT ---
+// --- a block note shows its comment's words, found by ID ---
 //
-// The panel is only half the answer. The note is still a block in the prose,
-// and a settled one that looks exactly like a live one is the same lie facing
-// the other way. Resolution lives in the sidecar — CriticMarkup has nowhere to
-// write it, and inventing a marker would rewrite the author's own line — so the
-// browser pairs the rendered notes against the payload's threads. Same rule as
-// the Go side's loose note match: anchor kind plus the thread's OPENING text,
-// in document order, each thread taken at most once.
+// galley writes a block comment's mark as <note anchor id> with no text: the
+// words live in the unsent round, and the file carries only the ID. So the
+// amber box gets its words from the instruction data, painted as a WIDGET
+// DECORATION inside the note — never as DOM appended into .ProseMirror, which
+// is content, and never by matching the note's text or its place in the
+// document order. The ID is the one link, and these checks pin that it is.
+//
+// The fake `document` is the probe's only DOM: the widget's builder runs
+// lazily, so the check reads back the real span it would put on the page.
 {
-  const threads = [
-    {
-      anchor: 'block',
-      resolved: true,
-      entries: [{ text: 'this diagram is wrong' }],
-    },
-    {
-      anchor: 'document',
-      resolved: false,
-      entries: [{ text: 'needs an example' }],
-    },
-  ];
-  const notes = [
-    { anchor: 'block', text: 'this diagram is wrong' },
-    { anchor: 'document', text: 'needs an example' },
-  ];
-  check(
-    'a settled note is marked and a live one is not',
-    JSON.stringify(settledNotes(notes, threads)) === '[true,false]',
-    settledNotes(notes, threads),
-  );
-  check(
-    'a note no thread claims is left alone',
-    settledNotes([{ anchor: 'block', text: 'never seen' }], threads)[0] ===
-      false,
-  );
-  // Two identical notes are two conversations, and one being settled must not
-  // settle the other — each thread is taken at most once, in document order.
-  {
-    const twins = [
-      { anchor: 'block', text: 'look at this' },
-      { anchor: 'block', text: 'look at this' },
-    ];
-    const pair = [
-      { anchor: 'block', resolved: true, entries: [{ text: 'look at this' }] },
-      { anchor: 'block', resolved: false, entries: [{ text: 'look at this' }] },
-    ];
-    check(
-      'identical notes take one thread each rather than sharing the first',
-      JSON.stringify(settledNotes(twins, pair)) === '[true,false]',
-      settledNotes(twins, pair),
-    );
-  }
-  // The anchor is part of the pairing: a document note and a block note whose
-  // words happen to match are not each other's.
-  check(
-    'the anchor kind is part of the match',
-    settledNotes(
-      [{ anchor: 'document', text: 'this diagram is wrong' }],
-      threads,
-    )[0] === false,
-  );
-}
+  const fakeDocument = {
+    createElement: (tag) => ({ tagName: tag, className: '', textContent: '' }),
+  };
+  const widgetsOf = (doc, words) => {
+    const had = globalThis.document;
+    globalThis.document = fakeDocument;
+    try {
+      return noteWordDecorations(doc, words)
+        .find()
+        .map((d) => {
+          const el = d.type.toDOM(null, () => d.from);
+          return {
+            id: doc.resolve(d.from).parent.attrs.id,
+            text: el.textContent,
+            cls: el.className,
+            key: d.spec.key,
+          };
+        });
+    } finally {
+      globalThis.document = had;
+    }
+  };
+  const para = (text) =>
+    fragmentSchema.nodes.paragraph.create(null, fragmentSchema.text(text));
+  const idNote = (id) =>
+    fragmentSchema.nodes.note.create({ anchor: 'block', id });
 
-// And the marker survives what a class on the element does not.
-//
-// The first implementation toggled a class on the rendered <aside> and was
-// measured failing in a real browser: ProseMirror rewrites those attributes
-// from the node whenever it redraws — which every server-side mutation causes,
-// because every one of them replaces the whole document — so the note came back
-// looking live while the rail showed the thread settled. Decorations are
-// ProseMirror's own, so they are re-applied by the redraw rather than erased by
-// it. The check is over the real fragment schema, on a document with two notes,
-// so "the right one" means something.
-{
-  const doc = fragmentSchema.nodes.doc.create(null, [
-    fragmentSchema.nodes.paragraph.create(
-      null,
-      fragmentSchema.text('The build is slow.'),
-    ),
+  // Two comments with IDENTICAL words are two comments. Text pairing gave the
+  // first note both; order pairing gave each the other's once the notes moved.
+  const words = { 'cb-a': 'same', 'cb-b': 'same' };
+  const forward = fragmentSchema.nodes.doc.create(null, [
+    para('one'),
+    idNote('cb-a'),
+    para('two'),
+    idNote('cb-b'),
+  ]);
+  const got = widgetsOf(forward, words);
+  check(
+    'two notes whose comments have IDENTICAL text each get their own words',
+    got.length === 2 &&
+      got[0].id === 'cb-a' &&
+      got[1].id === 'cb-b' &&
+      got.every((w) => w.text === 'same' && w.cls === 'gly-note-words') &&
+      got[0].key !== got[1].key,
+    got,
+  );
+  const distinct = { 'cb-a': 'about the first', 'cb-b': 'about the second' };
+  const swapped = fragmentSchema.nodes.doc.create(null, [
+    idNote('cb-b'),
+    para('one'),
+    idNote('cb-a'),
+  ]);
+  const moved = widgetsOf(swapped, distinct);
+  check(
+    'swap the document order and the words follow the id, not the order',
+    moved.length === 2 &&
+      moved[0].id === 'cb-b' &&
+      moved[0].text === 'about the second' &&
+      moved[1].id === 'cb-a' &&
+      moved[1].text === 'about the first',
+    moved,
+  );
+
+  // A hand-typed {>>words<<} has no id. It shows its own text through the
+  // content hole, with no code of its own here.
+  const legacy = fragmentSchema.nodes.doc.create(null, [
+    para('one'),
     fragmentSchema.nodes.note.create(
       { anchor: 'block' },
-      fragmentSchema.text('settled one'),
-    ),
-    fragmentSchema.nodes.note.create(
-      { anchor: 'document' },
-      fragmentSchema.text('live one'),
+      fragmentSchema.text('typed by hand'),
     ),
   ]);
-  const decos = noteDecorations(doc, [true, false]);
-  const found = decos.find().map((d) => doc.nodeAt(d.from).textContent);
   check(
-    'a settled note is decorated and a live one is not',
-    found.length === 1 && found[0] === 'settled one',
-    found,
+    'a note with no id gets no widget, and its own text still renders',
+    widgetsOf(legacy, { '': 'never shown' }).length === 0 &&
+      legacy.child(1).textContent === 'typed by hand',
+  );
+
+  // A mark whose ID matches no saved comment is a dropped case: nothing is
+  // painted, and nothing else is done about it.
+  check(
+    'a note whose id has no words gets no widget',
+    widgetsOf(forward, { 'cb-a': 'only this one' }).length === 1 &&
+      widgetsOf(forward, {}).length === 0,
+  );
+
+  const multi = widgetsOf(
+    fragmentSchema.nodes.doc.create(null, [idNote('cb-a')]),
+    {
+      'cb-a': 'line one\n\nline three',
+    },
   );
   check(
-    'and nothing is decorated when nothing is settled',
-    noteDecorations(doc, []).find().length === 0,
+    'the widget text keeps \\n',
+    multi.length === 1 && multi[0].text === 'line one\n\nline three',
+    multi,
+  );
+
+  // The key carries the words: two widgets with one key are one widget to
+  // ProseMirror, and an edited comment would keep its old words on screen.
+  const before = widgetsOf(forward, { 'cb-a': 'first wording' });
+  const after = widgetsOf(forward, { 'cb-a': 'second wording' });
+  check(
+    "an edited comment's widget is a new widget",
+    before.length === 1 && after.length === 1 && before[0].key !== after[0].key,
+    [before, after],
   );
 }
 
@@ -7427,9 +7449,14 @@ function bindsContentField(src) {
         src.includes('gly-settled-head') &&
         src.includes(' settled`'),
     );
+    // A block note's words are painted from the instruction data, by ID, as
+    // a DECORATION; the text- and order-paired settled marker is gone.
     check(
-      'and marks a settled note in the document itself, as a DECORATION',
-      src.includes('gly-note-settled') && src.includes('glySettledNotes'),
+      'the built bundle paints a block note\u2019s words as a DECORATION, by ID',
+      src.includes('gly-note-words') &&
+        src.includes('glyNoteWords') &&
+        !src.includes('gly-note-settled') &&
+        !src.includes('glySettledNotes'),
     );
     // Delete: the second verb, its endpoint, its two-step arming, and the
     // reopen that makes "keeps the history" true.
@@ -7732,8 +7759,10 @@ function bindsContentField(src) {
         !/\.gly-thread-delete\{[^}]*margin-left:auto/.test(css),
     );
     check(
-      'a settled note is styled apart from a live one',
-      css.includes('gly-note-settled'),
+      'a block note\u2019s words keep their line breaks and wrap',
+      /\.gly-note-words\{[^}]*white-space:pre-wrap/.test(css) &&
+        /\.gly-note-words\{[^}]*overflow-wrap:anywhere/.test(css) &&
+        !css.includes('gly-note-settled'),
     );
     // NO LINE OF ANY KIND, IN ANY SPELLING. The connector had three shapes over
     // two designs — a leg, an arm, and a shared SVG overlay with a hairline

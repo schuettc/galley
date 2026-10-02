@@ -1141,52 +1141,6 @@ export function settledHandle(count: number): string {
   return count === 1 ? '✓ 1 settled' : `✓ ${count} settled`;
 }
 
-/**
- * settledNotes says which of the document's rendered {>>…<<} notes belong to
- * threads that have been settled — the DOCUMENT's half of "a resolved thread is
- * legible as resolved".
- *
- * The panel showing a note as settled is not enough on its own: the note is
- * still a block in the prose, and a settled one that looks exactly like a live
- * one is the same lie in the other direction. The Go side cannot help here —
- * resolution lives in the sidecar (review.Thread.Resolved) and CriticMarkup has
- * nowhere to write it, which is deliberate: a marker in the file would rewrite
- * the author's own line.
- *
- * The pairing is the browser's copy of ONE rule, suggest.matchNotes: anchor
- * kind plus the thread's OPENING text (its first entry), in document order,
- * each thread taken at most once. The anchor KEY is not available here — it is
- * a content hash of the block, which the browser cannot compute — so this is
- * the loose half of that pairing only, which is exactly what the Go side falls
- * back to when a commented block has been edited.
- *
- * @param notes rendered notes, document order
- * @param threads the pending payload's comments
- * @returns parallel to notes: true where the note's thread is settled
- */
-export function settledNotes(
-  notes: { anchor: string; text: string }[] | null | undefined,
-  threads: PendingThread[] | null | undefined,
-): boolean[] {
-  const taken = new Set<number>();
-  return (notes || []).map((note) => {
-    const list = threads || [];
-    for (let i = 0; i < list.length; i += 1) {
-      const t = list[i];
-      if (taken.has(i) || !t || t.anchor !== note.anchor) {
-        continue;
-      }
-      const opened = (t.entries && t.entries[0] && t.entries[0].text) || '';
-      if (opened !== note.text) {
-        continue;
-      }
-      taken.add(i);
-      return !!t.resolved;
-    }
-    return false;
-  });
-}
-
 // THE CHANGED REGION IS GONE FROM BOTH SURFACES, AND SO IS EVERYTHING THAT
 // SERVED IT.
 //
