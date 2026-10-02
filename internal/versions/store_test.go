@@ -86,12 +86,9 @@ func TestNoDiffIsEverStored(t *testing.T) {
 	// AND WHAT IS ON DISK IS WHAT IT WAS HANDED, NOTHING ADDED AND NOTHING
 	// TAKEN OUT. Deliberately not "no CriticMarkup anywhere in the store": this
 	// store never writes a marker of its own, so such a check would be green
-	// whatever it was handed — and the caller legitimately hands it markup
-	// today, because a version is byte-for-byte the file and the file carries
-	// the agent's undecided proposals until phase 3 stops proposing. See the
-	// package comment, and internal/serve's
-	// TestAVersionIsTheFileAndNoDiffReachesDisk, which is where that claim can
-	// actually fail.
+	// whatever it was handed — and the caller legitimately hands it markup,
+	// because a version is byte-for-byte the file and a hand-written file can
+	// carry suggestion marks. See the package comment.
 	const marked = "The rail {~~is fixed~>scrolls~~}.\n"
 	r, err := s.Commit(marked, Round{Reason: ReasonLanded})
 	if err != nil {

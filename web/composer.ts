@@ -24,10 +24,11 @@
 
 import { postJSON } from './net.ts';
 import { submitOnEnter, growOnInput, elide, AUTHOR } from './rail.ts';
-import { literalHit } from './suggestions.ts';
+import { isFence, literalHit, literalRegion } from './suggestions.ts';
 import type { LiteralHit } from './suggestions.ts';
+import { TextSelection } from '@tiptap/pm/state';
 import type { EditorState } from '@tiptap/pm/state';
-import type { ResolvedPos } from '@tiptap/pm/model';
+import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model';
 import type { AppShell } from './appshell.ts';
 import type { Region } from './wire';
 import type { MenuItem } from './menu.ts';
@@ -97,6 +98,9 @@ export interface Composer {
   block: ComposerBlock | null;
   range?: DocRange | null;
   sending?: boolean;
+  // gripFrom is where the selection a GRIP made starts, while its composer is
+  // up; null otherwise. See releaseGrip.
+  gripFrom?: number | null;
 }
 
 export const composerMethods = {
@@ -327,9 +331,9 @@ export const composerMethods = {
     head.className = 'gly-composer-head';
     const input = document.createElement('textarea');
     input.className = 'gly-composer-text';
-    input.rows = 3;
+    input.rows = 5;
     input.placeholder = 'what about it?';
-    // AND IT GROWS. Three rows is where it starts; §6 of the live review is
+    // AND IT GROWS. Five rows is where it starts; §6 of the live review is
     // that it was also where it ended. See growOnInput — the cap is this box's
     // own `max-height`, not a number here.
     growOnInput(input);
@@ -378,7 +382,7 @@ export const composerMethods = {
     note.className = 'gly-composer-note';
 
     // Shown INSTEAD of the button where a comment cannot be made: a selection
-    // touching a code fence. A comment is not just a note — /_galley/suggest
+    // touching a code fence. A comment is not just a note — /_galley/instruct
     // writes a `highlight` mark over the anchored text, and ProseMirror will
     // not carry a mark inside a `code: true` block, so the request fails
     // server-side in a way that reads like a bug. Same predicate the
@@ -518,6 +522,23 @@ export const composerMethods = {
     if (c.block && c.block.region) {
       return;
     }
+    // NOR IS A GRIP'S, while its selection stands. The selection moves under
+    // it without the reviewer moving: the comment's own note arrives over the
+    // websocket INSIDE the section, often before the send's response, and the
+    // grown range used to re-place the composer as a range composer over the
+    // section, which dropped the block target and the grip's claim on the
+    // selection, so nothing collapsed it (see releaseGrip). Its start is what
+    // the reviewer would have to move to make a selection of their own.
+    const sel = this.editor.state.selection;
+    if (
+      !c.root.hidden &&
+      c.gripFrom !== null &&
+      c.gripFrom !== undefined &&
+      !sel.empty &&
+      sel.from === c.gripFrom
+    ) {
+      return;
+    }
     // A hidden composer has nothing to keep, so it always re-places.
     //
     // The guard is the KEY and nothing else — notably not the fence verdict,
@@ -545,6 +566,8 @@ export const composerMethods = {
     // new selection — and a block target left behind would file the next
     // comment against the previous section's heading.
     c.block = null;
+    // And the selection is the reviewer's own now, so hiding must keep it.
+    c.gripFrom = null;
     c.button.disabled = false;
     // A PLACEMENT OUTRANKS A DEFERRED DISMISSAL. See the blur handler: its
     // zero-timeout check can be queued behind the very selection that opens
@@ -597,6 +620,18 @@ export const composerMethods = {
   // constant somebody typed is a box that is wrong the first time its contents
   // change, and this one changes every time the form opens.
   //
+  // AND IT IS PLACED FOR THE HEIGHT IT CAN GROW TO, not the height it opened
+  // at. It is placed once, often as the one-button bar, and then the form
+  // opens in place and the box grows with what is typed, up to its cap at half
+  // the window. Placed for the bar, it ran off the foot of a 600px window by
+  // 94px with the passage in the middle, and a box flipped above grew DOWN
+  // through the passage it is about (`just layers` §8c). So the room asked
+  // for is the grown height (grownHeight), and a box above the passage is
+  // hung by its BOTTOM, so it grows upward and away from the words. When
+  // neither side has that room, it hangs from the window's foot: below the
+  // passage while it is short, and over it only once the reviewer's own
+  // words need the space. Every case stays inside the window.
+  //
   // NOTHING HERE MAY ANIMATE AND NOTHING MAY REFLOW. The composer is
   // `position: absolute` on `document.body` — never inside `.ProseMirror`,
   // where it would be CONTENT and the next projection would write it to the
@@ -610,14 +645,18 @@ export const composerMethods = {
   ) {
     const c = this.composer;
     const left = `${start.left + window.scrollX}px`;
-    // Measured while it is on screen: `hidden` is cleared by every caller
-    // before this runs, so the box has a real height to be flipped against.
-    const height = c.root.offsetHeight;
+    const height = grownHeight(c);
     const below = end.bottom + gap;
-    const room = window.innerHeight - below >= height;
-    const top = room ? below : Math.max(0, start.top - gap - height);
+    let top = below;
+    let hang = '';
+    if (window.innerHeight - below < height) {
+      // Hung by its bottom edge: `top` is where the bottom goes.
+      hang = 'translateY(-100%)';
+      top = start.top - gap >= height ? start.top - gap : window.innerHeight;
+    }
     c.root.style.top = `${top + window.scrollY}px`;
     c.root.style.left = left;
+    c.root.style.transform = hang;
   },
 
   // headComposer writes the head's sentence. `ON "…"` only where there is
@@ -638,6 +677,7 @@ export const composerMethods = {
   },
 
   hideComposer(this: AppShell) {
+    this.releaseGrip();
     this.composer.root.hidden = true;
     this.composer.form.hidden = true;
     this.composer.bar.hidden = false;
@@ -653,15 +693,61 @@ export const composerMethods = {
     this.composer.button.disabled = false;
   },
 
+  // releaseGrip collapses the selection a GRIP made, when its composer goes —
+  // sent, cancelled, Esc, or dismissed by a click elsewhere.
+  //
+  // THE SECTION GRIP AND THE CODE GRIP SELECT THEIR WHOLE BLOCK so the reviewer
+  // can see what the comment will be about. Nobody swept that selection out by
+  // hand, and once the composer is gone it means nothing; left standing, the
+  // next keystroke replaced the section. Measured on 73ea80a in rounds-ux:
+  // send a section comment, click into the paragraph, type, and the file read
+  // `#  The budget is the subject.` — a click into a selection the editor
+  // regained focus with did not collapse it.
+  //
+  // THE CARET STAYS WHERE THE GRIP POINTED: at the section's heading, the
+  // selection's start, which is the place on screen the reviewer was just
+  // looking at. Nothing scrolls. A FENCE IS THE EXCEPTION: it is read-only, so
+  // a caret on its first line meets the fence's refusal on the next keystroke.
+  // The caret goes to the first text the reviewer can type into after it —
+  // NOT `Selection.near` past the fence, which lands in the comment's own
+  // note (a `text*` block, read-only on screen) that was just filed there.
+  // With nothing typeable after the fence it stays on the fence's first line.
+  //
+  // ONLY THE GRIP'S OWN SELECTION. `gripFrom` is cleared the moment a fresh
+  // placement takes over (the reviewer made a selection of their own), and the
+  // start is what is compared because the comment's own note lands INSIDE a
+  // section, after its heading, and moves the selection's end but not its
+  // start.
+  releaseGrip(this: AppShell) {
+    const c = this.composer;
+    const from = c.gripFrom;
+    c.gripFrom = null;
+    if (from === null || from === undefined) {
+      return;
+    }
+    const view = this.editor.view;
+    const sel = view.state.selection;
+    if (sel.empty || sel.from !== from) {
+      return;
+    }
+    const doc = view.state.doc;
+    const $to = sel.$to;
+    let at = from;
+    if (isFence($to.parent)) {
+      at = typeableAfter(doc, $to.after()) ?? from;
+    }
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, at)));
+  },
+
   // (applyStrike lived here until the trail cut. The Strike button was a
   // second spelling of Backspace once deletions applied directly, so the
   // button, its refusal plumbing and suggestions.ts's strike helpers are all
   // retired together — deletion is the keyboard's, and the trail records it.)
 
-  // A comment is a server-side operation like every other suggestion: it
-  // highlights the target text in the document AND opens a thread carrying
-  // what was said. Both halves are written by /_galley/suggest, so the
-  // highlight arrives here over the websocket.
+  // A comment is a server-side operation: it highlights the target text in
+  // the document AND opens a thread carrying what was said. Both halves are
+  // written by /_galley/instruct, so the highlight arrives here over the
+  // websocket.
   sendComment(this: AppShell) {
     const c = this.composer;
     const text = c.input.value.trim();
@@ -930,7 +1016,7 @@ export function composerPlacement(
   // A COMMENT IS ANCHORED BY THE SERVER, WHICH IS WHY INLINE `code` DOES NOT
   // DENY ONE. literalHit refuses a change wholly inside a code span — the span
   // is literal text, read-only in this editor — but a comment is not an edit
-  // to it. The browser posts a range to /_galley/suggest and the server builds
+  // to it. The browser posts a range to /_galley/instruct and the server builds
   // the highlight with an explicit mark array, which skips `excludes: '_'`
   // entirely. Measured before this exemption was written: `galley suggest
   // --comment --on retryBudget` on a paragraph reading "The `retryBudget`
@@ -962,4 +1048,47 @@ export function composerPlacement(
     denied,
     denyReason: denied && literal ? literal.reason : '',
   };
+}
+
+// typeableAfter is the first position at or after pos inside a textblock a
+// reviewer can type into: not in a read-only region (literalRegion: a fence, a
+// table, front matter, a math block) and not a note. Null when there is none.
+// See releaseGrip.
+function typeableAfter(doc: PMNode, pos: number): number | null {
+  let found: number | null = null;
+  doc.nodesBetween(pos, doc.content.size, (node, at) => {
+    if (found !== null) {
+      return false;
+    }
+    if (literalRegion(node) || node.type.name === 'note') {
+      return false;
+    }
+    if (!node.isTextblock) {
+      return true;
+    }
+    found = at + 1;
+    return false;
+  });
+  return found;
+}
+
+// grownHeight is the tallest the composer can become: its form open and its
+// box at the stylesheet's cap. Measured, not guessed — `hidden` is cleared by
+// every caller before placeComposer runs, and the form is shown for the one
+// synchronous read and put back, so nothing paints. A refusal never opens the
+// form, so it is as tall as it is. See placeComposer.
+function grownHeight(c: Composer): number {
+  if (!c.deny.hidden) {
+    return c.root.offsetHeight;
+  }
+  const form = c.form.hidden;
+  const bar = c.bar.hidden;
+  c.form.hidden = false;
+  c.bar.hidden = true;
+  const open = c.root.offsetHeight;
+  const box = c.input.offsetHeight;
+  const cap = parseFloat(getComputedStyle(c.input).maxHeight);
+  c.form.hidden = form;
+  c.bar.hidden = bar;
+  return Number.isFinite(cap) ? open - box + Math.max(box, cap) : open;
 }

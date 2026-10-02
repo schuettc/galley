@@ -436,7 +436,7 @@ process.on('exit', () => {
   try {
     rmSync(HERE, { recursive: true, force: true });
   } catch {
-    // The server can write its sidecar back mid-removal. A tmpdir left behind
+    // The server can write its files back mid-removal. A tmpdir left behind
     // is nothing; an exit handler that THROWS turns a clean run into a failure
     // that did not happen.
   }

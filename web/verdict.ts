@@ -78,29 +78,12 @@ export interface ReviseWatchView extends ReviseStateView {
   reopenNote?: string;
 }
 
-/**
- * reviseLabel is R10: the Revise button says how long it has been.
- *
- * It counts until the revision LANDS, not until the request returns. The
- * request returns in milliseconds — the usual --on-revise is a notification
- * that exits at once while the agent works for minutes — so a button that went
- * back to "Revise" when the POST came back showed no in-flight state at all
- * for a six-second revision.
- *
- * Whole seconds, floored: a counter that reads 3s when three seconds have
- * passed is the only reading that cannot be accused of rounding up.
- *
- * @param waiting whether a revision is still outstanding
- * @param ms how long since Revise was pressed
- */
 /** The idle label, and the two halves the counting one is built from.
  *
  * Split because the counting label is assembled from three DOM nodes rather
  * than written as one string — the seconds need their own box to reserve, or
  * the button changes width on every decade of the counter and drags the whole
- * right-hand end of the bar with it (see makeRevise). One spelling, used both
- * ways: reviseLabel is still the whole sentence, for the pure checks and for
- * anything that wants the text rather than the boxes.
+ * right-hand end of the bar with it (see makeRevise).
  *
  * A BUTTON NAMES ITS OWN PRESS, AND THIS PRESS OPENS A MENU. The label was
  * `Revise` and the menu it opened led with `→ Revise`, so a reviewer who wanted
@@ -138,10 +121,8 @@ const REVISE_BUSY_SUFFIX = 's';
  * COMPOSED, NEVER WRITTEN AS ONE LABEL. The clause goes into its own reserved
  * box inside the idle face — see .gly-revise-count for the two width claims
  * that buys — so filing an instruction from a card a thousand pixels away
- * changes the digits and never the button. reviseIdleLabel is the same
- * sentence as one string, for the pure checks and for anything that wants the
- * text rather than the boxes; it is what the three DOM nodes read as, and
- * probe.mjs pins that they agree.
+ * changes the digits and never the button. probe.mjs drives makeRevise and
+ * paintRevise and reads back what the three DOM nodes say together.
  *
  * ZERO HAS NO CLAUSE, and that is not a special case dressed up: at zero the
  * verdict is `Approve` (verdictLabel), so this face is not the one on screen.
@@ -152,19 +133,23 @@ function reviseCountClause(n: number): string {
   return n > 0 ? `${REVISE_COUNT_JOIN}${n}` : '';
 }
 
-export function reviseIdleLabel(n: number): string {
-  return `Revise${reviseCountClause(n)} ▾`;
-}
-
+/**
+ * reviseSeconds is R10: the Revise button says how long it has been.
+ *
+ * It counts until the revision LANDS, not until the request returns. The
+ * request returns in milliseconds — the usual --on-revise is a notification
+ * that exits at once while the agent works for minutes — so a button that went
+ * back to "Revise" when the POST came back showed no in-flight state at all
+ * for a six-second revision.
+ *
+ * Whole seconds, floored: a counter that reads 3s when three seconds have
+ * passed is the only reading that cannot be accused of rounding up. A clock
+ * that skewed backwards reads 0, never a negative age.
+ *
+ * @param ms how long since Revise was pressed
+ */
 function reviseSeconds(ms: number): number {
   return Math.max(0, Math.floor(ms / 1000));
-}
-
-export function reviseLabel(waiting: boolean, ms: number): string {
-  if (!waiting) {
-    return REVISE_IDLE;
-  }
-  return `${REVISE_BUSY_PREFIX}${reviseSeconds(ms)}${REVISE_BUSY_SUFFIX}`;
 }
 
 /** The verdict button's other idle label, and its past tense. `approved` is
@@ -226,8 +211,8 @@ function reviseFace(
 export const MENU_REVISE = 'Revise';
 export const MENU_TRUST = 'Revise & Approve';
 
-/** The three verdicts the server can seal a review with. */
-export const VERDICT_APPROVED = 'approved';
+/** The verdicts the server can seal a review with that the seal paints apart.
+ * The third, `approved`, is sealLine's default branch and needs no name. */
 export const VERDICT_ENTRUSTED = 'approved-entrusted';
 export const VERDICT_DISCARDED = 'discarded';
 
@@ -243,18 +228,15 @@ export function clockTime(ms: number): string {
 }
 
 // What verdictLabel reads: the two shapes /_galley/pending has answered with
-// (a rounds-only `{instructions}` payload, or the older `{suggestions,
-// comments}` shape censusCounts already reduces), loosened to the fields
-// this function itself touches. `comments` reuses rail.ts's own exported
-// `PendingThread` rather than a hand-rolled copy of it — see rail.ts's
-// header on why that type is exported at all — and `suggestions` stays a
-// local shape because rail.ts's own `PendingSuggestion` is deliberately not
-// exported; censusCounts' declared parameter type is what this is checked
+// (a rounds-only `{instructions}` payload, or the older `{comments}` shape
+// censusCounts reduces), loosened to the fields this function itself touches.
+// `comments` reuses rail.ts's own exported `PendingThread` rather than a
+// hand-rolled copy of it — see rail.ts's header on why that type is exported
+// at all — and censusCounts' declared parameter type is what this is checked
 // against, so a drift there is a compile error here rather than a silent
 // disagreement.
 type VerdictView = {
   instructions?: { text?: string }[] | null;
-  suggestions?: { kind?: string }[];
   comments?: PendingThread[];
   changes?: { kind?: string }[];
 };
@@ -267,11 +249,8 @@ type VerdictView = {
  * pressing, not diagnosing it afterwards.
  *
  * It reads censusCounts, the same reduction the strip shows, rather than
- * counting the raw lists itself — one rule, not a second one that agrees for
- * now. That is what keeps comment-kind entries out: they are not decidable
- * (a thread is resolved, never accepted), a resolved document note's entry
- * never leaves the list, and its conversation is already the thread count's
- * business.
+ * counting the raw list itself — one rule, not a second one that agrees for
+ * now.
  *
  * THE REVIEWER'S OWN HAND EDITS ARE MARKUP TOO. `view.changes` is what the
  * reviewer altered by hand since the last round (refreshPending), and it is
@@ -289,9 +268,7 @@ export function verdictLabel(view: VerdictView | null | undefined): string {
     return instructions.length > 0 || hasChanges ? REVISE_IDLE : APPROVE_IDLE;
   }
   const counts = censusCounts(view);
-  return counts.pending > 0 || counts.threads > 0 || hasChanges
-    ? REVISE_IDLE
-    : APPROVE_IDLE;
+  return counts.threads > 0 || hasChanges ? REVISE_IDLE : APPROVE_IDLE;
 }
 
 // The body postVerdict sends. `verdict`/`approveOnAnswer` are the two real
@@ -355,7 +332,7 @@ export const verdictMethods = {
     idle.className = 'gly-revise-label';
     // `Revise` · N · `▾`, in three nodes rather than one string, because the
     // middle one has to be a box that a count cannot resize. See
-    // reviseIdleLabel for what the three read as together.
+    // probe.mjs's paintedRevise for what the three read as together.
     // THE RESERVED SLOT, AND WHAT USED TO BE IN IT. This box carried the
     // trail's clause — `Finish ▾ · 6 edits, 2 replies`, what the press would
     // tell the agent — and the rounds-only workflow has no trail to count, so

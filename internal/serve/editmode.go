@@ -1,14 +1,14 @@
-// editmode.go is the edit-mode analogue of serve.go: instead of a generated
-// review page with a comment overlay, EditServer serves the user's own
-// markdown document live, as a ygo XML fragment TipTap binds to directly.
+// editmode.go is galley's server: EditServer serves the user's own markdown
+// document live, as a ygo XML fragment TipTap binds to directly.
 //
-// The round-trip is the same shape as Server's, with one more hop: markdown
+// Three consumers share one document: the browser over y-websocket at
+// /yjs/{room}, the agent over JSON at /_galley/*, and the disk. Markdown
 // on disk maps to docmodel.Doc (internal/markdown), docmodel.Doc maps to the
 // fragment (internal/ydoc), and pending suggestions in the fragment map to
 // docmodel marks (internal/suggest). The document of record is still the
-// file — CriticMarkup carries pending suggestions, the sidecar carries
-// attribution and comment threads — never the live ygo document, which
-// exists only while a session runs.
+// file — CriticMarkup carries pending suggestions and comment ID marks, the
+// unsent round (pending.json) carries the comments' words — never the live
+// ygo document, which exists only while a session runs.
 package serve
 
 import (
@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -42,6 +43,7 @@ import (
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/suggest"
+	"github.com/schuettc/galley/internal/unsent"
 	"github.com/schuettc/galley/internal/versions"
 	"github.com/schuettc/galley/internal/ydoc"
 )
@@ -57,8 +59,8 @@ type EditServer struct {
 	RuntimePath string
 	Room        string
 
-	// Notify, when set, fires after the document settles — same contract as
-	// Server.Notify.
+	// Notify, when set, fires after the document settles. It exists so the
+	// reviewer never has to tell the agent to go and look.
 	Notify *Notifier
 
 	// OnRevise is the shell command POST /_galley/revise runs: the editor's
@@ -236,7 +238,13 @@ type EditServer struct {
 	// could not be imported, in the parser's words, for the readout. Both
 	// under reviseMu with the lease.
 	handoffStop chan struct{}
-	draftErr    string
+	// handoffDone is closed when the watcher's goroutine has exited.
+	handoffDone chan struct{}
+	// testImportTick, when set before a window opens, runs on that window's
+	// watcher goroutine at the start of each tick, before the import. Tests
+	// only: a field, not a package variable, so no other server sees it.
+	testImportTick func()
+	draftErr       string
 
 	// The agent's last acknowledgment, shown by writeReviseState. Guarded by
 	// reviseMu with the watch because the two are one story: the window opens
@@ -253,16 +261,21 @@ type EditServer struct {
 	// reviseMu without inventing a lock order this file does not have.
 	instrMu   sync.Mutex
 	instrSaid map[string]bool
-	// seenAnchored is every range instruction this server has seen paired with
-	// a real mark. See sweepLostAnchors: "there is no mark now" and "the
-	// reviewer deleted the words" are different claims, and only this set tells
-	// them apart. Under mu with the projection that writes it.
+	// sending is the round being sent: every comment Revise has cleared out of
+	// the review map and the cut has not yet recorded. saveUnsentLocked writes
+	// it beside the live threads, so pending.json holds a sent comment until a
+	// round does. Under mu. See sendReviewerRound.
+	sending map[string]unsent.Comment
+	// seenAnchored is every text comment this server has seen placed: its ID on
+	// a mark in the live document. See lostanchor.go: "there is no mark now"
+	// and "the reviewer deleted the words" are different claims, and only this
+	// set tells them apart. Written under mu by the projection; anchorMu
+	// guards it because `pending` reads it without mu.
 	seenAnchored map[string]bool
-	// retracting single-flights the goroutine sweepLostAnchors hands the
-	// deletion to. See there.
-	// anchorMu guards seenAnchored: it is written under mu by the projection
-	// and read by `pending`, which deliberately does not take mu.
-	anchorMu sync.Mutex
+	anchorMu     sync.Mutex
+	// retracted is the seen text comments the last projection found with no
+	// mark: the keys pending.json leaves out. Under mu. See noteRetracted.
+	retracted map[string]bool
 
 	// The exception, in the agent's own words — see handleCannot. Under reviseMu
 	// with the ack for the same reason the ack is: the window opens on a press
@@ -378,10 +391,7 @@ func newInstanceToken() (string, error) {
 
 // NewEdit builds an edit-mode server for a markdown document: the room named
 // from its basename and this run's instance token, the file's content loaded
-// live into the ygo fragment,
-// its CriticMarkup comments imported into threads, and — if a sidecar from a
-// previous session exists — suggestion authorship restored onto marks the
-// file format itself cannot carry.
+// live into the ygo fragment, and the unsent round replayed from pending.json.
 //
 // Room creation and the initial fragment load happen in one Apply so a peer
 // connecting mid-startup never observes an empty document followed by a full
@@ -395,7 +405,7 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	src, err := os.ReadFile(abs)
 	if err != nil {
 		// "document", not "page": edit mode serves a markdown file, and
-		// borrowing review mode's vocabulary made `galley edit nope.md`
+		// borrowing the retired review mode's vocabulary made `galley edit nope.md`
 		// report a problem with something the user never mentioned.
 		return nil, fmt.Errorf("document: %w", err)
 	}
@@ -408,20 +418,26 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	if err := claimDocument(DefaultRuntimePath(abs)); err != nil {
 		return nil, err
 	}
-	model, comments, err := markdown.Parse(src)
+	// THE INLINE NOTES THE PARSE LIFTS ARE DISCARDED, and that is a deletion:
+	// a hand-typed {>>words<<} inside a sentence leaves the .md at the first
+	// projection. Comments hand-typed into the .md are not imported, by
+	// design: they are dropped. A reviewer comment's words live in
+	// pending.json and its place is an ID mark, which the parse keeps.
+	model, _, err := markdown.Parse(src)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", abs, err)
 	}
 
-	_, orphanNotes, _, _ := suggest.ReconcileNotes(model, nil)
+	// THE UNSENT ROUND, and nothing else: every comment comes from
+	// pending.json, placed by the ID marks the parse kept. Nothing is imported
+	// from the file's words.
+	pendingComments, err := loadUnsentRound(abs)
+	if err != nil {
+		return nil, err
+	}
 	// Identity, before the document is ever served. A peer that connects
 	// during startup must see addressable marks on its first sync, not
 	// unaddressed ones corrected a moment later.
-	//
-	// LAST, after ReconcileNotes: a run names a MARK, and a note is a block
-	// with unmarked inlines, so minting runs can never change what a note
-	// anchors to — but the ordering is stated rather than accidental, because
-	// everything above wants the model exactly as the file spelled it.
 	model = suggest.MintRuns(model)
 
 	instance, err := newInstanceToken()
@@ -485,19 +501,9 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		Notify: &Notifier{},
 	}
 
-	// {>>note<<} markers extracted from THIS parse. Project never re-emits
-	// them (comments live in the sidecar, never the file), so on every
-	// restart after the first this finds nothing — the sidecar replay above
-	// already carries the conversation forward. It only ever fires for a
-	// file that still has raw markers Project hasn't had a chance to lift
-	// out yet.
-	importInlineComments(s.doc, model, comments)
-	// Block and document comments live IN the file as {>>…<<} notes, and in
-	// the sidecar as threads carrying the conversation that grew around them.
-	// Both were just replayed, so this only opens threads for notes the
-	// sidecar has never seen — a note somebody typed into the file by hand,
-	// or one written by an offline `galley suggest --on-block`.
-	importNotes(s.doc, orphanNotes)
+	// The review map is pending.json's live state. Where each comment sits is
+	// not replayed: the one builder reads it off the ID marks every time.
+	replayUnsent(s.doc, unsent.ToThreads(pendingComments))
 
 	s.doc.OnUpdate(func(_ []byte, origin any) {
 		// ReadLive's own mutual-exclusion Transact fires this like any other
@@ -574,15 +580,20 @@ func NewEdit(mdPath string) (*EditServer, error) {
 // Doc exposes the live document for reads.
 func (s *EditServer) Doc() *crdt.Doc { return s.doc }
 
-// Close releases everything NewEdit started — see Server.Close, which this
-// mirrors. It closes peer connections, so it must run AFTER the final Flush:
-// a projection that has not reached disk by then never will.
+// Close releases everything NewEdit started: the pending debounced projection,
+// and the websocket server's peer connections and per-room idle sweeper, which
+// ws.NewServer starts whether or not a peer ever connects. It closes peer
+// connections, so it must run AFTER the final Flush: a projection that has not
+// reached disk by then never will.
 func (s *EditServer) Close() error {
 	// The import watcher first: it calls mutate, and a mutation landing after
 	// the final flush is a write nothing will ever project. Stopping the
 	// watcher does NOT close the window — the lease survives a shutdown so a
-	// restart can resume the agent's round.
-	s.stopWatcher()
+	// restart can resume the agent's round. And it is WAITED FOR: an import
+	// already under way would otherwise write the lease after Close returned.
+	if done := s.stopWatcher(); done != nil {
+		<-done
+	}
 	s.debounce.stop()
 	s.Notify.Stop()
 	// Before the websocket shutdown, and unconditionally: a blocked reader
@@ -633,8 +644,9 @@ func (s *EditServer) SeedNotify() {
 func (s *EditServer) LastExport() time.Time { return s.exported.get() }
 
 // Project writes the live document back to disk: the fragment, read into the
-// document model, becomes canonical markdown at MdPath (atomically); pending
-// suggestions and comment threads become the sidecar beside it.
+// document model, becomes canonical markdown at MdPath (atomically). The
+// unsent comments' words are not written here: they are in pending.json,
+// which every instruction mutation writes before any projection runs.
 //
 // Code-block text is the one exception CriticMarkup cannot honestly render:
 // a fence's content is literal code, so it is left untouched by Serialize —
@@ -701,11 +713,15 @@ func (s *EditServer) project() error {
 
 	// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM. This is
 	// the one place the server learns the reviewer moved — typing has no HTTP
-	// hook — and the call WRITES NOTHING: it records which anchors it has seen,
-	// and `anchoredInstructions` drops the ones that have since gone. An eager
-	// deletion was built here first and cut spurious rounds; see noteAnchored,
-	// which carries the measurements and why the write is not worth having.
+	// hook. It records which text comments are placed and, when the set whose
+	// place has gone moves, rewrites pending.json without them, before the .md
+	// is written below, so the unsent round still reaches disk first. It
+	// writes nothing to the review map: see lostanchor.go for why. A failed
+	// save fails the projection, for the same ordering; see noteRetracted.
 	s.noteAnchored(model)
+	if err := s.noteRetracted(model); err != nil {
+		return err
+	}
 
 	// A CODE FENCE IS NEVER REWRITTEN. Its text is literal by definition, so
 	// {--…--} inside one is characters, not a suggestion — a shell script that
@@ -743,8 +759,8 @@ func (s *EditServer) project() error {
 	// A RUNNING GALLEY OWNS THE FILE, AND THE OVERWRITE USED TO BE SILENT.
 	// Every projection writes the CRDT over the document, so an edit made to
 	// the .md by hand while `galley edit` is serving is gone at the next
-	// settle. That is the design and not a defect — the document a browser,
-	// an agent and a sidecar are all bound to is the live one, and merging a
+	// settle. That is the design and not a defect — the document a browser
+	// and an agent are both bound to is the live one, and merging a
 	// foreign write back into a CRDT that cannot recognise a document it did
 	// not build is a different piece of work (see CLAUDE.md on why a fresh
 	// parse cannot be merged with the served doc). What WAS a defect is that
@@ -955,11 +971,10 @@ func (s *EditServer) handleMode(w http.ResponseWriter, r *http.Request) {
 // endpoint the browser binds the fragment through, the JSON endpoints the
 // agent (and the editor's own buttons) drive, and the built editor bundle.
 //
-// Unlike Server's, the only static content behind it is the document's own
+// The only static content behind it is the document's own
 // figures: serveSibling answers GET and HEAD for the image files beside the
 // .md, and nothing else. Anything that is not "/" and not a figure is a 404.
-// The broader "serve the whole directory" surface review mode's http.FileServer
-// gives is still refused — see editassets.go for why the extension allowlist is
+// A "serve the whole directory" http.FileServer is refused — see editassets.go for why the extension allowlist is
 // load-bearing, why every read goes through an os.Root rather than through
 // string arithmetic on the URL, and why a figure that is a SYMLINK is refused
 // even when it points inside the directory.
@@ -978,7 +993,8 @@ func (s *EditServer) Handler() http.Handler {
 		"application/javascript; charset=utf-8", "`just assets`, which builds the editor bundle"))
 	// The caret, committed rather than built — unlike the three routes above,
 	// this one never 404s on a fresh checkout.
-	mux.HandleFunc("/_galley/favicon.svg", serveAsset("assets/favicon.svg", "image/svg+xml"))
+	mux.HandleFunc("/_galley/favicon.svg", serveAssetHint("assets/favicon.svg", "image/svg+xml",
+		"`git checkout -- internal/serve/assets/favicon.svg`; it is committed"))
 	// The split-pane preview iframe fetches the live page and its assets here.
 	// Only live in page mode; a plain 404 in markdown mode. See preview.go.
 	mux.HandleFunc("/_galley/preview/", s.servePreview)
@@ -1055,7 +1071,7 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
-// handleEditRev mirrors Server's: the document's mtime, so the page can notice
+// handleEditRev reports the document's mtime, so the page can notice
 // that something outside the editor rewrote the file underneath it.
 //
 // It also carries this run's room name. A tab that outlived a restart is
@@ -1074,7 +1090,7 @@ func (s *EditServer) handleEditRev(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleEditSaved mirrors Server's: when the projection last reached disk, in
+// handleEditSaved reports when the projection last reached disk, in
 // epoch milliseconds, so the editor can say "on disk" honestly rather than
 // meaning "synced to a peer".
 func (s *EditServer) handleEditSaved(w http.ResponseWriter, r *http.Request) {
@@ -1146,9 +1162,8 @@ func (s *EditServer) pending() (PendingView, error) {
 	if err != nil {
 		return PendingView{}, err
 	}
-	pending := suggest.List(model)
 	view := PendingView{
-		Instructions: s.anchoredInstructions(review.Read(s.doc), pending),
+		Instructions: s.liveInstructions(model),
 		Blocks:       suggest.Blocks(model),
 	}
 	// AND WHAT THE REVIEWER CHANGED BY HAND, on the same payload as what they
@@ -1161,104 +1176,13 @@ func (s *EditServer) pending() (PendingView, error) {
 	return view, nil
 }
 
-func (s *EditServer) anchoredInstructions(threads []review.Thread, pending []suggest.Pending) []InstructionView {
-	var out []InstructionView
-	for _, th := range threads {
-		if th.Resolved {
-			continue
-		}
-		run := ""
-		p, paired := suggest.PairFor(pending, th)
-		if paired {
-			run = p.Run
-		}
-		// DELETE THE SENTENCE, DELETE THE INSTRUCTION ABOUT IT. See
-		// noteAnchored: an instruction whose anchor this server watched appear
-		// and then go is one the reviewer retracted by deleting the words.
-		if s.retracted(th, paired) {
-			continue
-		}
-		for _, e := range th.Entries {
-			if e.Author != review.AuthorCourt || strings.TrimSpace(e.Text) == "" {
-				continue
-			}
-			out = append(out, InstructionView{
-				Key: th.Key, Text: strings.TrimSpace(e.Text), Quote: strings.TrimSpace(th.Heading),
-				At: e.At.UTC(), Run: run, Anchor: th.Anchor, AnchorKey: th.AnchorKey,
-				BlockKind: th.BlockKind, Region: th.Region,
-			})
-		}
-	}
-	return out
-}
-
 func (s *EditServer) editFingerprint(model docmodel.Doc) string {
 	h := sha256.New()
 	_, _ = h.Write(markdown.Serialize(model))
-	for _, instruction := range reviewerInstructions(review.Read(s.doc)) {
+	for _, instruction := range s.liveInstructions(model) {
 		_, _ = fmt.Fprintf(h, "\x00%s\x00%s\x00", instruction.Quote, instruction.Text)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
-}
-
-func reviewerInstructions(threads []review.Thread) []InstructionView {
-	var out []InstructionView
-	for _, th := range threads {
-		if th.Resolved {
-			continue
-		}
-		for _, e := range th.Entries {
-			if e.Author != review.AuthorCourt || strings.TrimSpace(e.Text) == "" {
-				continue
-			}
-			// KEY TRAVELS ON THE WAKE, and for the whole of phase 3 it did
-			// not — this builder set Text, Quote and At while `pending()`
-			// next door set Key as well, so the ROUND (which composes
-			// through here) handed over no key while a poll of
-			// /_galley/pending did. `galley wait` and the channel both take
-			// this path, which made it the one that mattered.
-			//
-			// Safe for `editFingerprint`, which hashes Quote and Text only:
-			// adding a field it does not read cannot manufacture a wake.
-			out = append(out, InstructionView{
-				Key:  th.Key,
-				Text: strings.TrimSpace(e.Text), Quote: strings.TrimSpace(th.Heading), At: e.At.UTC(),
-			})
-		}
-	}
-	return out
-}
-
-func anchoredText(model docmodel.Doc, path []int, author string) (string, bool) {
-	found, n := "", 0
-	for _, p := range suggest.List(model) {
-		if p.Kind != suggest.KindComment || p.Author != author || !samePath(p.Path, path) {
-			continue
-		}
-		found, n = p.Text, n+1
-	}
-	return found, n == 1
-}
-
-func samePath(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func threadByKey(doc *crdt.Doc, key string) (review.Thread, bool) {
-	for _, thread := range review.Read(doc) {
-		if thread.Key == key {
-			return thread, true
-		}
-	}
-	return review.Thread{}, false
 }
 
 func (s *EditServer) ReviseInFlight() (<-chan struct{}, bool) {
@@ -1349,16 +1273,15 @@ const (
 // AUTHOR, NOT TRANSPORT. The tempting alternative is to call a request with no
 // Origin header the agent's — serve.guard already treats a missing Origin as
 // "the CLI, curl, an agent" — but that is the wrong question asked of the right
-// evidence: the reviewer drives `galley accept` from a terminal too, and
-// classifying that as the agent would take the one decision the agent is
-// actually waiting for and make it silent.
+// evidence: a request with no Origin can be the reviewer's own, from curl or a
+// script, and classifying that as the agent would make the reviewer's own
+// change silent.
 //
 // The author is a distinction this server already carries and already trusts
 // for exactly this meaning: review.Read reads `Author == AuthorCourt` as "the
 // reviewer said this", and the editor bundle names itself on every mutating
 // request it sends (web/entry.js's AUTHOR). So anything that is NOT the
-// reviewer's own name is a write on the agent's behalf — including an explicit
-// `galley suggest --author alice`, which is likewise not news to whoever ran it.
+// reviewer's own name is a write on the agent's behalf.
 func requesterFor(author string) requester {
 	if author == review.AuthorCourt {
 		return byReviewer
@@ -1372,8 +1295,8 @@ func requesterFor(author string) requester {
 // server's Apply so peers see it.
 //
 // The mutex is what makes the read-transform-write sequence atomic WITH
-// RESPECT TO OTHER SERVER-SIDE WRITERS — the suggest/accept/reject endpoints,
-// Project, and Flush. Nothing in ygo offers that atomicity to piggyback on, so
+// RESPECT TO OTHER SERVER-SIDE WRITERS — the instruction and revert
+// endpoints, the send, the agent's import, Project, and Flush. Nothing in ygo offers that atomicity to piggyback on, so
 // there is nothing cheaper to use instead.
 //
 // In particular it cannot be Apply-scoped, and the reason is worth stating
@@ -1409,7 +1332,12 @@ func requesterFor(author string) requester {
 func (s *EditServer) mutate(by requester, fn func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error)) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.mutateLocked(by, fn)
+}
 
+// mutateLocked is mutate's body, with mu already held. mutateUnsent shares it
+// so it can mirror the unsent round before releasing mu.
+func (s *EditServer) mutateLocked(by requester, fn func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error)) (int, error) {
 	model, err := s.readLive()
 	if err != nil {
 		return statusFor(err), err
@@ -1553,6 +1481,10 @@ type instructionRequest struct {
 	Region *review.Region `json:"region,omitempty"`
 }
 
+// errNotPending is an edit naming a key that is not pending: never filed,
+// already deleted or sent, or retracted. handleInstruction answers it 404.
+var errNotPending = errors.New("there is no unsent instruction")
+
 func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 	var in instructionRequest
 	if !decode(w, r, &in) {
@@ -1597,38 +1529,27 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	code, err := s.mutate(requesterFor(author), func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+	code, err := s.mutateUnsent(requesterFor(author), func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		switch in.Op {
 		case "comment":
-			var (
-				out docmodel.Doc
-				key string
-				err error
-			)
-			out, key, err = commentRanged(model, in, author, at)
+			// A comment is a highlight in the document, carrying the comment's
+			// ID on every piece, PLUS a thread carrying what was actually said.
+			// The ID is minted here, once, and is the thread's key for its whole
+			// life: the file's mark and pending.json's comment are linked by it
+			// and by nothing else. The highlight's ordinal is a display
+			// coordinate and is never persisted (see suggest.Pending.ID).
+			key := unsent.NewID(unsent.KindText)
+			out, err := commentRanged(model, in, key, author, at)
 			if err != nil {
 				return docmodel.Doc{}, nil, err
 			}
-			// A comment is a highlight in the document PLUS a thread carrying
-			// what was actually said — the highlight alone has nowhere to put
-			// the words. The thread's key is suggest.CommentKey's, derived from
-			// what the comment is anchored to and stable for its whole life;
-			// the highlight's ordinal is a display coordinate and is never
-			// persisted (see suggest.Pending.ID). The highlighted text is the
-			// heading, so the panel and `galley pending` name what the comment
-			// is about instead of a hash.
-			if strings.TrimSpace(in.Text) == "" {
-				return out, nil, nil
-			}
 			// The heading is what the highlight actually covers, not what the
-			// browser called it. The two differ whenever the selection had
-			// whitespace on it, and anchorThreads pairs on this string — a
-			// trimmed heading is a thread that silently loses its jump.
+			// browser called it: the two differ whenever the selection had
+			// whitespace on it, and a cross-paragraph comment's pieces are
+			// joined the way List joins them.
 			heading := in.Target
-			if in.Path != nil {
-				if anchored, ok := anchoredText(out, in.Path, author); ok {
-					heading = anchored
-				}
+			if anchored, ok := suggest.CommentText(out, key); ok {
+				heading = anchored
 			}
 			text := in.Text
 			return out, func(doc *crdt.Doc, tx review.Tx) {
@@ -1644,10 +1565,17 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			// since CommentOn refuses to highlight text that already carries
 			// one. Both halves of the change land inside the one mutate
 			// closure or neither does.
+			//
+			// A RETRACTED COMMENT IS NOT PENDING, so it cannot be edited. Its
+			// thread stays in the review map until the next send (see
+			// lostanchor.go), so finding the key there is not enough: an edit
+			// saved into it is saved into a comment no surface shows, and the
+			// reviewer's words are gone without a word said. A key that is not
+			// pending is a 404, and the browser keeps the words.
 			threads := review.Read(s.doc)
 			var target review.Thread
 			for _, thread := range threads {
-				if thread.Key != in.Key || thread.Resolved {
+				if thread.Key != in.Key {
 					continue
 				}
 				for _, entry := range thread.Entries {
@@ -1656,34 +1584,28 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			if target.Key == "" {
-				return docmodel.Doc{}, nil, fmt.Errorf("there is no unsent instruction %q", in.Key)
+			if target.Key == "" || s.retractedIn(model)[in.Key] {
+				return docmodel.Doc{}, nil, fmt.Errorf("%w %q", errNotPending, in.Key)
 			}
 			text := strings.TrimSpace(in.Text)
 			if text == "" {
 				return docmodel.Doc{}, nil, fmt.Errorf("an instruction with no words is a delete — use it")
 			}
-			// A block or document instruction's WORDS ARE A NOTE IN THE FILE,
-			// so an edit that only touched the sidecar would leave the .md
-			// saying the old thing — and the .md is the document of record.
-			// Reword answers false for a range instruction, whose words were
-			// never in the document, and that is the correct no-op rather than
-			// a failure.
-			out, _ := suggest.Reword(model, threads, in.Key, text)
+			// THE WORDS ARE IN pending.json ALONE, for every kind, so an edit
+			// changes nothing in the document: the file holds only the
+			// comment's ID mark, which an edit does not move. The model goes
+			// back unchanged and applyModel's rev bump carries the review write.
 			key := in.Key
-			return out, func(doc *crdt.Doc, tx review.Tx) {
+			return model, func(doc *crdt.Doc, tx review.Tx) {
 				// The heading is left alone — an edit changes what was ASKED,
 				// never what it was asked ABOUT.
 				review.Bind(doc, tx).SetComment(key, "", text, at)
 			}, nil
 		case "comment_block", "comment_document":
-			// A block or document comment is the mirror image of a range one:
-			// the NOTE goes into the document (as a {>>…<<} on its own line —
-			// there is no mark to carry it) and the thread carries the
-			// conversation that grows around it. So unlike the range branch
-			// the text is not optional, and suggest refuses it up front rather
-			// than writing a marker with nothing in it.
-			out, key, err := commentAnchored(model, in, author, at)
+			// A block comment's ID mark goes into the document on its own line
+			// after the block; a document comment has no mark at all. The words
+			// and any rectangle live in pending.json alone, linked by the ID.
+			out, key, err := commentAnchored(model, in)
 			if err != nil {
 				return docmodel.Doc{}, nil, err
 			}
@@ -1697,10 +1619,8 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			return out, func(doc *crdt.Doc, tx review.Tx) {
 				sess := review.Bind(doc, tx)
 				sess.Append(key, heading, author, text, at)
-				sess.SetAnchor(key, string(anchor.Kind), anchor.Target, suggest.BlockKindFor(out, anchor))
-				// The rectangle, when there is one. The WORDS are already in
-				// the document as an ordinary block note — this is the part
-				// that has no markdown spelling and so rides in the sidecar.
+				sess.SetAnchor(key, string(anchor.Kind), suggest.BlockKindFor(out, anchor))
+				// The rectangle, when there is one.
 				if region != nil {
 					sess.SetRegion(key, region)
 				}
@@ -1711,6 +1631,9 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if err != nil {
+		if code == 0 && errors.Is(err, errNotPending) {
+			code = http.StatusNotFound
+		}
 		if code == 0 {
 			// A transform failure is the caller's problem, not the server's:
 			// text that matched zero or several times, or already carries a
@@ -1752,11 +1675,11 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "which instruction? pass its key", http.StatusBadRequest)
 		return
 	}
-	code, err := s.mutate(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+	code, err := s.mutateUnsent(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		threads := review.Read(s.doc)
 		var instruction bool
 		for _, thread := range threads {
-			if thread.Key != in.Key || thread.Resolved {
+			if thread.Key != in.Key {
 				continue
 			}
 			for _, entry := range thread.Entries {
@@ -1798,27 +1721,40 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 // selected and says so in coordinates; the CLI knows only some words and asks
 // the server to find them. Asking the server to search when the page already
 // knew is what made commenting on a word that occurs twice fail.
-func commentRanged(model docmodel.Doc, in instructionRequest, author string, at time.Time) (docmodel.Doc, string, error) {
+func commentRanged(model docmodel.Doc, in instructionRequest, id, author string, at time.Time) (docmodel.Doc, error) {
+	// A COMMENT WITH NO WORDS IS REFUSED, not filed as a bare highlight: its ID
+	// mark would sit in the .md with no comment in pending.json for it to name.
+	if strings.TrimSpace(in.Text) == "" {
+		return docmodel.Doc{}, errors.New("an instruction needs words")
+	}
 	switch {
 	case in.Path != nil && in.ToPath != nil:
 		// A SELECTION THAT CROSSES A BLOCK BOUNDARY. It used to fall to the
 		// Target branch below, where `findUnique` searches block by block for a
 		// string that is the concatenation of two — zero matches, every time,
 		// and only after the reviewer had finished typing their instruction.
-		return suggest.CommentAcross(model, in.Path, in.From, in.ToPath, in.To, author, at)
+		return suggest.CommentAcross(model, in.Path, in.From, in.ToPath, in.To, id, author, at)
 	case in.Path != nil:
-		return suggest.CommentOnRange(model, in.Path, in.From, in.To, author, at)
+		return suggest.CommentOnRange(model, in.Path, in.From, in.To, id, author, at)
 	default:
-		return suggest.CommentOn(model, in.Target, author, at)
+		return suggest.CommentOn(model, in.Target, id, author, at)
 	}
 }
 
-// commentAnchored applies the block or document comment named by in.
-func commentAnchored(model docmodel.Doc, in instructionRequest, author string, at time.Time) (docmodel.Doc, string, error) {
-	if in.Op == "comment_block" {
-		return suggest.CommentOnBlock(model, in.Target, in.Text, author, at)
+// commentAnchored mints the block or document comment named by in and writes
+// its mark: an ID note after the block, or, for the whole document, nothing,
+// so the model comes back unchanged. A comment with no words is refused, as
+// for a range comment: its mark would name nothing in pending.json.
+func commentAnchored(model docmodel.Doc, in instructionRequest) (docmodel.Doc, string, error) {
+	if strings.TrimSpace(in.Text) == "" {
+		return docmodel.Doc{}, "", errors.New("an instruction needs words")
 	}
-	return suggest.CommentOnDocument(model, in.Text, author, at)
+	if in.Op != "comment_block" {
+		return model, unsent.NewID(unsent.KindDocument), nil
+	}
+	key := unsent.NewID(unsent.KindBlock)
+	out, err := suggest.CommentOnBlock(model, in.Target, key)
+	return out, key, err
 }
 
 // headingForAnchor names what a thread is about, for the panel and for
@@ -1861,7 +1797,11 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	if err != nil {
 		return reviewerRound{}, statusFor(err), err
 	}
-	said, instructions, markSaid := s.reviewerInstruction()
+	inRound := make(map[string]bool, len(handoff.Instructions))
+	for _, instruction := range handoff.Instructions {
+		inRound[instruction.Key] = true
+	}
+	said, instructions, markSaid := s.reviewerInstruction(inRound)
 	keys := make([]string, 0, len(handoff.Instructions))
 	// THE ROUND IS WHERE THE KEYS SURVIVE. The mutation below DELETES every
 	// thread this send carries — an instruction is discharged by the revision,
@@ -1878,14 +1818,51 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 			Key: instruction.Key, Text: instruction.Text, Quote: instruction.Quote,
 		})
 	}
+	if testHookAfterRoundCaptured != nil {
+		testHookAfterRoundCaptured()
+	}
 	if code, err := s.mutate(bySystem, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+		// HELD ASIDE BEFORE THE CLEAR, under mu and outside any Transact: once
+		// the threads below are deleted, the review map no longer holds the
+		// round being sent, and anything that rewrites pending.json from the
+		// map before the cut (a comment filed in this window, a save from
+		// inside project) would drop it. See saveUnsentLocked.
+		//
+		// MERGED, NEVER ASSIGNED, and released by this send's own keys: a
+		// Revise press and a live settle can be in here at once, and either
+		// one assigning or nil-ing the whole map would drop the other's round.
+		if s.sending == nil {
+			s.sending = map[string]unsent.Comment{}
+		}
+		maps.Copy(s.sending, sendingOf(review.Read(s.doc), keys))
+		// A RETRACTED COMMENT GOES WITH THIS CLEAR. Its words were deleted, so
+		// the pending view hid it and it is not among keys; its thread has
+		// waited in the review map for this write, which already reaches every
+		// peer and is seeded below. See lostanchor.go.
+		retracted := s.retractedIn(model)
+		s.forgetRetractedLocked(retracted)
+		// AND A COMMENT FILED SINCE THE CAPTURE IS NOT RETRACTED BY IT.
+		// ClearInstructions lifts every highlight, this round's or not, so a
+		// text comment filed between the capture and this write loses its mark
+		// here without the reviewer deleting anything. Forgetting that it was
+		// placed shows it as an unplaced card, rather than letting the next
+		// projection read the lifted mark as a retraction and hide it.
+		s.forgetPlacedLocked(keys)
 		return suggest.ClearInstructions(model), func(doc *crdt.Doc, tx review.Tx) {
 			session := review.Bind(doc, tx)
 			for _, key := range keys {
 				_ = session.Delete(key)
 			}
+			for key := range retracted {
+				_ = session.Delete(key)
+			}
 		}, nil
 	}); err != nil {
+		// Nothing was sent: whatever the clear did not delete is still in the
+		// map, and nothing is in flight.
+		s.mu.Lock()
+		s.releaseSendingLocked(keys)
+		s.mu.Unlock()
 		return reviewerRound{}, code, err
 	}
 
@@ -1894,6 +1871,9 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	// a second time after the handoff that caused it.
 	s.SeedNotify()
 
+	if testHookAfterInstructionsCleared != nil {
+		testHookAfterInstructionsCleared()
+	}
 	round := s.requestCutIntent(&cutIntent{reason: reason, instruction: said, asks: asks})
 	// MARKED ONLY IF THE ROUND WAS ACTUALLY CUT — see reviewerInstruction. A
 	// projection that never reached the cut has recorded nothing, and marking
@@ -1907,6 +1887,33 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	}
 	fp, _, _ := s.waitFingerprint()
 	s.debugRoundSent(reason, round, fp, asks)
+
+	// THE UNSENT ROUND IS EMPTIED LAST. The marks were cleared above and the
+	// round was recorded inside project (a version is cut nowhere else, from
+	// the bytes project wrote, so the marks are necessarily gone by then), and
+	// only now does pending.json let go of what was sent. A crash anywhere
+	// before this line leaves every sent comment still in pending.json, shown
+	// as unplaced; a crash after it finds the round recorded. Never neither.
+	// That holds against every other writer of pending.json in between because
+	// s.sending, not the review map, is what carries the sent comments until
+	// here: a comment filed mid-send, or a save from inside project, writes
+	// them too.
+	//
+	// Rewritten from the review map rather than emptied: a comment filed
+	// between the capture and the clear was not sent and is still in the map.
+	// A version that could not be written (round == 0) does not hold this
+	// back: such a round is still sent, by the rule that a failed version
+	// never fails a round.
+	if testHookBeforeUnsentCleared != nil {
+		testHookBeforeUnsentCleared()
+	}
+	s.mu.Lock()
+	s.releaseSendingLocked(keys)
+	err = s.saveUnsentLocked()
+	s.mu.Unlock()
+	if err != nil && s.Log != nil {
+		s.Log("could not empty the sent comments out of the unsent round: " + err.Error())
+	}
 	return reviewerRound{pending: handoff, round: round, fingerprint: fp}, http.StatusOK, nil
 }
 
@@ -1930,15 +1937,15 @@ func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bo
 //
 // Single-flight: a second POST while one command is still running is refused
 // with 409 rather than starting a rival process. Two agents revising the same
-// document concurrently would race each other's suggestions into the same
+// document concurrently would race each other's edits into the same
 // fragment, and an impatient double-click on the Revise button is the ordinary
 // way that happens.
 //
 // DELIBERATELY NO TIMEOUT. An agent revision legitimately runs for minutes —
-// reading the work order, thinking, writing suggestions back through
-// /_galley/suggest — and any timeout short enough to be useful against a
-// genuinely hung command would also kill real work mid-revision, leaving the
-// document half-suggested with no way to tell which half. Supervision is the
+// reading the work order, thinking, editing the file — and any timeout short
+// enough to be useful against a genuinely hung command would also kill real
+// work mid-revision, leaving the document half-revised with no way to tell
+// which half. Supervision is the
 // caller's: ReviseInFlight exposes the state, Log carries the outcome, and the
 // operator can see the process. If a bound is ever wanted it belongs in the
 // configured command itself (`timeout 600 …`), where the person who knows how
@@ -2745,8 +2752,8 @@ func (s *EditServer) ReleaseWaiters() {
 	}
 }
 
-// waitFingerprint is the cursor a blocking read compares against: the pending
-// suggestions and the comment threads, hashed by FingerprintPending — the same
+// waitFingerprint is the cursor a blocking read compares against: the document
+// and its live instructions, hashed by editFingerprint — the same
 // one answer to "has anything a reviewer could be waiting on changed" that the
 // notifier and the revision window both use. handleRevise takes the window's
 // fingerprint from here too, so there is exactly one of these in the file.
@@ -2770,7 +2777,7 @@ func (s *EditServer) waitFingerprint() (string, PendingView, error) {
 	if err != nil {
 		return "", PendingView{}, err
 	}
-	view := PendingView{Instructions: reviewerInstructions(review.Read(s.doc))}
+	view := PendingView{Instructions: s.liveInstructions(model)}
 	// WHAT THE REVIEWER CHANGED BY HAND rides the same payload as what they
 	// wrote about it. Read here rather than at the press because this is where
 	// the round is composed for handover, and because a version that cannot be
@@ -2930,63 +2937,3 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 		// The caller went away. Nothing to write to.
 	}
 }
-
-// importInlineComments turns a freshly-parsed file's {>>note<<} markers into
-// threads — the file's one-time on-ramp into the sidecar's conversation
-// model. See NewEdit for why this is a no-op on every restart after the
-// first.
-// The parsed model is taken beside the crdt document so the thread can be
-// NAMED — suggest.InlineCommentHeading, the same derivation the offline
-// on-ramp uses. The two sites share only the KEY otherwise, so a heading
-// spelled here and not there would be a divergence between a document that has
-// been opened and one that has not.
-func importInlineComments(doc *crdt.Doc, model docmodel.Doc, comments []markdown.InlineComment) {
-	if len(comments) == 0 {
-		return
-	}
-	s := review.Wrap(doc)
-	now := time.Now()
-	for _, c := range comments {
-		s.Append(suggest.InlineCommentKey(c), suggest.InlineCommentHeading(model, c),
-			review.AuthorCourt, c.Text, now)
-	}
-}
-
-// importNotes opens a thread for every block or document comment in the file
-// that the sidecar has no thread for: one somebody typed in by hand, or one an
-// offline `galley suggest --on-block` wrote while no server was running.
-//
-// The author is the reviewer, not the agent: a note found in the file with no
-// thread behind it was written by whoever edited the file, and the agent's own
-// notes always arrive through /_galley/suggest, which opens the thread itself.
-func importNotes(doc *crdt.Doc, notes []suggest.NoteThread) {
-	if len(notes) == 0 {
-		return
-	}
-	s := review.Wrap(doc)
-	now := time.Now()
-	for _, n := range notes {
-		t := suggest.NewNoteThread(n, review.AuthorCourt, now)
-		s.Append(t.Key, t.Heading, review.AuthorCourt, n.Text, now)
-		s.SetAnchor(t.Key, t.Anchor, t.AnchorKey, t.BlockKind)
-	}
-}
-
-// The key this import mints lives in suggest.InlineCommentKey, NOT here. It
-// used to be a private function in this file, and the offline CLI — which has
-// to open the same thread for the same marker, since a note in the file must
-// become the same conversation whether or not a server was running when it was
-// read — had no way to reach it and no import at all. One spelling, exported
-// by the side that answers it; see suggest/inlinecomment.go.
-
-// legacyFenceMetas are "f"-prefixed sidecar entries left by an OLDER galley,
-// carried through every projection untouched.
-//
-// Nothing creates them any more — see project's comment on why a code fence
-// is never rewritten — but a sidecar written by a build that did is still a
-// record of text that build removed from a file, and dropping it silently
-// would be the same class of loss this whole change exists to close. They are
-// appended AFTER the ordinary suggestions for the same reason the fence pass
-// used to be: suggest.ReplayAttribution indexes metas positionally against
-// suggest.List's pendings, which never include code-block text, so an "f"
-// entry must never land inside that index range.

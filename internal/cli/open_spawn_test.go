@@ -13,10 +13,9 @@ import (
 	"github.com/schuettc/galley/internal/registry"
 )
 
-// buildGalley compiles the real binary once per test that needs it. No wasm
-// bundle is embedded (that is `just build`), which only matters to a browser:
-// the advert is written before the first request is served, and this test
-// only reads the advert and probes the listener.
+// buildGalley compiles the real binary once per test that needs it. The
+// advert is written before the first request is served, and this test only
+// reads the advert and probes the listener.
 func buildGalley(t *testing.T) string {
 	t.Helper()
 	exe := filepath.Join(t.TempDir(), "galley")

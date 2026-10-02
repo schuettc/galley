@@ -20,16 +20,16 @@ func TestCommentOnRangeHandlesAmbiguousText(t *testing.T) {
 	}}}
 
 	// The bare "age" at runes 16..19, not the one inside "image".
-	out, key, err := CommentOnRange(d, []int{0}, 16, 19, "court", time.Now().UTC())
+	out, err := CommentOnRange(d, []int{0}, 16, 19, "cm-0000000000000001", "court", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("CommentOnRange: %v", err)
-	}
-	if key == "" {
-		t.Error("want a thread key")
 	}
 	pending := List(out)
 	if len(pending) != 1 {
 		t.Fatalf("want 1 pending, got %d", len(pending))
+	}
+	if pending[0].CommentID != "cm-0000000000000001" {
+		t.Errorf("the highlight carries ID %q, want the one it was given", pending[0].CommentID)
 	}
 	if pending[0].Text != "age" {
 		t.Errorf("highlighted %q, want %q", pending[0].Text, "age")
@@ -49,7 +49,7 @@ func TestCommentOnStillRefusesAmbiguousText(t *testing.T) {
 		Kind:    docmodel.Paragraph,
 		Inlines: []docmodel.Inline{{Text: "an image and an age"}},
 	}}}
-	if _, _, err := CommentOn(d, "age", "court", time.Now().UTC()); err == nil {
+	if _, err := CommentOn(d, "age", "cm-0000000000000002", "court", time.Now().UTC()); err == nil {
 		t.Error("want an ambiguity error from the search path, got nil")
 	}
 }
@@ -71,7 +71,7 @@ func TestCommentOnRangeRejectsAnImpossibleRange(t *testing.T) {
 		{"negative", -1, 3, []int{0}},
 		{"no such block", 0, 3, []int{7}},
 	} {
-		if _, _, err := CommentOnRange(d, tc.path, tc.from, tc.to, "court", at); err == nil {
+		if _, err := CommentOnRange(d, tc.path, tc.from, tc.to, "cm-0000000000000003", "court", at); err == nil {
 			t.Errorf("%s: want an error, got nil", tc.name)
 		}
 	}
@@ -84,7 +84,7 @@ func TestCommentOnRangeCountsRunes(t *testing.T) {
 		Kind:    docmodel.Paragraph,
 		Inlines: []docmodel.Inline{{Text: "café ☕ age"}},
 	}}}
-	out, _, err := CommentOnRange(d, []int{0}, 7, 10, "court", time.Now().UTC())
+	out, err := CommentOnRange(d, []int{0}, 7, 10, "cm-0000000000000004", "court", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("CommentOnRange: %v", err)
 	}

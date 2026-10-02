@@ -32,9 +32,8 @@ export const GUTTER_PX = 26;
 // the way that disagreement shows up is rail and sheet on screen together.
 export const RAIL_MIN_WIDTH = 992;
 
-// Who the reviewer is on the wire. ONE SPELLING: threadAnswered asks "did
-// someone other than the reviewer speak last", and entry.ts posts under it. A
-// third reader that spelled its own literal is how the six agreeing spellings
+// Who the reviewer is on the wire. ONE SPELLING: entry.ts posts under it. A
+// second reader that spelled its own literal is how the six agreeing spellings
 // in CLAUDE.md always start. (`outgoingCounts` was the third and is deleted;
 // see the note where it was.)
 const REVIEWER = 'court';
@@ -44,22 +43,15 @@ const REVIEWER = 'court';
 // attributed to "agent". (It used to name every typed mark too — the
 // reviewer's-hand cut removed those, but a conversation still needs a name.)
 //
-// ONE SPELLING, and it is rail.ts's: `threadAnswered` and `outgoingCounts` both
-// have to know which entries are the reviewer's, and a literal 'court' here
-// beside a literal 'court' there is how two agreeing copies become three and
-// then one that disagrees.
+// ONE SPELLING, and it is rail.ts's: a literal 'court' here beside a literal
+// 'court' there is how two agreeing copies become three and then one that
+// disagrees.
 export const AUTHOR = REVIEWER;
 
 // The shapes of a pending-payload entry, in the loose form this module has
-// always read them: every field optional, because a suggestion and a thread
-// arrive over JSON and this file's whole discipline is treating what it
-// cannot see as absent rather than assuming a shape it hasn't checked.
-type PendingSuggestion = {
-  kind?: string;
-  run?: string;
-  decidable?: boolean;
-};
-
+// always read them: every field optional, because a thread arrives over JSON
+// and this file's whole discipline is treating what it cannot see as absent
+// rather than assuming a shape it hasn't checked.
 // EXPORTED so web/appshell.ts's `Thread` — the richer shape the App actually
 // carries in `this.comments` — can be DECLARED against this shape rather than
 // duplicating its fields by hand; see appshell.ts's own header for why a
@@ -71,7 +63,6 @@ export type PendingThreadEntry = {
 };
 
 export type PendingThread = {
-  resolved?: boolean;
   anchor?: string;
   anchorKey?: string;
   run?: string;
@@ -168,6 +159,10 @@ export function stackCards<T extends { anchorTop: number; height: number }>(
  * opposite door from the one it was first measured at (layers §7b′, which was
  * written when the SHEET was the surface with no settled region).
  *
+ * THAT SETTLED REGION IS GONE NOW, AND THE ANSWER STANDS: nothing resolves an
+ * instruction any more, but the sheet is still the one surface listing every
+ * thread, the anchorless ones included, so it stays reachable at every width.
+ *
  * It is the review's whole list at every width, and it is reached the same way
  * at every width: the census count, which is a button.
  */
@@ -216,24 +211,16 @@ export function railSurfaces({
  *
  * THAT JUSTIFICATION IS THIS SIDE'S AND DOES NOT TRAVEL. It rests on the bundle
  * and the server being one binary, which is true of the browser and false of
- * the CLI: `galley accept --all` is a separate process asking whatever `galley
- * edit` is running, with no version handshake in the protocol, so a newer CLI
- * against an older server really does see the field absent. There, absent means
- * ASK THE KIND — cmd/galley's sweepView, whose comment carries the measurement:
- * reading it as no printed `accepted 0` while the server swept every proposal.
- * A reader of this field outside the browser has to decide the question again.
+ * the CLI: `galley accept --all` was a separate process asking whatever `galley
+ * edit` was running, with no version handshake in the protocol, so a newer CLI
+ * against an older server really did see the field absent, and there absent
+ * meant ASK THE KIND. A reader of this field outside the browser has to decide
+ * the question again.
  *
  * WHAT IT GOVERNS IS WHAT IS OFFERED. Every surface that puts a ✓ or a ✗ in
  * front of the reviewer, or that `a`/`r` can land on, asks this: the rail's
- * card loop, the sheet's, and stepOrder. Two neighbours deliberately do
- * NOT, because they are not offering a verdict and their questions are their
- * own: censusCounts counts by KIND rather than asking this, because absent-
- * means-no is fail-closed for a verb and fail-OPEN for a count that decides
- * whether Approve is offered (see CENSUS_KINDS, which is what now holds its
- * breakdown to this predicate's population instead), and proposalThread refuses
- * a comment because a comment's conversation IS its card, which would hold
- * however this predicate went. Nothing either of them does can reach an
- * endpoint.
+ * card loop, the sheet's, and stepOrder. censusCounts does NOT: it counts
+ * threads, not verbs, and nothing it does can reach an endpoint.
  *
  * @param s a pending-payload entry
  */
@@ -241,28 +228,6 @@ export function decidable(
   s: { decidable?: boolean } | null | undefined,
 ): boolean {
   return !!(s && s.decidable);
-}
-
-/**
- * threadAnswered reports whether the agent has spoken last in a thread.
- *
- * The JS twin of review.Thread.Answered on the Go side, and the ONLY spelling
- * of the predicate in this language — entry.ts consumes it through
- * censusCounts' `answered` tally rather than inlining a copy that agrees for
- * now. It asks "who spoke last", not "is it open": a thread with no entries
- * has nobody to have spoken last, so it reads as unanswered, and a thread
- * whose newest entry is the reviewer's own follow-up is unanswered too — the
- * ball is back in the reviewer's court. `!== 'court'` rather than
- * `=== 'agent'` deliberately, matching the Go predicate: anyone who is not
- * the reviewer answering is still an answer.
- *
- * @param t a pending-payload thread
- */
-export function threadAnswered(
-  t: { entries?: { author?: string }[] } | null | undefined,
-): boolean {
-  const entries = (t && t.entries) || [];
-  return entries.length > 0 && entries[entries.length - 1].author !== REVIEWER;
 }
 
 /* --- what the reviewer is about to tell the agent ---------------------------
@@ -323,101 +288,28 @@ export function threadAnswered(
  */
 
 /**
- * censusCounts reduces the /_galley/pending payload to the numbers the census
- * strip shows.
+ * censusCounts reduces the /_galley/pending payload to the thread numbers the
+ * page reads.
  *
  * IT TAKES THE SERVER'S ANSWER, NOT THE RAIL'S. The count is derived from the
  * same projection the document is, which is the whole reason the census is a
  * separate surface: a strip that counted the rail's cards would count what was
  * rendered, and what is rendered is what is near the viewport.
  *
- * Comment highlights are counted apart from suggestions because they are not
- * decidable — a thread is resolved, never accepted — and the bulk verbs beside
- * this count act on suggestions only.
+ * IT COUNTS THREADS ONLY. It used to count suggestions too — a total, a
+ * per-kind breakdown and an allowlist of kinds holding the two together — and
+ * the payload no longer carries any, so every one of those numbers was zero.
  *
- * A 'replace' is a SUBSTITUTION — "{~~old~>new~~}" — and it is ONE pending
- * item with one decision, so it gets its own tally rather than being counted
- * as an insert and a delete. Counting it twice would say two decisions are
- * waiting where one is, and the ✓ all beside this number would then be
- * describing work that does not exist.
- *
- * `answered` sits beside `threads` because ✓ all is the SWEEP now: it settles
- * the threads the agent has answered as well as approving every proposal, so
- * "is there anything for the sweep to do" is pending + answered, not pending
- * alone. Only UNRESOLVED answered threads count — a resolved one is already
- * settled and the sweep would not touch it.
- *
- * `threads` IS EVERY OPEN CONVERSATION AND MUST STAY THAT WAY, because
- * `verdictLabel` turns `pending === 0 && threads === 0` into **Approve** — and a
- * total that quietly left the whole-document conversation out would offer
- * Approve on a document with an unanswered question in it, which is fail-OPEN
- * exactly as `decidable` would be here (see the paragraph above). So the
- * document-anchored ones are SPLIT OUT rather than subtracted: `docThreads`
- * counts them, `threads` still counts them too, and the STRIP prints the
- * difference. That is what stops the bar double-counting: `3 pending ·
- * 3 threads` beside `1 doc note` was four conversations advertised where there
- * were three, because the doc note was one of the three and the handle beside
- * it counted the same conversation a second time. `2 threads · 1 doc note`
- * sums to what the rail actually holds.
- *
- * `docSettled` is the handle's other half, and it exists because `+ doc note`
- * meant TWO different things: "there are none" and "the only one is settled".
- * A document still carrying `{>>@document …<<}` in the file, rendering SETTLED
- * in the prose, advertised itself in the bar as having no doc note at all.
- *
- * `pending` IS THE SUM OF THE BREAKDOWN, AND IT DELIBERATELY DOES NOT ASK
- * `decidable`. That looks like the one-rule move this codebase makes everywhere
- * else, and here it would be wrong in a way that matters: `decidable` reads
- * ABSENT AS NO, which is fail-closed for a VERB (a tick withheld is
- * recoverable) and fail-OPEN for this number, because `verdictLabel` turns
- * `pending === 0` into **Approve**. Offering Approve on a document that still
- * has proposals in it is the one act this tool exists to make unnecessary, so
- * the total is computed from `kind`, which is always present.
- *
- * WHAT THAT COSTS IS AN ALLOWLIST, AND CENSUS_KINDS IS WHERE IT IS PAID FOR.
- * The comment here used to say a fourth decidable kind "must show up as its own
- * number, not silently inside pending" and nothing enforced it — such a kind
- * would have been swept by `✓ all`, missing from this total, and a document
- * with work outstanding would have read as settled. The list below is now
- * pinned to the decidable kinds from the Go side, so that kind cannot reach a
- * release without this file being told about it.
+ * `threads` IS EVERY UNSENT INSTRUCTION, the whole-document ones included,
+ * because `verdictLabel` turns `threads === 0` into **Approve**, and a total
+ * that left the whole-document instruction out would offer Approve on a
+ * document with an instruction still to send.
  */
 export function censusCounts(
-  view:
-    | { suggestions?: PendingSuggestion[]; comments?: PendingThread[] }
-    | null
-    | undefined,
+  view: { comments?: PendingThread[] } | null | undefined,
 ) {
-  const suggestions = (view && view.suggestions) || [];
   const threads = (view && view.comments) || [];
-  const counts = CENSUS_KINDS.map(
-    (k) => suggestions.filter((s) => s.kind === k).length,
-  );
-  // SUM THE LIST, DO NOT SUM THE THREE NAMES. The Go-side pin makes a fourth
-  // decidable kind reach CENSUS_KINDS, and a destructure of exactly three names
-  // would then obey that pin while leaving the new kind OUT of `pending` — a
-  // document with work outstanding reading as settled, and `verdictLabel`
-  // offering Approve on it, which is the precise fail-open the allowlist was
-  // kept to avoid. The named fields are the breakdown the strip prints; the
-  // total is the whole list, so the two cannot drift by one kind again.
-  const [inserts, deletes, replaces] = counts;
-  const open = threads.filter((t) => !t.resolved);
-  const docOpen = open.filter((t) => t.anchor === 'document');
-  return {
-    pending: counts.reduce((n, c) => n + c, 0),
-    inserts,
-    deletes,
-    replaces,
-    threads: open.length,
-    // The whole-document conversation, counted apart so the strip and the
-    // handle beside it can each name it once. Both numbers are over the SAME
-    // partition rail.ts already exports — `overallThreads` is `anchor ===
-    // 'document' && !resolved`, and this is that predicate as a count.
-    docThreads: docOpen.length,
-    docSettled: threads.filter((t) => t.resolved && t.anchor === 'document')
-      .length,
-    answered: open.filter(threadAnswered).length,
-  };
+  return { threads: threads.length };
 }
 
 /* --- ✓ all IS GONE, AND SO IS EVERY WORD IT SPOKE ---------------------------
@@ -469,27 +361,6 @@ export function unplacedSaid(n: number | string | null | undefined): string {
     ? 'unplaced \u00b7 its words were removed'
     : `unplaced \u00b7 ${count} \u00b7 their words were removed`;
 }
-
-/**
- * CENSUS_KINDS is the census strip's breakdown, in the order it reports it, and
- * it is a DECLARATION so that something can be held to it.
- *
- * It must name every DECIDABLE suggest.Kind — the population `✓ all` sweeps —
- * which is what makes `pending`, computed from this list, the same number as
- * the work the tick would do. The two lists are pinned to each other from the Go
- * side: internal/serve's TestTheCensusBreakdownNamesEveryDecidableKind reads
- * the Kind constants out of suggest's own source, keeps the ones
- * Kind.Decidable() answers yes for, and fails if this array is not exactly
- * that set. A fourth decidable kind therefore cannot be added in Go without a
- * Go author being told this file exists — the same division of labour as
- * probe.mjs's FRAGMENT_NODES, and for the same reason: the drift is introduced
- * on the other side of the wire.
- *
- * It is not a blocklist and it does not decide anything. `decidable` is what
- * governs which verbs are offered; this only decides which numbers the strip
- * prints beside the total.
- */
-export const CENSUS_KINDS = ['insert', 'delete', 'replace'];
 
 /**
  * stepPending returns the run `j` or `k` moves to next.
@@ -625,15 +496,14 @@ export function submitOnEnter<
  * for the same reason `submitOnEnter` does: `rows` is a STARTING height, not a
  * size, and a field that keeps its starting height while the sentence grows
  * hides the beginning of what the reviewer is writing behind its own scrollbar.
- * Three surfaces set `rows` and none of them grew — the whole-document input
- * (`rows = 2`), the composer (`rows = 3`) and the instruction edit box — so the
+ * Three surfaces set `rows` and none of them grew — the whole-document input,
+ * the composer and the instruction edit box, all `rows = 5` now — so the
  * contract is spelled once here and each of the three calls it, exactly as they
  * each call `submitOnEnter`.
  *
  * THE CAP IS THE STYLESHEET'S, NOT THIS FUNCTION'S, and that is deliberate.
- * Every box this is attached to declares its own `max-height` as a stated
- * reserve (`.gly-overall-input`'s `min(20vh, 11rem)` is the one that already
- * carried the argument for why a box may not grow to the height of the rail).
+ * The three boxes share one `max-height`, half the window, in one rule in
+ * editor.css: room for many lines, never the whole window.
  * A number here would be a second cap, in a second language, disagreeing with
  * the first the day either moved — the twin-carrier defect this repository
  * records more than any other. So the height is written, the browser clamps
@@ -650,7 +520,11 @@ export function growOnInput(field: HTMLTextAreaElement): HTMLTextAreaElement {
   const fit = () => {
     field.style.height = 'auto';
     const want = field.scrollHeight;
-    field.style.height = `${want}px`;
+    // THE BORDER TOO. `scrollHeight` stops at the padding, and the boxes are
+    // `border-box`, so writing it alone made every fitted box its own border
+    // shorter than the rows it opened at, clipping the last line by 2px.
+    const edge = field.offsetHeight - field.clientHeight;
+    field.style.height = `${want + (edge > 0 ? edge : 0)}px`;
     // Read back what the stylesheet's own `max-height` allowed. Equal means the
     // clamp bit, so the box scrolls; otherwise nothing is hidden and a
     // scrollbar would be furniture.
@@ -1015,47 +889,23 @@ export function threadPlacement(
 // --- the overall thread ---
 
 /**
- * overallThreads, railThreads and settledThreads split the thread list in
- * THREE, and they are written as one group so the parts cannot drift into
- * overlapping — or, worse, into leaving a thread out.
+ * overallThreads and railThreads split the thread list in TWO, and they are
+ * written as one group so the parts cannot drift into overlapping — or, worse,
+ * into leaving a thread out.
  *
- * The overall card is permanent and the open document-anchored threads are its
+ * The overall card is permanent and the document-anchored threads are its
  * entries. If the rail ALSO carded them, a note about the whole file would
  * render twice — which is R9's complaint ("a comment rendered as two objects")
  * arriving again through a new surface rather than through the old one. One
  * predicate, used from both sides, is what makes that impossible instead of
  * merely unlikely.
  *
- * A RESOLVED THREAD MUST NEVER BE INVISIBLE-BUT-PRESENT, and that is what the
- * third one exists for. These two used to drop the resolved threads and stop
- * there, which is right for a range comment — resolving lifts its highlight, so
- * the document visibly changes and the conversation ends with the mark — and
- * wrong for a NOTE. A note's text IS content: resolving keeps it, so the
- * {>>…<<} is still in the file and still rendering in the prose while the panel
- * that manages it says there is nothing there. Court hit exactly that on a
- * whole-document note and asked what ✓ resolve had even meant.
+ * There is no third, settled part any more: nothing resolves an instruction.
+ * A sent one leaves with its round (the send's clear deletes it) and a
+ * retracted one is deleted, so every thread the page holds is open.
  *
- * So the settled ones are not dropped; they are MOVED, to a region of their own
- * that is collapsed by default and says how many it holds. That is the answer
- * to both halves at once: the map stays a map of what is open (a column of
- * settled conversations is the "most of the rail is faded" complaint in a new
- * costume), and nothing the reviewer resolved is unreachable.
- *
- * THAT REGION IS THE SHEET'S NOW, AND ONLY THE SHEET'S. It used to be in the
- * rail as well, and the two surfaces held one flag between them. The rail holds
- * LIVE WORK ONLY (the 2026-08-16 spec) — one job, *here is what needs you,
- * beside the text it is about* — and a settled conversation is finished work
- * that is beside nothing. It cost every review a grey bar to save the rare
- * reopen, and reopening is now two gestures rather than one: open the list,
- * find it, reopen. That cost is REAL and was accepted rather than overlooked.
- *
- * The sheet is where it went because the sheet already scrolls, already exists,
- * and is already the surface that answers "show me everything in this review" —
- * and `railSurfaces` now offers it at every width, which is what stops the move
- * from making `↺ reopen` unreachable on a desktop.
- *
- * The three are exhaustive and mutually exclusive over any thread list, which
- * probe.mjs asserts as a partition rather than as three separate filters.
+ * The two are exhaustive and mutually exclusive over any thread list, which
+ * probe.mjs asserts as a partition rather than as two separate filters.
  */
 // GENERIC OVER `T extends PendingThread`, AND NOT JUST `PendingThread`
 // ITSELF, so a caller whose own thread type carries more than this file
@@ -1067,124 +917,13 @@ export function threadPlacement(
 export function overallThreads<T extends PendingThread>(
   threads: T[] | null | undefined,
 ): T[] {
-  return (threads || []).filter((t) => t.anchor === 'document' && !t.resolved);
+  return (threads || []).filter((t) => t.anchor === 'document');
 }
 
 export function railThreads<T extends PendingThread>(
   threads: T[] | null | undefined,
 ): T[] {
-  return (threads || []).filter((t) => t.anchor !== 'document' && !t.resolved);
-}
-
-export function settledThreads<T extends PendingThread>(
-  threads: T[] | null | undefined,
-): T[] {
-  return (threads || []).filter((t) => !!t.resolved);
-}
-
-/**
- * proposalThread pairs a live proposal card to the ONE open conversation about
- * it, or answers null.
- *
- * A change is a thread whose opening entry is a proposal: /_galley/reply takes
- * a RUN and files into (or creates) the proposal's own thread, and
- * /_galley/pending pairs that thread back by the same run (threadView.Run). So
- * the proposal's card renders the thread's entries between the proposal's text
- * and the verbs, and the thread loops SKIP a paired thread — one conversation,
- * one object, which is R9's complaint ("a comment rendered as two objects")
- * kept out of a new surface. The render and the skip both ask THIS function,
- * because two predicates that agree for now is how a thread gets dropped or
- * doubled later.
- *
- * THE MATCH IS THE RUN, and nothing else — the same rule SuggestionUI.threadFor
- * uses for the bubble, for the same reason: the run is the mark's own identity,
- * and text agreement is not identity. Three refusals, each deliberate:
- *
- *   - a COMMENT mark never pairs here. Its thread card IS its one object; the
- *     suggestion loop never cards a comment at all.
- *   - AMBIGUITY IS REPORTED, NEVER RESOLVED BY GUESSING. Two threads on one
- *     run would be a server bug, and the answer is null — the threads keep
- *     their own cards rather than one of them being guessed onto the proposal.
- *   - a RESOLVED thread belongs to the settled region, and a document thread
- *     to the overall card; pairing either would pull it out of its partition.
- *
- * @param suggestion a pending proposal
- * @param threads the pending payload's comments
- * @returns the one open thread on this proposal's run
- */
-export function proposalThread(
-  suggestion: PendingSuggestion | null | undefined,
-  threads: PendingThread[] | null | undefined,
-): PendingThread | null {
-  const s = suggestion || {};
-  if (!s.run || s.kind === 'comment') {
-    return null;
-  }
-  const hits = (threads || []).filter(
-    (t) => t && !t.resolved && t.anchor !== 'document' && t.run === s.run,
-  );
-  return hits.length === 1 ? hits[0] : null;
-}
-
-/**
- * settledHandle is what the settled region's header says — in the SHEET, which
- * is the one surface that region lives on now.
- *
- * It LEADS WITH THE COUNT and names the state, for the same reason
- * overallHandle leads with its verb: the header is the only thing on screen
- * when the region is closed, so it has to answer "is there anything in here"
- * without being opened. Zero is not a state this renders at all — the region is
- * absent, because a header saying "0 settled" is a permanent line of chrome
- * about nothing.
- */
-export function settledHandle(count: number): string {
-  return count === 1 ? '✓ 1 settled' : `✓ ${count} settled`;
-}
-
-/**
- * settledNotes says which of the document's rendered {>>…<<} notes belong to
- * threads that have been settled — the DOCUMENT's half of "a resolved thread is
- * legible as resolved".
- *
- * The panel showing a note as settled is not enough on its own: the note is
- * still a block in the prose, and a settled one that looks exactly like a live
- * one is the same lie in the other direction. The Go side cannot help here —
- * resolution lives in the sidecar (review.Thread.Resolved) and CriticMarkup has
- * nowhere to write it, which is deliberate: a marker in the file would rewrite
- * the author's own line.
- *
- * The pairing is the browser's copy of ONE rule, suggest.matchNotes: anchor
- * kind plus the thread's OPENING text (its first entry), in document order,
- * each thread taken at most once. The anchor KEY is not available here — it is
- * a content hash of the block, which the browser cannot compute — so this is
- * the loose half of that pairing only, which is exactly what the Go side falls
- * back to when a commented block has been edited.
- *
- * @param notes rendered notes, document order
- * @param threads the pending payload's comments
- * @returns parallel to notes: true where the note's thread is settled
- */
-export function settledNotes(
-  notes: { anchor: string; text: string }[] | null | undefined,
-  threads: PendingThread[] | null | undefined,
-): boolean[] {
-  const taken = new Set<number>();
-  return (notes || []).map((note) => {
-    const list = threads || [];
-    for (let i = 0; i < list.length; i += 1) {
-      const t = list[i];
-      if (taken.has(i) || !t || t.anchor !== note.anchor) {
-        continue;
-      }
-      const opened = (t.entries && t.entries[0] && t.entries[0].text) || '';
-      if (opened !== note.text) {
-        continue;
-      }
-      taken.add(i);
-      return !!t.resolved;
-    }
-    return false;
-  });
+  return (threads || []).filter((t) => t.anchor !== 'document');
 }
 
 // THE CHANGED REGION IS GONE FROM BOTH SURFACES, AND SO IS EVERYTHING THAT
@@ -1203,184 +942,6 @@ export function settledNotes(
 // land`). What replaces the log is the COUNT ON THE BUTTON THAT SENDS IT.
 //
 // See docs/superpowers/specs/2026-08-16-the-rail-holds-live-work.md.
-
-// The settled region's own collapse, remembered per document like the rail's
-// and the overall card's — and closed by default, because the region exists so
-// that settled work is REACHABLE, not so that it is in the way.
-function settledKey(docName: string | null | undefined): string {
-  return `galley:settled-open:${docName || 'untitled'}`;
-}
-
-export function readSettledOpen(
-  storage: Storage,
-  docName: string | null | undefined,
-): boolean {
-  try {
-    return storage.getItem(settledKey(docName)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function writeSettledOpen(
-  storage: Storage,
-  docName: string | null | undefined,
-  open: boolean,
-): void {
-  try {
-    storage.setItem(settledKey(docName), open ? '1' : '0');
-  } catch {
-    /* a forgotten preference is a shrug; a thrown exception here is not */
-  }
-}
-
-// --- collapse, remembered per document ---
-
-// The overall thread's own collapse, remembered separately from the rail's.
-//
-// It is collapsed by DEFAULT, and that default is the whole point. The overall
-// card has no anchor, so every pixel it occupies is a pixel the map cannot use
-// — and because stackCards takes the band's top as a ceiling, its height is
-// also the distance by which every card near the top of the document misses
-// its own mark. Measured on a 1141px viewport with three overall notes: the
-// card cost 234px, the band started at 299, and a mark at 221 got a card at
-// 299 — 78px adrift, with no way to do better.
-//
-// Collapsed it costs a header. The affordance stays permanently visible and
-// permanently inline (no popup, per handoff §5); what changes is that a
-// reviewer who is reading rather than writing does not pay for the input they
-// are not using.
-function overallKey(docName: string | null | undefined): string {
-  return `galley:overall-open:${docName || 'untitled'}`;
-}
-
-export function readOverallOpen(
-  storage: Storage,
-  docName: string | null | undefined,
-): boolean {
-  try {
-    return storage.getItem(overallKey(docName)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function writeOverallOpen(
-  storage: Storage,
-  docName: string | null | undefined,
-  open: boolean,
-): void {
-  try {
-    storage.setItem(overallKey(docName), open ? '1' : '0');
-  } catch {
-    /* a forgotten preference is a shrug; a thrown exception here is not */
-  }
-}
-
-/**
- * overallHandle is what the strip's handle says, and it LEADS WITH THE VERB.
- *
- * Court went looking for a way to comment on the whole document and did not
- * find it. It was there the whole time — this handle, which expands a panel
- * with an always-visible input — and the diagnosis is that it was the only
- * NOUN in a row of verbs. Its neighbours are `✓ all` and `Revise` (and, at
- * the time of the diagnosis, the since-retired `✗ all`):
- * things you do. `on trial.md · 1 note` describes what exists and never says
- * you can add one, so someone hunting for "where do I put a comment about the
- * whole thing" reads straight past it.
- *
- * Two requirements, and they pull in opposite directions at zero:
- *
- *   EMPTY MUST CARRY A VERB. The empty state is precisely when someone is
- *   hunting for the control and precisely when a count says nothing at all.
- *
- *   NON-EMPTY MUST STILL SHOW THE COUNT, without opening the panel. A folded
- *   conversation that hid the fact of itself would be worse than the space it
- *   saves — that is why the handle carried a count in the first place.
- *
- * The document's NAME is gone, and that is what buys the room for the verb:
- * the bar already shows it a few inches to the left, and the panel's own head
- * still reads "on <doc> as a whole", so nothing is unsaid.
- *
- * "on the whole doc" went the same way the name did, and for the same reason
- * priced in pixels: the handle sits in a strip whose width is part of the
- * bar's fold arithmetic, and those fourteen characters of preposition cost
- * ~100px at EVERY width — measured, the bar sat within 10px of its fold
- * threshold at 1400 with a nine-character document name, flipping between
- * flat and folded from one page load to the next. "doc" carries the same
- * claim ("this note is about the whole document, not a span of it"), the
- * panel's head still spells it out, and the ▸/▾ affordance is untouched.
- * editor.css's .gly-census-overall reserve is a BOUND stated against THIS
- * label pair's widest state — retune it if these strings change.
- *
- * THIS IS A HYPOTHESIS, NOT A DIAGNOSIS — we are testing whether wording was
- * the barrier. If it is still not found, the answer is placement and this
- * moves, so nothing else may come to depend on the string.
- *
- * THERE ARE THREE STATES, NOT TWO, AND THE MISSING ONE WAS A LIE. `+ doc note`
- * meant both "there is no note on this document" and "the only note on this
- * document is settled" — measured after a sweep on a document that still
- * carried `{>>@document …<<}` in the file and still rendered `SETTLED · …` in
- * its own prose, while the bar advertised it as having none. A settled
- * conversation is not an absent one; it is the state `settledHandle` already
- * spells `✓ n settled` two sections down the rail, so this borrows that tick
- * rather than inventing a fourth vocabulary. The verb only returns when there
- * is genuinely nothing there — which is the state the verb was FOR.
- *
- * @param open unresolved document-anchored threads
- * @param settled resolved ones, which are still in the file
- */
-export function overallHandle(open: number, settled?: number): string {
-  if (open) {
-    return open === 1 ? '1 doc instruction' : `${open} doc instructions`;
-  }
-  if (settled) {
-    return settled === 1
-      ? '✓ 1 doc instruction'
-      : `✓ ${settled} doc instructions`;
-  }
-  return '+ instruct document';
-}
-
-/**
- * overallTitle is the handle's tooltip — the only control in the bar that had
- * none, measured.
- *
- * It says what the press DOES rather than restating the count the label already
- * carries, which is the rule every other title in the bar follows.
- */
-export const OVERALL_TITLE =
-  'instructions on the whole document — open the panel to read or add one';
-
-export function collapseKey(docName: string | null | undefined): string {
-  return `galley:rail-collapsed:${docName || 'untitled'}`;
-}
-
-// Both wrapped: storage access THROWS outright in a sandboxed iframe and in
-// some privacy modes. A forgotten collapse state is a shrug; an exception here
-// happens during construction and takes the whole editor down with it.
-export function readCollapsed(
-  storage: Storage,
-  docName: string | null | undefined,
-): boolean {
-  try {
-    return storage.getItem(collapseKey(docName)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function writeCollapsed(
-  storage: Storage,
-  docName: string | null | undefined,
-  collapsed: boolean,
-): void {
-  try {
-    storage.setItem(collapseKey(docName), collapsed ? '1' : '0');
-  } catch {
-    // Nothing to do and nothing worth saying: the rail works either way.
-  }
-}
 
 /**
  * changesSaid heads the rail's section of the reviewer's OWN edits.

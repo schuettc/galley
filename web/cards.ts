@@ -61,6 +61,26 @@ const DELETE_ARM_NOTE = 'this removes the comment and its mark — click again';
 // under the cursor that pressed it.
 const REVERT_ARM_NOTE =
   'this puts the words back and drops your undo history — click again';
+// What the whole-document box says when it is handed an edit's words because
+// the instruction they were for is gone. See strandEdit.
+const STRANDED_EDIT =
+  'this instruction was sent or deleted — your edit was not saved';
+
+/**
+ * strandedValue is what the whole-document box holds once an edit's words are
+ * handed to it: the words after anything already there, or null when there is
+ * nothing to add. Both of strandEdit's callers (the save's 404, and paintRail
+ * finding the card gone) can fire for ONE edit, so words the box already ends
+ * with are not added a second time; an edit with no words keeps nothing.
+ */
+export function strandedValue(had: string, words: string): string | null {
+  const keep = words.trim();
+  const before = had.trimEnd();
+  if (!keep || before.endsWith(keep)) {
+    return null;
+  }
+  return before ? `${before}\n\n${keep}` : keep;
+}
 
 // makeOverallCard's return shape — the whole-document instructions already
 // filed. Named and exported here (its owning file) so appshell.ts can type
@@ -131,8 +151,8 @@ function heldArrivalsNotice(held: number): HTMLElement {
 // changeCard is one edit the REVIEWER made by hand, as it will reach the agent.
 //
 // It is not a thread and must not become one — `threadCard` reads
-// `thread.resolved`/`run`/`outcome` and builds the edit and delete verbs, and a
-// change is none of those. What is shared is the ANATOMY (`cardShell`,
+// `thread.run` and builds the edit and delete verbs, and a change is none of
+// those. What is shared is the ANATOMY (`cardShell`,
 // `cardBody`), which is the split this codebase already draws between the two.
 //
 // THE QUOTE IS DRAWN IN THE REMOVAL VOCABULARY THE PROSE ALREADY USES: removed
@@ -170,20 +190,12 @@ function unplacedSection(unplaced: HTMLElement[]): HTMLElement {
   return section;
 }
 
-// declinedOutcome, threadCardHead and lostAnchorLine are three of
-// threadCard's internal rendering steps, pulled out because none of them
+// threadCardHead and lostAnchorLine are two of threadCard's internal
+// rendering steps, pulled out because none of them
 // touches `this` — they are label composition and DOM construction over
 // exactly the fields they are handed. threadCard stays the one component
 // (CLAUDE.md: it "is not the shared builder and must not become one"); these
 // are its own peeled steps, not a second builder.
-
-// SETTLED AND declined, both: ↺ reopen flips `resolved` and leaves the
-// outcome standing (handleThreadResolve writes resolved only), so on the
-// outcome alone a reopened conversation would carry "declined" back into
-// the rail's band as its head — an open thread wearing a verdict.
-function declinedOutcome(thread: Thread): boolean {
-  return !!thread.resolved && thread.outcome === 'declined';
-}
 
 // KIND · WHAT IT IS ABOUT · AGE — the card's one fixed anatomy, and the AGE
 // was the part this head was missing. Every other card in the deck carries
@@ -561,13 +573,20 @@ export const cardMethods = {
     if (this.rail.root.hidden) {
       return;
     }
-    capture.note.textContent = '';
+    // AN OPEN BOX KEEPS WHAT IS IN IT. Opening it again (the bar's button,
+    // the menu, or strandEdit handing it words) is not a reason to wipe a
+    // sentence somebody is still writing.
+    if (capture.root.hidden) {
+      capture.note.textContent = '';
+      capture.input.value = '';
+    }
     capture.input.disabled = !!this.sealed;
-    capture.input.value = '';
-    // Assigning `value` fires no `input` event, so without this the box keeps
-    // the height the LAST instruction grew it to. See growOnInput.
-    capture.input.dispatchEvent(new Event('input'));
     capture.root.hidden = false;
+    // Assigning `value` fires no `input` event, so without this the box keeps
+    // the height the LAST instruction grew it to. See growOnInput. AFTER the
+    // card is shown: a hidden box measures zero, and fitting it then opened
+    // the box one padding tall.
+    capture.input.dispatchEvent(new Event('input'));
     // The card just entered the flow and pushed the band down; the anchored
     // cards have to re-floor on their marks. paintAnchors re-reads the band's
     // top per pass, so one repaint is the whole of it — the repaint the old
@@ -582,9 +601,46 @@ export const cardMethods = {
     }
     this.capture.root.hidden = true;
     this.capture.note.textContent = '';
+    // CLOSED IS EMPTY. openCapture keeps what an OPEN box holds, so words
+    // left in a closed one would be merged into the next edit stranded here.
+    // Closing is cancel, Revise, or a filed instruction, and none of them
+    // asks for its words to come back.
+    this.capture.input.value = '';
+    this.capture.input.dispatchEvent(new Event('input'));
     // Hiding it with `display:none` gives its flow space back, so the band
     // rises and the anchored cards re-floor. Same repaint openCapture fires.
     this.scheduleAnchors();
+  },
+
+  // strandEdit keeps the words of an edit whose instruction is gone: sent by a
+  // round, deleted from another tab or by the agent, or retracted. The card is
+  // gone with it, so its edit box is too, and a box that took the words down
+  // with it would lose the reviewer's sentence without a word said.
+  //
+  // THE WORDS GO TO THE WHOLE-DOCUMENT BOX, WITH THE REASON. It is the one
+  // box a repaint never rebuilds, and it files a new instruction, which is
+  // what a reviewer whose instruction left can still do with what they wrote.
+  // Its other verb is cancel. Words already in it are kept, and these follow
+  // them. Called from the save (the server answers 404) and from paintRail
+  // (the poll found the card gone), so either way the box says the same.
+  strandEdit(this: AppShell, words: string) {
+    this.openCapture();
+    const capture = this.capture;
+    if (!capture) {
+      return;
+    }
+    // Unhidden even when the rail is (History, or a narrow window, where
+    // openCapture returns early): the words are on the page when it returns.
+    capture.root.hidden = false;
+    const next = strandedValue(capture.input.value, words);
+    if (next !== null) {
+      capture.input.value = next;
+      capture.input.dispatchEvent(new Event('input'));
+    }
+    capture.note.textContent = STRANDED_EDIT;
+    capture.input.focus();
+    const end = capture.input.value.length;
+    capture.input.setSelectionRange(end, end);
   },
 
   makeCaptureCard(this: AppShell): CaptureCard {
@@ -614,15 +670,17 @@ export const cardMethods = {
     // single-line <input> this field filed on Enter only through the browser's
     // implicit form submission, and Shift-Enter could not break a line at all
     // — so the one surface galley asks for prose about the WHOLE document was
-    // the one surface that could not hold a second sentence. Two rows, the
-    // same as every reply box, and the same submitOnEnter contract.
+    // the one surface that could not hold a second sentence. The same rows as
+    // the other two comment boxes, and the same submitOnEnter contract.
     //
     // AND IT GROWS, which is §6 of the live review: `rows` is where it starts
     // and was also where it ended. The cap is this box's own `max-height` — see
     // growOnInput for why the number is not in the TypeScript.
     const input = document.createElement('textarea');
     input.className = 'gly-overall-input';
-    input.rows = 2;
+    // FIVE ROWS, THE SAME START AS THE COMPOSER AND THE EDIT BOX: the three
+    // boxes a comment is typed into are one design (editor.css).
+    input.rows = 5;
     // §11 fixes this string verbatim.
     input.placeholder = 'add an instruction on the whole doc…';
     growOnInput(input);
@@ -670,18 +728,10 @@ export const cardMethods = {
     // implicitly, so that listener is kept for what it actually still does,
     // refusing a navigation should anything ever submit this form.
     const fileNote = () => {
-      // FLATTEN NEWLINES TO A SPACE BEFORE FILING. A whole-document note is
-      // stored inline as `{>>@document …<<}`, and CriticMarkup has no way to
-      // hold a newline — checkNote (internal/suggest/anchor.go) refuses one
-      // rather than write a note that reads back cut short. But this box is a
-      // multi-line textarea that invites paragraphs, so the reviewer's own
-      // affordance produced input the format bounced. A blank line between two
-      // sentences of an instruction is spacing, not structure the agent parses:
-      // joining on a single space keeps every word and every order, and the
-      // instruction reaches the agent the same. `<<}` is left to the server —
-      // genuinely unwritable and vanishingly rare, it earns a refusal, not a
-      // silent rewrite.
-      const text = input.value.replace(/\s*\n\s*/g, ' ').trim();
+      // THE WORDS AS TYPED, LINE BREAKS AND ALL. A comment's words live in
+      // pending.json, not in the file, so nothing about the file's syntax
+      // limits what a reviewer may type here.
+      const text = input.value.trim();
       if (!text) {
         return;
       }
@@ -764,17 +814,17 @@ export const cardMethods = {
     // is painted whenever the sheet is open, at every width, whatever the map
     // holds. The old ordering hazard cannot recur because there is no return to
     // be ahead of.
-    this.paintNoteState();
+    //
+    // The rail's threads are the block notes' words, so they are handed over
+    // whenever the rail is rebuilt from a fresh payload.
+    this.paintNoteWords();
 
     // The census counts the SERVER's projection; the rail draws only what hold
     // is letting through. The two can honestly disagree, and this is the one
     // place that has to know it: an empty rail with a non-zero count is
     // "holding", not "settled", and saying "settled" there would be the editor
     // telling the reviewer their document is done when it is not.
-    const census = censusCounts({
-      suggestions: this.suggestions,
-      comments: this.comments,
-    });
+    const census = censusCounts({ comments: this.comments });
     const held = this.heldArrivals.length;
     // A ROUND WITH EDITS IN IT IS NOT EMPTY, and this test used to say it was.
     // The empty state offers the teach card — *select any words to ask for a
@@ -783,11 +833,7 @@ export const cardMethods = {
     // paragraph: their edit IS in the round, it IS what Revise will send, and
     // the rail would have answered by telling them how to begin.
     const changeCards = this.changes.map((c) => this.changeCard(c));
-    if (
-      census.pending === 0 &&
-      census.threads === 0 &&
-      changeCards.length === 0
-    ) {
+    if (census.threads === 0 && changeCards.length === 0) {
       // AND IT IS ALREADY IN CARD SPACE, WHICH IS WHY IT IS NOT MOVED INTO THE
       // BAND. It reads like a third band stacked above the map — head, band,
       // this — and it is not: this branch runs only when the census is EMPTY,
@@ -839,10 +885,8 @@ export const cardMethods = {
     }
   },
 
-  // railThreads drops the resolved ones — a settled thread has nothing
-  // pending about it and no highlight left to point at; it stays in the
-  // sidecar and in `galley pending`, and the map is for what is still open —
-  // AND the document-anchored ones, which the overall card above owns.
+  // railThreads drops the document-anchored ones, which the overall card
+  // above owns.
   //
   // Split out of paintRailCards because it is `this`-bound (`this.held`,
   // `this.blocks`, `this.threadCard`) rather than because it is a second
@@ -856,12 +900,6 @@ export const cardMethods = {
       if (thread.run && this.held.has(thread.run)) {
         // A thread whose highlight is held is a card not yet shown, same as
         // any other arrival.
-        continue;
-      }
-      if (thread.resolved) {
-        // A settled thread has nothing pending about it and no highlight left
-        // to point at. It stays in the sidecar and in `galley pending`; the map
-        // is for what is still open.
         continue;
       }
       // NOT `!!thread.run`. A thread has a run only if it hangs on a MARK, and
@@ -908,8 +946,8 @@ export const cardMethods = {
   // agent, with the one verb that makes sense on it.
   //
   // It is not a thread and must not become one — `threadCard` reads
-  // `thread.resolved`/`run`/`outcome` and builds the edit and delete verbs, and
-  // a change is none of those. What is shared is the ANATOMY (`cardShell`,
+  // `thread.run` and builds the edit and delete verbs, and a change is none of
+  // those. What is shared is the ANATOMY (`cardShell`,
   // `cardBody`), which is the split this codebase already draws.
   //
   // THE QUOTE IS DRAWN IN THE REMOVAL VOCABULARY THE PROSE ALREADY USES:
@@ -1037,10 +1075,7 @@ export const cardMethods = {
     // History's rail. `head` comes back already in the card; the body is asked
     // for below only where there is a lost anchor to quote, because a thread
     // card's entries and verbs follow the head directly.
-    const { el, head } = cardShell(
-      'gly-thread',
-      thread.resolved ? 'gly-resolved' : '',
-    );
+    const { el, head } = cardShell('gly-thread');
     // tabIndex HERE and not only through `revealOn`: an anchorless thread card
     // gets no reveal — there is nowhere to go — and it still has to be reachable
     // by keyboard, because `delete` and `edit` are on it.
@@ -1058,16 +1093,6 @@ export const cardMethods = {
     // Every thread card carries its own head, including the ones in the
     // whole-document panel — the panel's own head is chrome voice summoning
     // the margin, not a repetition of what the card underneath says.
-    //
-    // A DECLINED NO STAYS VISIBLE. Declining a proposal settles its thread
-    // with outcome "declined" (handleDecline), and in the settled region that
-    // record leads with which no it was rather than with the generic "thread".
-    // ONE CLASS, PAINT ONLY — the kind-rule cascade lesson: a card-state rule
-    // declares paint and never position (see .gly-card.gly-declined).
-    //
-    if (declinedOutcome(thread)) {
-      el.classList.add('gly-declined');
-    }
     head.textContent = threadCardHead(thread, about.label);
 
     // Only when there is something to quote: a block or document thread
@@ -1160,8 +1185,8 @@ export const cardMethods = {
   // same contract every reply box in this file has.
   //
   // IT IS ONE MUTATION, NOT A DELETE AND A RE-FILE. See the "edit" case in
-  // handleInstruction: both halves of the change — the note in the .md and the
-  // entry in the sidecar — land together or neither does.
+  // handleInstruction: the words change in place, in the review map and in
+  // pending.json, and the comment's ID mark in the .md is not touched.
   editButton(
     this: AppShell,
     thread: Thread,
@@ -1187,12 +1212,25 @@ export const cardMethods = {
     box.className = 'gly-thread-editor';
     const text = document.createElement('textarea');
     text.className = 'gly-thread-edit-text';
-    text.rows = 2;
+    // Five rows and growing, like the other two boxes a comment is typed into,
+    // and FITTED ONCE IT IS ON THE PAGE, as they are when they open: the box is
+    // not in the document yet here, and a box measured off the page is zero
+    // tall. Fitting is also what opens a long instruction at its own height.
+    text.rows = 5;
+    growOnInput(text);
+    window.requestAnimationFrame(() => {
+      if (text.isConnected) {
+        text.dispatchEvent(new Event('input'));
+      }
+    });
     text.dataset.draft = `edit:${thread.key}`;
     const opened =
       (thread.entries || []).find((e) => e.author === AUTHOR) ||
       (thread.entries || [])[0];
     text.value = (opened && opened.text) || '';
+    // What the box opened with, so paintRail can tell an edit from a box
+    // nobody typed in when the card goes. See strandEdit.
+    text.dataset.opened = text.value;
     const save = document.createElement('button');
     save.type = 'button';
     save.className = 'gly-thread-edit-save';
@@ -1221,6 +1259,15 @@ export const cardMethods = {
       })
         .then((res) => {
           el.classList.remove('gly-busy');
+          if (res.status === 404) {
+            // The instruction is not pending any more: the card is about to
+            // go, and its box with it. The words go where a repaint keeps
+            // them. See strandEdit.
+            this.editingThread = null;
+            this.strandEdit(text.value);
+            this.paintRail();
+            return undefined;
+          }
           if (!res.ok) {
             return res.text().then((body) => {
               // THE WORDS STAY IN THE BOX. A failed save that also closed the

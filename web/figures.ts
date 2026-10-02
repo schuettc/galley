@@ -145,7 +145,7 @@ export const figureMethods = {
     const pins = ref
       ? this.comments.filter(
           (t): t is Thread & { region: Region } =>
-            !t.resolved && !!t.region && t.anchorKey === ref.key,
+            !!t.region && t.anchorKey === ref.key,
         )
       : [];
     if (!pins.length) {
@@ -356,6 +356,8 @@ export const figureMethods = {
       ),
     );
     view.focus();
+    // Collapsed again when this composer goes; see releaseGrip.
+    this.composer.gripFrom = view.state.selection.from;
 
     const c = this.composer;
     c.root.hidden = false;
@@ -442,6 +444,8 @@ export const figureMethods = {
       ),
     );
     view.focus();
+    // Collapsed again when this composer goes; see releaseGrip.
+    this.composer.gripFrom = view.state.selection.from;
 
     const c = this.composer;
     const heading = doc.child(index);

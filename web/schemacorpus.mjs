@@ -65,6 +65,28 @@ export const CONSTRUCTS = {
   noteBlock: ['{>>a block note in the slot<<}'],
   noteDoc: ['{>>@document a document note in the slot<<}'],
   twoNotes: ['{>>note one<<} {>>note two<<}'],
+  // A BLOCK COMMENT'S ID MARK: <note anchor id> with NO text run, because the
+  // words live in the unsent round. The slots put it after a paragraph, in a
+  // list item and in a table cell; noteWithIdAfterFence puts it after a fence.
+  noteWithId: ['{>>@comment cb-0123456789abcdef<<}'],
+  noteWithIdAfterFence: [
+    '```js',
+    'const inSlot = 1;',
+    '```',
+    '',
+    '{>>@comment cb-0123456789abcdef<<}',
+  ],
+  // A TEXT COMMENT'S ID MARK, on its highlight: one piece, a piece crossing
+  // emphasis (two pieces, two marks), and two pieces over two paragraphs.
+  highlightWithId: ['prose with {==a highlight==}{>>@comment cm-1<<} in it'],
+  highlightWithIdAcrossBold: [
+    'prose {==that crosses ==}{>>@comment cm-2<<}{==**bold**==}{>>@comment cm-2<<} text',
+  ],
+  highlightWithIdTwoParagraphs: [
+    'the first {==half==}{>>@comment cm-3<<}',
+    '',
+    '{==and the second==}{>>@comment cm-3<<} half',
+  ],
   hardBreak: ['a line with a break\\', 'and its continuation'],
   criticIns: ['prose with {++an insertion++} in it'],
   criticDel: ['prose with {--a deletion--} in it'],

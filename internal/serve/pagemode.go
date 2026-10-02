@@ -15,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/schuettc/galley/internal/htmlpage"
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/review"
+	"github.com/schuettc/galley/internal/suggest"
 	"github.com/schuettc/galley/internal/ydoc"
 )
 
@@ -234,6 +237,15 @@ func pageBase(abs string) string {
 // writePageWorkdir lays out .galley/pages/<base>/: the round-zero cover
 // (original.html), content.md and template.json. It returns the path to
 // content.md and the original page bytes the drift check measures against.
+//
+// CONTENT.MD IS THE ONLY FILE THAT HOLDS A COMMENT'S PLACE. page.html never
+// carries comment marks, so an extraction from it has none, and writing that
+// over content.md at every open put every unsent comment back unplaced (its
+// words survive in pending.json). An existing content.md that says the same
+// document as the page, ignoring comment marks, is therefore kept as it is.
+// One that does not means the page changed outside galley: the prose is
+// extracted afresh, and if the old content.md carried marks the reviewer is
+// told their comments are kept, unplaced.
 func writePageWorkdir(dir string, src []byte, ex *htmlpage.Extraction) (contentPath string, original []byte, err error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", nil, err
@@ -270,8 +282,20 @@ func writePageWorkdir(dir string, src []byte, ex *htmlpage.Extraction) (contentP
 	}
 
 	contentPath = filepath.Join(dir, "content.md")
-	if err := os.WriteFile(contentPath, ex.Markdown, 0o644); err != nil {
-		return "", nil, err
+	existing, rerr := os.ReadFile(contentPath)
+	switch {
+	case rerr == nil && sameDocument(existing, ex.Markdown):
+		// The same document: keep its comment marks.
+	case rerr != nil && !errors.Is(rerr, os.ErrNotExist):
+		return "", nil, rerr
+	default:
+		if rerr == nil && carriesMarks(existing) {
+			_, _ = fmt.Fprintf(pageStderr, "htmlpage: page.html changed outside galley — its prose is extracted "+
+				"afresh, and unsent comments are kept, unplaced\n")
+		}
+		if err := os.WriteFile(contentPath, ex.Markdown, 0o644); err != nil {
+			return "", nil, err
+		}
 	}
 	// template.json is regenerated at open — overwrite it.
 	tmplJSON, err := json.Marshal(ex.Template)
@@ -797,17 +821,15 @@ func (r *pageRenderer) adopt(src, md []byte) {
 // any full load. That is the accepted cost at a ROUND BOUNDARY: the reviewer
 // has just sent and is not mid-edit, which is the same trade restore makes.
 //
-// IT CARRIES NO `extra`, SO PENDING INSTRUCTION MARKS GO WITH THE OLD MODEL,
-// and that is safe for exactly one reason: the round's instructions are
-// discharged AT THE SEND (handleRoundHandoff clears the carriers and deletes
-// the threads), so the rail is already empty when the agent is handed the round
-// this reload ends. The spec states the assumption — "the round's instructions
-// are discharged before the structure changes" — and
-// TestAStructuralReloadHasNoPendingInstructionsToLose pins it. The case this
-// drops silently is an instruction filed with NO round in flight at all — the
-// reviewer writes it, never sends, and the structural reload replaces the
-// model it was anchored to; only Task 5's gate can see what a real browser
-// does with a thread across a fragment reload.
+// IT CARRIES NO `extra`, SO UNSENT INSTRUCTION MARKS GO WITH THE OLD MODEL,
+// AND THEIR WORDS STAY. The page the model is re-extracted from carries no
+// comment marks, so an instruction filed with no round in flight loses its
+// place here. Its words are in the review map and pending.json, which a model
+// replacement does not touch, so it stays on the rail, unplaced, and the log
+// line says so (TestAStructuralReloadKeepsUnsentInstructions). The one thing
+// this has to do is tell the lost-anchor sweep: a text comment whose highlight
+// went with the replaced model was not deleted by the reviewer, and without
+// forgetting where it was placed the next projection retracts it.
 //
 // The reload CLAIM is staked by reextract, in the same critical section as the
 // decision; this releases it if nothing lands.
@@ -827,14 +849,27 @@ func (r *pageRenderer) reload(md []byte) bool {
 		return false
 	}
 	// Counted BEFORE the replacement lands, off the model this reload is about
-	// to discard, so the loud line below can name what went with it — see the
-	// doc comment above for why anything found here is, by assumption, an
-	// instruction filed with no round in flight.
+	// to discard, so the loud line below can name the instructions whose
+	// places went with it: anything found here was filed with no round in
+	// flight, since a send discharges its own.
 	pending, pendingErr := r.es.pending()
-	if _, err := r.es.mutate(byAgent, func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+	var placed map[string]bool
+	if _, err := r.es.mutate(byAgent, func(cur docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+		// Under mu, before the write, so no projection sweeps between the two.
+		// The next projection records again whatever this model still places.
+		//
+		// EXCEPT WHAT THE REVIEWER ALREADY TOOK BACK. A comment whose words
+		// were deleted is hidden and out of pending.json, and its thread waits
+		// in the review map for the next send's clear. Forgetting it was
+		// placed would make the next projection read it as never placed, write
+		// it back into pending.json and hand it to the agent on that send.
+		placed = r.es.placedSnapshot()
+		r.es.forgetPlacedLocked(slices.Collect(maps.Keys(r.es.retractedIn(cur))))
 		return model, nil, nil
 	}); err != nil {
-		// Nothing landed, so release the claim: the next projection retries.
+		// Nothing landed: put back what the reload forgot, and release the
+		// claim so the next projection retries.
+		r.es.restorePlaced(placed)
 		r.unclaim(md)
 		_, _ = fmt.Fprintf(pageStderr, "htmlpage: could not reload the editor on the re-extracted content: %v\n", err)
 		return false
@@ -843,8 +878,16 @@ func (r *pageRenderer) reload(md []byte) bool {
 	r.reloads++
 	r.mu.Unlock()
 	lost := ""
-	if pendingErr == nil && len(pending.Instructions) > 0 {
-		lost = fmt.Sprintf(" — %d pending instruction(s) went with the replaced document", len(pending.Instructions))
+	// Only the ones that HAD a mark: a whole-document comment never did, so
+	// the replaced document took nothing of it.
+	marked := 0
+	for _, instruction := range pending.Instructions {
+		if instruction.Anchor != string(suggest.AnchorDocument) {
+			marked++
+		}
+	}
+	if pendingErr == nil && marked > 0 {
+		lost = fmt.Sprintf(" — %d unsent instruction(s) are kept, unplaced: their marks went with the replaced document", marked)
 	}
 	_, _ = fmt.Fprintf(pageStderr, "htmlpage: %s was restructured — the editor reloads on %d bytes of re-extracted content%s\n",
 		filepath.Base(r.pagePath), len(md), lost)
@@ -867,10 +910,14 @@ func (r *pageRenderer) unclaim(md []byte) {
 
 // sameDocument asks whether two markdowns say the same thing, which is what
 // "the page moved" has to mean here and byte equality does not. It compares
-// PROSE AND STRUCTURE ONLY: the parse-and-serialize round trip drops comment
-// and instruction carriers, so a reviewer's live instruction is not a change to
-// the page and never triggers a structural round on its own — which is what
-// this signal wants, since those carriers never reach page.html either.
+// PROSE AND STRUCTURE ONLY: both sides have every instruction mark lifted
+// (suggest.ClearInstructions, the lift the version seed uses) before they are
+// compared, so a reviewer's live instruction is not a change to the page and
+// never triggers a structural round on its own — which is what this signal
+// wants, since those marks never reach page.html either. The parse-and-
+// serialize round trip alone does NOT drop them: a highlight with its
+// `{>>@comment …<<}` and a block comment's ID note both serialize back, and
+// without the lift every page with an unsent comment compared unequal.
 //
 // THE TWO SIDES SPELL THE SAME DOCUMENT DIFFERENTLY, ALWAYS AND HARMLESSLY.
 // The extractor writes markdown its own way and galley's serializer writes it
@@ -893,7 +940,17 @@ func sameDocument(a, b []byte) bool {
 	if err != nil {
 		return false
 	}
-	return bytes.Equal(markdown.Serialize(am), markdown.Serialize(bm))
+	return bytes.Equal(markdown.Serialize(suggest.ClearInstructions(am)), markdown.Serialize(suggest.ClearInstructions(bm)))
+}
+
+// carriesMarks reports whether md holds any comment mark — a place an unsent
+// comment would lose if md were replaced.
+func carriesMarks(md []byte) bool {
+	m, _, err := markdown.Parse(md)
+	if err != nil {
+		return false
+	}
+	return !bytes.Equal(markdown.Serialize(m), markdown.Serialize(suggest.ClearInstructions(m)))
 }
 
 // drifted reports whether page.html changed on disk since galley last wrote

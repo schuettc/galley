@@ -253,11 +253,12 @@ writeFileSync(
 //   the eight replies               a card carries no reply box, so §7c's cap
 //                                   has nothing to overflow.
 //
-// The anchorless thread survives and is built differently: a comment is filed
-// the ordinary way and the reviewer then deletes the text under it IN THE
-// EDITOR, which is what `threadPlacement`'s first anchorless case actually is
-// and what a reviewer does. That has to happen with the browser attached, so it
-// is done in-page at §9 rather than here.
+// The anchorless thread survives and is built differently: a BLOCK comment is
+// filed the ordinary way and the reviewer then deletes its mark IN THE EDITOR.
+// (Deleting the words under a TEXT comment retracts the comment instead —
+// lostanchor.go — so that gesture makes no unplaced card any more.) That has
+// to happen with the browser attached, so it is done in-page at §9 rather than
+// here.
 const galley = (...args) =>
   execFileSync(GALLEY, args, { encoding: 'utf8', stdio: 'pipe' });
 
@@ -270,6 +271,7 @@ const galley = (...args) =>
 const SETTLED_HEADING = 'the settled question';
 const RETRY_HEADING = 'the retry budget';
 const WITHDRAWN = 'the withdrawn phrase';
+const WITHDRAWN_ASK = 'does this still apply?';
 const FIGURE_LABEL = 'a figure with a caption';
 
 // --on-revise, and it is §8's alone: handleRevise refuses a verdict outright
@@ -315,7 +317,7 @@ process.on('exit', () => {
     rmSync(HERE, { recursive: true, force: true });
   } catch {
     // ENOTEMPTY, seen once: the server is being SIGTERMed at this exact moment
-    // and can write its sidecar back into the directory mid-removal. A tmpdir
+    // and can write its files back into the directory mid-removal. A tmpdir
     // left behind is nothing; an exit handler that THROWS turns a run where
     // every check passed into a non-zero exit, which is a gate reporting a
     // failure that did not happen.
@@ -415,7 +417,7 @@ await instruct({
 await instruct({
   op: 'comment',
   target: WITHDRAWN,
-  text: 'does this still apply?',
+  text: WITHDRAWN_ASK,
 });
 
 // AND ONE CONVERSATION ON A BLOCK — the shape that has no run BY CONSTRUCTION,
@@ -611,9 +613,9 @@ const shellSelectors = () =>
 // for the one button in the shell's markup and silently captured every button
 // the editor appends into the bar.
 //
-// This block runs BEFORE the `.gly-census-overall` click further down. Amber
-// on that handle once it is open is correct — it means "here" — and reading
-// the resting colour after the click would be reading the wrong state.
+// This block reads every bar button at REST, before anything is opened: amber
+// on an opened handle is correct (it means "here"), and reading the resting
+// colour after a click would be reading the wrong state.
 
 {
   const bar = await styleAll('.gly-bar button', 'font-size');
@@ -1178,6 +1180,15 @@ console.log('\n--- §1d · the bar has one readout ---');
   //
   // Asserted here rather than left to probe's bundle strings, because a region
   // can be re-added in the source and a string check only sees the artifact.
+  //
+  // THE ROUND'S CHANGE CARDS ARE NOT THE LOG, and this check said they were.
+  // It counted `.gly-change`, which is also the class of `changeCard`: the
+  // reviewer's own edit as it will reach the agent, in `.gly-rail-changes`
+  // with its one verb, revert (cards.ts, "THE OTHER HALF OF THE ROUND";
+  // rounds-ux drives it). That card is in the round on purpose, so the hand
+  // edit made above puts exactly one there, and the old check went red on a
+  // page doing what it should. What is gone is the LOG's markup, and that is
+  // what is counted now; the change card is asserted as present.
   const logged = await page.evaluate(() => ({
     railChanged: document.querySelectorAll(
       '.gly-rail-changed, .gly-changed-head',
@@ -1185,11 +1196,21 @@ console.log('\n--- §1d · the bar has one readout ---');
     sheetChanged: document.querySelectorAll(
       '.gly-sheet-changed, .gly-changed-list',
     ).length,
-    rows: document.querySelectorAll('.gly-change, .gly-change-adrift').length,
+    rows: document.querySelectorAll('.gly-change-adrift').length,
+    roundCards: document.querySelectorAll('.gly-rail-changes .gly-change')
+      .length,
+    strayCards: document.querySelectorAll(
+      '.gly-change:not(.gly-rail-changes .gly-change)',
+    ).length,
   }));
   check(
-    'and the reviewer\u2019s hand is recorded in the prose alone — no log, on any surface',
+    'and the reviewer\u2019s hand is logged on no surface — no log, no log row',
     logged.railChanged === 0 && logged.sheetChanged === 0 && logged.rows === 0,
+    logged,
+  );
+  check(
+    'and the hand edit is in the round as a change card, and nowhere else',
+    logged.roundCards >= 1 && logged.strayCards === 0,
     logged,
   );
 
@@ -1647,6 +1668,188 @@ await page.waitForTimeout(300);
 // card in it" is §9's question and §9 asks it over the cards that exist. What
 // is gone is the two-colour edge and the old→new body, because a component with
 // no data to build it from cannot be read off a screen.
+
+// --- §1e · a block note's words are a widget, painted by ID -----------------
+//
+// A block comment's note carries only its ID; the amber box gets the words from
+// the instruction data, as a WIDGET DECORATION inside the note (note.ts's
+// noteWordDecorations). Paint is what this file is for: the widget has to keep
+// the comment's line breaks and wrap a long token, and only a real browser's
+// computed style can say it does.
+//
+// FILED THROUGH THE COMPOSER, the reviewer's own path: the section grip on the
+// title, its bar's button, the form. The note is then found by its ID — the
+// pending instruction's key — and by nothing else: no text is matched, and
+// nothing is written into the fragment by this check.
+//
+// AND IT GROWS. The comment is then edited to three lines, the way the card's
+// edit box does it, and every other card is measured before and after. The
+// note sits under the title, so every mark in the document is below it and
+// moves down with the prose. "A click moves nothing but what was clicked" is
+// the rule this is measured against; the movement is printed as a note. The comment is
+// deleted at the end, so the sections after this one count what they always
+// counted.
+{
+  const before = ((await pending()).instructions || []).length;
+  await page.evaluate(() =>
+    window.galleyEdit.editor.commands.setTextSelection(1),
+  );
+  // The § grip, then its bar's button, then the form: each waited for as a
+  // locator, since each only exists once the one before it was pressed.
+  await page.locator('.ProseMirror h1').hover();
+  for (const step of ['.gly-grip:not(.gly-code-grip)', '.gly-comment-button']) {
+    const control = page.locator(step);
+    await control.waitFor({ state: 'visible', timeout: 5000 });
+    await control.click();
+  }
+  await page
+    .locator('.gly-composer-form')
+    .waitFor({ state: 'visible', timeout: 5000 });
+  const FIRST = 'say who this handoff is for';
+  await page.fill('.gly-composer-text', FIRST);
+  await page.click('.gly-composer-send');
+  await page.waitForFunction(
+    (n) => (window.galleyEdit.app.comments || []).length === n,
+    before + 1,
+    { timeout: 10000 },
+  );
+  const key = ((await pending()).instructions || []).find(
+    (i) => i.anchor === 'block' && i.text === FIRST,
+  )?.key;
+  // Every card in the band but the new one, and for the anchored ones the
+  // mark it hangs on, in page coordinates.
+  const measure = (id) =>
+    page.evaluate(async (k) => {
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      await new Promise((r) => setTimeout(r, 300));
+      const y = (el) => el.getBoundingClientRect().top + window.scrollY;
+      const aside = document.querySelector(
+        `.gly-note[data-comment-id="${CSS.escape(k)}"]`,
+      );
+      const el = aside && aside.querySelector('.gly-note-words');
+      const cs = el && getComputedStyle(el);
+      const cards = [...document.querySelectorAll('.gly-rail-band .gly-card')]
+        .filter((c) => c.dataset.key !== k)
+        .map((c) => {
+          const run = c.dataset.run;
+          const mark = run
+            ? document.querySelector(
+                `.ProseMirror [data-run="${CSS.escape(run)}"]`,
+              )
+            : null;
+          return {
+            key: c.dataset.key || run || '',
+            top: Math.round(y(c) * 10) / 10,
+            mark: mark ? Math.round(y(mark) * 10) / 10 : null,
+          };
+        });
+      const own = document.querySelector(
+        `.gly-rail-band .gly-card[data-key="${CSS.escape(k)}"]`,
+      );
+      return {
+        own: own ? Math.round(own.getBoundingClientRect().height * 10) / 10 : 0,
+        notes: document.querySelectorAll(
+          `.ProseMirror .gly-note[data-comment-id="${CSS.escape(k)}"]`,
+        ).length,
+        text: el ? el.textContent : null,
+        whiteSpace: cs ? cs.whiteSpace : null,
+        overflowWrap: cs ? cs.overflowWrap : null,
+        height: aside ? Math.round(aside.getBoundingClientRect().height) : 0,
+        cards,
+      };
+    }, id);
+  const filed = key ? await measure(key) : null;
+  check(
+    'a block comment filed through the composer has an ID note in the prose, so this can fail',
+    !!key && /^cb-[0-9a-f]{16}$/.test(key) && !!filed && filed.notes === 1,
+    { key, filed },
+  );
+  check(
+    "the note shows its comment's words in a widget, found by ID",
+    !!filed && filed.text === FIRST,
+    filed,
+  );
+  const GROWN = 'say who this handoff is for:\n\nthe reviewer,\nor the agent';
+  await page.evaluate(
+    async ({ k, text }) => {
+      await fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'edit', key: k, text, author: 'court' }),
+      });
+      await window.galleyEdit.app.refreshPending();
+    },
+    { k: key || '', text: GROWN },
+  );
+  const grown = key ? await measure(key) : null;
+  check(
+    "the widget keeps the comment's line breaks and wraps a long token",
+    !!grown &&
+      grown.text === GROWN &&
+      grown.whiteSpace === 'pre-wrap' &&
+      grown.overflowWrap === 'anywhere' &&
+      grown.height > filed.height,
+    { filed: filed && filed.height, grown },
+  );
+  // Per card: how far it moved, and how far its mark moved. The note sits
+  // under the title, so the prose under it moves by the note's growth. The
+  // cards are STACKED in this fixture (each sits below its mark, under the card
+  // above it), and the comment's own card is the top of the stack: it shows the
+  // same three lines and grows with them. So a card may slide by what the
+  // comment's own card grew — CLAUDE.md's recorded exemption, "a card whose
+  // note slot fills grows and slides the cards below it" — and by nothing more:
+  // a card that moved with the PROSE has been moved by the note.
+  const ownGrew =
+    grown && filed ? Math.round((grown.own - filed.own) * 10) / 10 : null;
+  const moves = (filed ? filed.cards : []).map((a) => {
+    const b = ((grown && grown.cards) || []).find((c) => c.key === a.key);
+    return {
+      key: a.key.slice(0, 8),
+      card: b ? Math.round((b.top - a.top) * 10) / 10 : null,
+      mark:
+        b && a.mark !== null && b.mark !== null
+          ? Math.round((b.mark - a.mark) * 10) / 10
+          : null,
+      below: b && b.mark !== null ? b.top >= b.mark - 1 : null,
+    };
+  });
+  note('a growing note, measured: every other card, and the mark it hangs on', {
+    noteGrewBy: grown && filed ? grown.height - filed.height : null,
+    ownCardGrewBy: ownGrew,
+    moves,
+  });
+  check(
+    'a growing note moves no card: each slides only by its own card\u2019s growth, and none is left above its mark',
+    ownGrew !== null &&
+      moves.length > 0 &&
+      moves.every(
+        (m) =>
+          m.card !== null &&
+          Math.abs(m.card - ownGrew) <= 1 &&
+          m.below !== false,
+      ),
+    { ownGrew, moves },
+  );
+  await page.evaluate(async (k) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k }),
+    });
+    await window.galleyEdit.app.refreshPending();
+  }, key || '');
+  const gone = key ? await measure(key) : null;
+  check(
+    'and deleting the comment takes its note and its widget with it',
+    !!gone && gone.notes === 0 && gone.text === null,
+    gone,
+  );
+  await page.waitForFunction(
+    (n) => (window.galleyEdit.app.comments || []).length === n,
+    before,
+    { timeout: 10000 },
+  );
+}
 
 // --- §1 · radius is a caste mark --------------------------------------------
 //
@@ -4137,9 +4340,9 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
   // OPEN now and the live document owns the file: an outside write is
   // overwritten by the next projection, and the fixture would be racing the
   // server for it. So the deletion is performed the way the product performs
-  // it — select the marked words in the editor and press Backspace — which is
-  // `threadPlacement`'s own first anchorless case and the gesture rounds-ux
-  // drives for the same state.
+  // it, in the editor. Deleting a TEXT comment's words now retracts the comment
+  // (asserted below), so the unplaced card is made from a BLOCK comment whose
+  // mark is deleted, which is the one way the product still makes one.
   //
   // ASSERTED, NOT ASSUMED. An editor that could not find the phrase would leave
   // this fixture quietly without an unplaced instruction, and every check below
@@ -4155,7 +4358,7 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
   await instruct({
     op: 'comment',
     target: WITHDRAWN,
-    text: 'does this still apply?',
+    text: WITHDRAWN_ASK,
   });
   // AND THE FIGURE'S CONVERSATION, for the same reason and in the same breath:
   // §9's Revise took the seed's copy of that one too, and the check below it
@@ -4214,28 +4417,90 @@ console.log('\n--- §10 · the rail scrolls with the document ---');
     withdrawn === true,
     { WITHDRAWN, withdrawn },
   );
-  await page.waitForTimeout(5000);
-  note(
-    'DIAG',
-    await page.evaluate(
-      (phrase) => ({
-        unplaced: document.querySelectorAll('.gly-rail-unplaced .gly-thread')
-          .length,
-        band: document.querySelectorAll('.gly-rail-band .gly-card').length,
-        adrift: document.querySelectorAll('.gly-card.gly-adrift').length,
-        stillThere:
-          window.galleyEdit.editor.state.doc.textContent.includes(phrase),
-        comments: (window.galleyEdit.app.comments || []).map((c) => [
-          c.quote,
-          c.run,
-          c.anchor,
-        ]),
-        marks: Array.from(
-          document.querySelectorAll('.ProseMirror .gly-hl'),
-        ).map((e) => e.textContent),
-      }),
-      WITHDRAWN,
-    ),
+  // DELETING THE WORDS RETRACTS THE COMMENT, so this deletion makes NO
+  // unplaced card. That is the product's rule (lostanchor.go, Court: "if we
+  // highlight a sentence and add an instruction and then delete the sentence,
+  // we should delete the instruction as well"), and rounds-ux asserts it on the
+  // CI side. This block used to wait here for the withdrawn comment to arrive
+  // in the unplaced section, which it never does: the wait timed out and every
+  // section after §10 went unrun. The retraction is asserted instead, and the
+  // unplaced card is made the one way the product still makes one, below.
+  //
+  // READ OFF THE APP'S LIST AND THE RAIL, NOT EVERY CARD ON THE PAGE. A closed
+  // sheet keeps the cards it last painted until it is opened again (sheet.ts
+  // `openSheet` repaints), so a page-wide card search finds the retracted
+  // comment's stale sheet card and waits forever on a page that is right.
+  await page.waitForFunction(
+    (q) =>
+      !(window.galleyEdit.app.comments || []).some((c) =>
+        (c.entries || []).some((e) => e.text === q),
+      ) &&
+      !Array.from(document.querySelectorAll('.gly-rail .gly-thread')).some(
+        (c) => (c.textContent || '').includes(q),
+      ),
+    WITHDRAWN_ASK,
+    { timeout: 15000 },
+  );
+  check(
+    'deleting the highlighted words retracts the comment — it is not left as an unplaced card',
+    (await page.locator('.gly-rail-unplaced .gly-thread').count()) === 0,
+  );
+
+  // THE UNPLACED INSTRUCTION IS A BLOCK COMMENT WHOSE MARK WAS DELETED. A
+  // block comment's place is its `{>>@comment cb-…<<}` note, and a block
+  // comment whose note leaves the document STAYS, unplaced (lostanchor.go's
+  // first guard: only a text comment is retracted). The reviewer selects the
+  // amber box and deletes it; the transaction below is that deletion.
+  {
+    const blocks = (await pending()).blocks || [];
+    const eighth = blocks.find(
+      (b) => b && (b.label || '').includes('eighth paragraph'),
+    );
+    if (!eighth)
+      throw new Error(
+        'fixture: no block for the eighth paragraph to comment on',
+      );
+    await instruct({
+      op: 'comment_block',
+      target: eighth.key,
+      text: 'is this paragraph still needed?',
+    });
+  }
+  const unplacedKey = (
+    ((await pending()).instructions || []).find(
+      (i) => i && i.text === 'is this paragraph still needed?',
+    ) || {}
+  ).key;
+  if (!unplacedKey)
+    throw new Error('fixture: the block comment is not in /_galley/pending');
+  await page.waitForFunction(
+    (id) => {
+      let found = false;
+      window.galleyEdit.editor.state.doc.descendants((n) => {
+        if (n.type.name === 'note' && n.attrs.id === id) found = true;
+        return !found;
+      });
+      return found;
+    },
+    unplacedKey,
+    { timeout: 15000 },
+  );
+  const markGone = await page.evaluate((id) => {
+    const editor = window.galleyEdit.editor;
+    let at = null;
+    editor.state.doc.descendants((n, pos) => {
+      if (at === null && n.type.name === 'note' && n.attrs.id === id)
+        at = { from: pos, to: pos + n.nodeSize };
+      return at === null;
+    });
+    if (at === null) return false;
+    editor.view.dispatch(editor.state.tr.delete(at.from, at.to));
+    return true;
+  }, unplacedKey);
+  check(
+    'the fixture could delete a block comment’s mark from under it',
+    markGone === true,
+    { unplacedKey, markGone },
   );
   // ATTACHED, NOT VISIBLE. This block runs at the narrow viewport, where the
   // rail is `display: none` and the sheet is the surface — so playwright's
@@ -4808,6 +5073,174 @@ console.log('\n--- §8a · a live page owns its own disabled flags ---');
     restored,
     sealOnly,
   );
+}
+
+// --- §8b · the three comment boxes are one design --------------------------
+//
+// THE WHOLE-DOCUMENT BOX, THE COMPOSER AND THE EDIT BOX take the same words, so
+// they are one box: one type, five rows to start, and one cap at half the
+// window, past which each scrolls rather than growing over everything. Read
+// off the real page, each the frame after it opens, because three rules that
+// agree in the stylesheet can still disagree on screen (the edit box is built
+// off the page and fitted later; the other two are fitted as they open).
+console.log('\n--- §8b · the three comment boxes are one design ---');
+{
+  await page.setViewportSize({ width: WIDE.width, height: WIDE.height });
+  await page.waitForTimeout(400);
+  const box = (sel) =>
+    page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return {
+        h: +el.getBoundingClientRect().height.toFixed(1),
+        font: cs.fontSize,
+        family: cs.fontFamily,
+        cap: cs.maxHeight,
+      };
+    }, sel);
+  const boxes = {};
+  await page.locator('.gly-bar .gly-capture-open').click();
+  await page.waitForTimeout(150);
+  boxes.document = await box('.gly-overall-input');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const editor = window.galleyEdit.editor;
+    let at = null;
+    editor.state.doc.descendants((n, pos) => {
+      if (
+        at === null &&
+        n.isTextblock &&
+        n.type.name === 'paragraph' &&
+        n.textContent.length > 12
+      )
+        at = pos + 1;
+      return at === null;
+    });
+    editor.commands.focus();
+    editor.commands.setTextSelection({ from: at, to: at + 8 });
+  });
+  await page
+    .locator('.gly-comment-button')
+    .waitFor({ state: 'visible', timeout: 5000 });
+  await page.click('.gly-comment-button');
+  await page.waitForTimeout(150);
+  boxes.selection = await box('.gly-composer-text');
+  await page.keyboard.press('Escape');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
+  await page.waitForTimeout(150);
+  boxes.edit = await box('.gly-rail-band .gly-thread .gly-thread-edit-text');
+  await page.click('.gly-rail-band .gly-thread .gly-thread-edit-cancel');
+  await page.waitForTimeout(150);
+  const all = Object.values(boxes);
+  check(
+    'the three comment boxes are equal — one height when opened, one type, one cap at half the window',
+    all.length === 3 &&
+      all.every((b) => b !== null) &&
+      all.every(
+        (b) =>
+          Math.abs(b.h - all[0].h) <= 1 &&
+          b.font === all[0].font &&
+          b.family === all[0].family &&
+          b.cap === `${WIDE.height / 2}px`,
+      ),
+    boxes,
+  );
+}
+
+// --- §8c · the composer, grown to its cap, stays in the window ------------
+//
+// THE COMPOSER IS PLACED ONCE, WHEN IT OPENS, and then grows with what is
+// typed, up to half the window. Placed for the height it opened at, a box that
+// later grows by a third of the window can run off the bottom of it. Measured
+// at a short window, with the passage in the middle (placed below) and near
+// the foot (flipped above), each grown to its cap with sixty lines.
+console.log(
+  '\n--- §8c · the composer, grown to its cap, stays in the window ---',
+);
+{
+  const SHORT = { width: 1280, height: 600 };
+  await page.setViewportSize(SHORT);
+  await page.waitForTimeout(400);
+  const sixty = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join(
+    '\n',
+  );
+  // The passage is the first eight characters of an unmarked paragraph, set at
+  // `atY` in the window: the nth such paragraph, or (nth null) the first one
+  // far enough down the page to be scrolled there.
+  const grown = async (atY, nth) => {
+    const at = await page.evaluate(
+      ([y, n]) => {
+        const editor = window.galleyEdit.editor;
+        const seen = [];
+        editor.state.doc.descendants((node, pos) => {
+          const first = node.firstChild;
+          if (
+            node.type.name === 'paragraph' &&
+            first &&
+            first.isText &&
+            first.marks.length === 0 &&
+            first.text.length > 12
+          )
+            seen.push(pos + 1);
+          return true;
+        });
+        // A caret, so the selection below is always a fresh one.
+        editor.commands.setTextSelection(seen[0]);
+        const pageTop = (p) => editor.view.coordsAtPos(p).top + window.scrollY;
+        const from =
+          n !== null
+            ? seen[Math.min(n, seen.length - 1)]
+            : seen.find((p) => pageTop(p) >= y) || seen[seen.length - 1];
+        window.scrollTo(0, pageTop(from) - y);
+        return from;
+      },
+      [atY, nth],
+    );
+    await page.waitForTimeout(150);
+    await page.evaluate((from) => {
+      const editor = window.galleyEdit.editor;
+      editor.commands.focus(undefined, { scrollIntoView: false });
+      editor.commands.setTextSelection({ from, to: from + 8 });
+    }, at);
+    await page.waitForTimeout(150);
+    await page
+      .locator('.gly-comment-button')
+      .waitFor({ state: 'visible', timeout: 5000 });
+    await page.click('.gly-comment-button');
+    await page.waitForTimeout(150);
+    await page.fill('.gly-composer-text', sixty);
+    await page.waitForTimeout(150);
+    const out = await page.evaluate(() => {
+      const r = document.querySelector('.gly-composer').getBoundingClientRect();
+      const sel = window.galleyEdit.editor.view.coordsAtPos(
+        window.galleyEdit.editor.state.selection.from,
+      );
+      return {
+        top: +r.top.toFixed(1),
+        bottom: +r.bottom.toFixed(1),
+        window: window.innerHeight,
+        passage: +sel.top.toFixed(1),
+      };
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    return out;
+  };
+  const middle = await grown(300, 3);
+  const foot = await grown(540, null);
+  check(
+    'the composer grown to its cap stays inside a short window — passage in the middle, and at the foot',
+    [middle, foot].every((g) => g.top >= 0 && g.bottom <= g.window + 0.5),
+    { middle, foot },
+  );
+  check(
+    'and at the foot it flips above the passage rather than over it',
+    foot.passage > SHORT.height / 2 && foot.bottom <= foot.passage,
+    foot,
+  );
+  await page.setViewportSize(WIDE);
+  await page.waitForTimeout(400);
 }
 
 // --- §12 · the rounds -------------------------------------------------------
@@ -5773,11 +6206,20 @@ const placeComposer = (nth = 0) =>
   // still names WHICH selector went dead, which is worth reading when the
   // check above fails, and it no longer reports `ok` as though it had proved
   // something.
+  //
+  // `.gly-census-count`, NOT `.gly-census`. The strip stays on a sealed bar on
+  // purpose: it holds the History door, and a sealed review is exactly when
+  // somebody reads History (seal.ts `sealHides`, "THE COUNT GOES AND THE DOOR
+  // STAYS"). What the seal retires is the count, the strip's one live verb, so
+  // that is the selector; the strip's container read `flex` here and failed a
+  // page doing what it should.
   const retired = await page.evaluate(() =>
-    ['#gly-revise', '.gly-mode', '.gly-hold', '.gly-census'].map((sel) => {
-      const el = document.querySelector(sel);
-      return { sel, display: el ? getComputedStyle(el).display : 'absent' };
-    }),
+    ['#gly-revise', '.gly-mode', '.gly-hold', '.gly-census-count'].map(
+      (sel) => {
+        const el = document.querySelector(sel);
+        return { sel, display: el ? getComputedStyle(el).display : 'absent' };
+      },
+    ),
   );
   check(
     'the live controls are off the bar entirely — this bar is a record, and an absent selector is not a pass',
@@ -5867,16 +6309,14 @@ const placeComposer = (nth = 0) =>
   // sealed (this check is that fact), so there is nothing to do with one, and
   // the single press that changes that is the press that brings the door back.
   //
-  // THE MITIGATION COVERS NOTES, AND ONLY NOTES — stated narrowly because the
-  // first version of this paragraph said "nothing is invisible-but-present" and
-  // that is wider than the evidence. `paintNoteState` marks a settled NOTE as
-  // settled in the prose, so a `{>>…<<}` still has a visible trace on a sealed
-  // page. A settled RANGE comment has none: resolving lifts its highlight — the
-  // asymmetry CLAUDE.md's two-verbs entry is about — so while the page is
-  // sealed that conversation has no surface at all. Nothing is LOST (the
-  // sidecar holds it whole, and `galley pending` prints it), and Reopen brings
-  // the door back; but on this page, for that population, the honest word is
-  // "notes" rather than "nothing".
+  // THERE IS NO MITIGATION IN THE PROSE. A settled note used to be marked as
+  // settled in the document, by matching its text to a thread; that marker is
+  // gone with the text matching, and a note now shows only the words of a
+  // PENDING block comment, found by ID. So while the page is sealed a settled
+  // conversation has no surface at all, note or range alike. What was SENT is
+  // not lost: each sent round's asks (key, words, quote) are in rounds.jsonl.
+  // An unsent comment the reviewer deleted, or whose words they deleted, is
+  // recorded nowhere, by design.
   // THE SELECTORS ARE THE ONES THE PRODUCT BUILDS, AND ONLY THOSE. This list
   // named six controls that no longer exist — `.gly-card-accept` and
   // `.gly-card-reject` (the proposal card's pair), `.gly-thread-resolve` and

@@ -4,7 +4,7 @@
 Reads `fallow dupes --format json` on stdin and compares the clone-group count
 against a ceiling.
 
-THE 54 STANDING GROUPS ARE ALMOST ENTIRELY A DECISION. The overwhelming
+THE 52 STANDING GROUPS ARE ALMOST ENTIRELY A DECISION. The overwhelming
 majority of the instances are in the NINE `.mjs` gate harnesses — loop,
 layers, preflight, typing, probe, rounds-ux, page, align, and now
 livestructure — and those are deliberately standalone with no cross-file
@@ -42,6 +42,11 @@ same accepted price, for the one gate that can only be written against the real
 CLI+browser loop — which is exactly why it caught a structural-only round
 silently failing in the product when every hand-projected Go test passed.
 
+Two groups LEFT (54 → 52) when the settled region, the overall card's
+collapse and the rail's collapse were deleted as code nothing called: both
+were probe.mjs's fake-storage and hostile-storage blocks, written once per
+persisted flag, and the flags are gone.
+
 THE OTHER TWO INSTANCES ARE ONE GROUP IN composer.ts, and they are the only
 duplication in product code anywhere under web/. It is a `postJSON` +
 `.then(res => …)` shape appearing twice in one file — small, real, and not
@@ -56,7 +61,7 @@ even if the answer turns out to be the same one.
 import json
 import sys
 
-BOUND = 54
+BOUND = 52
 
 data = json.load(sys.stdin)
 groups = data["clone_groups"]

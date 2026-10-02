@@ -254,20 +254,27 @@ func TestRenderDropsInstructionNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	// The reviewer filed a whole-document instruction: a note block in content.md.
-	md := append([]byte("{>>@document rewrite the intro to be punchier<<}\n\n"), e.Markdown...)
-
-	out, err := Render(e.Template, md)
-	if err != nil {
-		t.Fatalf("Render refused an instruction note: %v", err)
-	}
-	got := string(out)
-	if strings.Contains(got, "rewrite the intro to be punchier") {
-		t.Errorf("instruction text leaked into the published page:\n%s", got)
-	}
-	// The surrounding prose still pours into its slot.
-	if !strings.Contains(got, `<p class="eyebrow">A document two parties revise in rounds</p>`) {
-		t.Errorf("prose lost when the note was dropped:\n%s", got)
+	for name, note := range map[string]string{
+		// A whole-document note from an older galley, with its words.
+		"a document note": "{>>@document rewrite the intro to be punchier<<}",
+		// The carrier galley writes now: a block comment's ID mark.
+		"a block comment's ID mark": "{>>@comment cb-0123456789abcdef<<}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			md := append([]byte(note+"\n\n"), e.Markdown...)
+			out, err := Render(e.Template, md)
+			if err != nil {
+				t.Fatalf("Render refused an instruction note: %v", err)
+			}
+			got := string(out)
+			if strings.Contains(got, "rewrite the intro to be punchier") || strings.Contains(got, "@comment") {
+				t.Errorf("instruction text leaked into the published page:\n%s", got)
+			}
+			// The surrounding prose still pours into its slot.
+			if !strings.Contains(got, `<p class="eyebrow">A document two parties revise in rounds</p>`) {
+				t.Errorf("prose lost when the note was dropped:\n%s", got)
+			}
+		})
 	}
 }
 

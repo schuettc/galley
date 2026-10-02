@@ -48,7 +48,6 @@ function instructionsToThreads(
   return (instructions || []).map((instruction): Thread => ({
     key: instruction.key,
     heading: instruction.quote || '',
-    resolved: false,
     entries: [{ author: AUTHOR, at: instruction.at, text: instruction.text }],
     run: instruction.run || '',
     anchor: instruction.anchor || '',
@@ -64,12 +63,12 @@ export const pendingMethods = {
   // cannot: when the projection last reached DISK, and when something rewrote
   // the file underneath us.
   //
-  // Deliberately no location.reload() on a rev change, unlike the review
-  // page's overlay: in edit mode /rev is the document's own mtime and the
+  // Deliberately no location.reload() on a rev change: in edit mode /rev is
+  // the document's own mtime and the
   // editor's own typing moves it every time the export debounce fires.
   // Reloading on that would throw away the reviewer's cursor mid-sentence.
   // The rev is used only as a cue that the pending list is worth re-reading —
-  // which is also exactly when an agent's fresh suggestions have landed.
+  // which is also exactly when an agent's fresh edits have landed.
   tick(this: AppShell) {
     // A revision can be asked for from a terminal (`galley revise`) or from a
     // tab that has since been closed, so the counter is read on every poll
@@ -223,8 +222,8 @@ export const pendingMethods = {
   // difference between a co-author and an interruption.
   //
   // It runs in BOTH modes. Live mode is about whether the agent is woken
-  // without being asked; an arrival is an arrival either way — `galley suggest`
-  // from another terminal, or the results of a Revise — and a reviewer who was
+  // without being asked; an arrival is an arrival either way — the agent's
+  // saves, or the results of a Revise — and a reviewer who was
   // not told what landed is in the same position regardless of how it got
   // there.
   noticeArrivals(this: AppShell, arrived: ArrivalItem[]) {

@@ -3,10 +3,14 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { Node as PMNode } from '@tiptap/pm/model';
 
-// A block note — docmodel.Note. It is a COMMENT that lives in the document
-// tree, because a comment on an image or on the whole file has no text range
-// to hang a Highlight on, and being a block is the only way it survives into
-// the .md (the zero-tooling promise).
+// A block note — docmodel.Note. It is a block comment's MARK in the document
+// tree, because a comment on an image or a section has no text range to hang a
+// Highlight on. galley writes it as <note anchor id> with no text run: the
+// comment's words live in the unsent round, and the file carries only
+// "{>>@comment cb-…<<}". The amber box shows the words from the instruction
+// data, found by that id (noteWordDecorations, below). A hand-typed
+// {>>note<<} on its own line is a note with words and no id: it still builds
+// here and shows its own text.
 //
 // It must exist in this schema even though nothing here edits it. An element
 // whose nodeName the schema does not know is not skipped by y-prosemirror — it
@@ -14,13 +18,14 @@ import type { Node as PMNode } from '@tiptap/pm/model';
 // disk. Registering the node is what stops a reviewer's note from vanishing
 // the first time the document is opened.
 //
-// NOT an atom, and the content is `text*`. The Go side writes a note as
+// NOT an atom, and the content is `text*`. A word-bearing note arrives as
 // <note anchor="…"> with one unmarked YXmlText run inside it (ydoc.writeBlock's
 // `len(b.Inlines) > 0` branch), and y-prosemirror builds the ProseMirror node
 // from the element's children — so a node declared with no content would have
 // nowhere to put that run, and the same catch that deletes an unknown NODE
-// deletes it for an invalid content match. The schema has to describe what the
-// fragment actually holds, not what the editor wishes it held.
+// deletes it for an invalid content match. `text*` holds both shapes: an ID
+// note with no run, and a word note with one. The schema has to describe what
+// the fragment actually holds, not what the editor wishes it held.
 //
 // contenteditable="false" on the rendered aside is what keeps it read-only:
 // the note's words are authored through the composer and the rail, never by
@@ -43,6 +48,17 @@ export const NoteBlock = Node.create({
         parseHTML: (el) => el.getAttribute('data-anchor') || 'block',
         renderHTML: (attrs) => ({ 'data-anchor': attrs.anchor }),
       },
+      // The block comment's ID (docmodel.CommentIDAttr), which is the only
+      // thing linking this note to its words. DECLARED, not merely tolerated:
+      // an attribute the schema does not declare is dropped when the node is
+      // built, and the browser's next write takes it out of the fragment and
+      // the projection out of the file.
+      id: {
+        default: '',
+        parseHTML: (el) => el.getAttribute('data-comment-id') || '',
+        renderHTML: (attrs) =>
+          attrs.id ? { 'data-comment-id': attrs.id } : {},
+      },
     };
   },
 
@@ -63,88 +79,100 @@ export const NoteBlock = Node.create({
   },
 
   addProseMirrorPlugins() {
-    return [settledNotePlugin()];
+    return [noteWordsPlugin()];
   },
 });
 
-// --- which notes are settled ---
+// --- a block note's words, found by ID ---
 //
-// A RESOLVED NOTE MUST NOT LOOK LIKE A LIVE ONE. Resolving keeps every word of
-// a note — the words ARE the content — so the block stays in the prose, and
-// without a mark of some kind it reads as a conversation still waiting for an
-// answer. Court hit the panel half of this; this is the document half.
+// An ID note holds no words: the file carries only "{>>@comment cb-…<<}" and
+// the words live in the unsent round. The amber box gets them from the
+// instruction data, keyed by the note's id — the ONE link between a note and
+// its comment. Nothing here matches a note's text or counts its place in the
+// document: two comments with the same words are two comments, and a note that
+// moves keeps its own.
 //
-// IT HAS TO BE A DECORATION, and that is the whole reason this plugin exists.
-// The obvious implementation — walk the .gly-note elements and toggle a class —
-// was written first and MEASURED FAILING: ProseMirror owns those elements and
-// rewrites their attributes from the node whenever it redraws, which it does on
-// every rebuild the server pushes (see CLAUDE.md: every server-side mutation
-// replaces the whole document) and on plenty of transactions besides. The class
-// landed and was wiped a moment later, leaving the note looking live while the
-// rail showed the thread settled — the same lie, one surface over.
+// IT HAS TO BE A DECORATION. Anything appended inside .ProseMirror is content,
+// and a class or child put on a ProseMirror-rendered element is wiped the next
+// time ProseMirror redraws it, which every server-side mutation causes (each
+// one replaces the whole document). A widget is ProseMirror's own, so a redraw
+// re-applies it rather than erasing it.
 //
-// The settled set is not in the document, and must not be: resolution lives in
-// the sidecar (review.Thread.Resolved), because CriticMarkup has nowhere to
-// write it and inventing a marker would rewrite the author's own line. So it
-// arrives as transaction META, from the code that reads /_galley/pending, and
-// this plugin holds it as view state — never as content.
-export const settledNotesKey = new PluginKey('glySettledNotes');
+// The words are not in the document, and must not be, so they arrive as
+// transaction META from the code that reads /_galley/pending, and this plugin
+// holds them as view state. A note with no id (a hand-typed {>>words<<}) gets
+// no widget: its own text shows through the content hole, with no code here.
+export const noteWordsKey = new PluginKey('glyNoteWords');
 
 /**
- * noteFlags maps a per-note-in-document-order boolean list onto decorations.
+ * noteWordDecorations paints, inside each note whose id names a block
+ * comment, that comment's words.
  *
- * Document ORDER is the pairing coordinate, matching rail.ts's settledNotes,
- * which is what produced the list. Nothing here re-derives which note is which:
- * one rule, computed once, applied here.
+ * @param doc the editor document
+ * @param words comment words by comment ID
+ * @returns one widget per note whose id has words
  */
-export function noteDecorations(
+export function noteWordDecorations(
   doc: PMNode,
-  settled: boolean[],
+  words: Record<string, string>,
 ): DecorationSet {
-  const flags = settled || [];
   const decos: Decoration[] = [];
-  let i = 0;
   doc.descendants((node, pos) => {
     if (node.type.name !== 'note') {
       return true;
     }
-    if (flags[i]) {
+    const id: string = node.attrs.id || '';
+    const text =
+      id && Object.prototype.hasOwnProperty.call(words, id) ? words[id] : '';
+    if (text) {
       decos.push(
-        Decoration.node(pos, pos + node.nodeSize, {
-          class: 'gly-note-settled',
+        Decoration.widget(pos + 1, () => wordsEl(text), {
+          side: -1,
+          // The words are a readout, not a place the caret can live.
+          ignoreSelection: true,
+          // The key carries the WORDS as well as the id: two widgets with one
+          // key are one widget to ProseMirror and its DOM is not rebuilt, so an
+          // id alone would leave an edited comment's old words on screen.
+          key: `words:${id}:${text}`,
         }),
       );
     }
-    i += 1;
     return false;
   });
   return DecorationSet.create(doc, decos);
 }
 
-function settledNotePlugin() {
+function wordsEl(text: string): HTMLElement {
+  const span = document.createElement('span');
+  span.className = 'gly-note-words';
+  span.textContent = text;
+  return span;
+}
+
+function noteWordsPlugin() {
   return new Plugin({
-    key: settledNotesKey,
+    key: noteWordsKey,
     state: {
       init: (_, state) => ({
-        settled: [],
-        decos: noteDecorations(state.doc, []),
+        words: {},
+        decos: noteWordDecorations(state.doc, {}),
       }),
       apply(tr, prev) {
-        const next = tr.getMeta(settledNotesKey);
+        const next = tr.getMeta(noteWordsKey);
         if (!next && !tr.docChanged) {
           return prev;
         }
-        // A rebuilt document keeps the LAST KNOWN flags rather than clearing
+        // A rebuilt document keeps the LAST KNOWN words rather than clearing
         // them: the rebuild and the pending refresh that follows it are two
-        // round trips, and a note that un-settles itself in between is a flicker
-        // the reviewer reads as a state change.
-        const settled = next || prev.settled;
-        return { settled, decos: noteDecorations(tr.doc, settled) };
+        // round trips, and an amber box that empties in between is a flicker
+        // the reviewer reads as a lost comment.
+        const words = next || prev.words;
+        return { words, decos: noteWordDecorations(tr.doc, words) };
       },
     },
     props: {
       decorations(state) {
-        return settledNotesKey.getState(state).decos;
+        return noteWordsKey.getState(state).decos;
       },
     },
   });

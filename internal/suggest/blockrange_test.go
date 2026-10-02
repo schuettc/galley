@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/suggest"
 )
 
@@ -28,12 +29,9 @@ var when = time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 // block by block, so no single block could ever contain it.
 func TestASelectionCrossingBlocksAnchors(t *testing.T) {
 	d := threePara()
-	out, key, err := suggest.CommentAcross(d, []int{0}, 5, []int{2}, 8, "court", when)
+	out, err := suggest.CommentAcross(d, []int{0}, 5, []int{2}, 8, "cm-000000000000000e", "court", when)
 	if err != nil {
 		t.Fatalf("a selection across three paragraphs was refused: %v", err)
-	}
-	if key == "" {
-		t.Fatal("no thread key")
 	}
 	pending := suggest.List(out)
 	if len(pending) != 1 {
@@ -48,23 +46,28 @@ func TestASelectionCrossingBlocksAnchors(t *testing.T) {
 	if p.Run == "" {
 		t.Error("the span carries no run, so nothing can address it")
 	}
+	if p.CommentID != "cm-000000000000000e" {
+		t.Errorf("the span carries ID %q, want the one it was given", p.CommentID)
+	}
 }
 
 // TestEveryTouchedBlockCarriesTheSameRun is what makes it one decision rather
 // than three that happen to look alike. docmodel.RunAttr names ONE authored
 // edit; this is that rule applied across blocks.
 func TestEveryTouchedBlockCarriesTheSameRun(t *testing.T) {
-	out, _, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "court", when)
+	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-000000000000000f", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runs := map[string]int{}
+	ids := map[string]int{}
 	marked := 0
 	for _, b := range out.Blocks {
 		for _, in := range b.Inlines {
 			if in.Has(docmodel.Highlight) {
 				marked++
 				runs[in.Attr(docmodel.Highlight, docmodel.RunAttr)]++
+				ids[in.Attr(docmodel.Highlight, docmodel.CommentIDAttr)]++
 			}
 		}
 	}
@@ -74,11 +77,16 @@ func TestEveryTouchedBlockCarriesTheSameRun(t *testing.T) {
 	if len(runs) != 1 {
 		t.Errorf("the span was stamped with %d runs, want 1: %v — three runs is three decisions", len(runs), runs)
 	}
+	// AND ONE ID ON EVERY PIECE: the file has no run, so the ID is what says,
+	// after a restart, that the pieces are one comment.
+	if len(ids) != 1 || ids["cm-000000000000000f"] != marked {
+		t.Errorf("the pieces carry IDs %v, want cm-000000000000000f on all %d", ids, marked)
+	}
 }
 
 // TestTheEndsArePartialAndTheMiddleIsWhole.
 func TestTheEndsArePartialAndTheMiddleIsWhole(t *testing.T) {
-	out, _, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "court", when)
+	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-0000000000000010", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +113,7 @@ func TestTheEndsArePartialAndTheMiddleIsWhole(t *testing.T) {
 // TestDeletingACrossBlockCommentLiftsEveryBlocksHighlight. Lifting it from the
 // first block alone would leave the rest marked with a run no thread points at.
 func TestDeletingACrossBlockCommentLiftsEveryHighlight(t *testing.T) {
-	out, _, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "court", when)
+	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-0000000000000011", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,14 +121,17 @@ func TestDeletingACrossBlockCommentLiftsEveryHighlight(t *testing.T) {
 	if len(pending) != 1 {
 		t.Fatalf("want one span to decide, got %d", len(pending))
 	}
-	lifted, err := suggest.Accept(out, pending[0].ID)
-	if err != nil {
-		t.Fatalf("lifting the highlight: %v", err)
+	// The delete verb, which lifts by the ID.
+	detached, ok := suggest.Detach(out, []review.Thread{{Key: "cm-0000000000000011"}}, "cm-0000000000000011")
+	if !ok {
+		t.Fatal("Detach found no piece of the comment")
 	}
-	for i, b := range lifted.Blocks {
-		for _, in := range b.Inlines {
-			if in.Has(docmodel.Highlight) {
-				t.Errorf("block %d kept its highlight after the comment was lifted: %q", i, in.Text)
+	for name, d := range map[string]docmodel.Doc{"detach": detached} {
+		for i, b := range d.Blocks {
+			for _, in := range b.Inlines {
+				if in.Has(docmodel.Highlight) {
+					t.Errorf("%s: block %d kept its highlight after the comment was lifted: %q", name, i, in.Text)
+				}
 			}
 		}
 	}
@@ -131,11 +142,11 @@ func TestDeletingACrossBlockCommentLiftsEveryHighlight(t *testing.T) {
 // paragraphs are two decisions however alike they look.
 func TestTwoAdjacentCommentsStayTwo(t *testing.T) {
 	d := threePara()
-	one, _, err := suggest.CommentOnRange(d, []int{0}, 0, 4, "court", when)
+	one, err := suggest.CommentOnRange(d, []int{0}, 0, 4, "cm-0000000000000012", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, _, err := suggest.CommentOnRange(one, []int{1}, 0, 4, "court", when)
+	two, err := suggest.CommentOnRange(one, []int{1}, 0, 4, "cm-0000000000000013", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +159,7 @@ func TestTwoAdjacentCommentsStayTwo(t *testing.T) {
 // this is a contract check — and swapping the ends quietly would hide a caller
 // bug rather than report it.
 func TestABackwardsRangeIsRefused(t *testing.T) {
-	if _, _, err := suggest.CommentAcross(threePara(), []int{2}, 0, []int{0}, 4, "court", when); err == nil {
+	if _, err := suggest.CommentAcross(threePara(), []int{2}, 0, []int{0}, 4, "cm-0000000000000014", "court", when); err == nil {
 		t.Error("a backwards selection was accepted")
 	}
 }
@@ -156,11 +167,11 @@ func TestABackwardsRangeIsRefused(t *testing.T) {
 // TestOverlappingAnExistingCommentIsRefusedBeforeAnythingIsWritten — a
 // selection crossing something already commented on must not half-apply.
 func TestOverlappingAnExistingCommentIsRefused(t *testing.T) {
-	first, _, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "court", when)
+	first, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "cm-0000000000000015", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := suggest.CommentAcross(first, []int{0}, 5, []int{2}, 8, "court", when)
+	out, err := suggest.CommentAcross(first, []int{0}, 5, []int{2}, 8, "cm-0000000000000016", "court", when)
 	if err == nil {
 		t.Fatal("a selection across an existing comment was accepted")
 	}
@@ -173,16 +184,13 @@ func TestOverlappingAnExistingCommentIsRefused(t *testing.T) {
 // what commenting on a range means, and a degenerate cross-block call reaches
 // it rather than duplicating it.
 func TestASameBlockRangeGoesThroughTheOnePath(t *testing.T) {
-	across, keyA, err := suggest.CommentAcross(threePara(), []int{1}, 0, []int{1}, 4, "court", when)
+	across, err := suggest.CommentAcross(threePara(), []int{1}, 0, []int{1}, 4, "cm-0000000000000017", "court", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct, keyB, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "court", when)
+	direct, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "cm-0000000000000017", "court", when)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if keyA != keyB {
-		t.Errorf("the two paths minted different keys: %q vs %q", keyA, keyB)
 	}
 	if !docmodel.Equal(across, direct) {
 		t.Error("a same-block CommentAcross produced a different document from CommentOnRange")

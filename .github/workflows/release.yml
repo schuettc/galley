@@ -8,11 +8,6 @@ name: release
 # VERSION releases nothing; version-guard.yml makes that impossible to do by
 # accident.
 #
-# GALLEY-SPECIFIC, and load-bearing: the browser client is Go compiled to
-# js/wasm and EMBEDDED in the binary, so galley.wasm is built BEFORE
-# go-release, once, with the same stamp. A binary built without it serves an
-# error page instead of a review surface.
-#
 # workflow_dispatch does two things, chosen by whether `tag` is given:
 #   - tag set    -> rebuild assets for that EXISTING release (backfill/repair).
 #   - tag empty  -> cut a PRE-RELEASE from the branch you dispatch on, tagged
@@ -54,18 +49,6 @@ jobs:
         uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
-      - name: Build the embedded wasm client
-        if: steps.rel.outputs.skip != 'true'
-        env:
-          V: ${{ steps.rel.outputs.version }}
-          C: ${{ steps.rel.outputs.commit }}
-          D: ${{ steps.rel.outputs.date }}
-        run: |
-          set -euo pipefail
-          pkg=github.com/schuettc/galley/internal/version
-          GOOS=js GOARCH=wasm go build -trimpath \
-            -ldflags "-s -w -X $pkg.version=$V -X $pkg.commit=$C -X $pkg.date=$D" \
-            -o internal/serve/assets/galley.wasm ./cmd/galley-wasm
       - if: steps.rel.outputs.skip != 'true'
         uses: schuettc/tools-actions/go-release@v0.10.1
         with:

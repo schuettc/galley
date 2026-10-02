@@ -17,7 +17,7 @@ import (
 // REAL DEFECT IS THAT NOTHING EVER MARKS AN INSTRUCTION DONE… no mechanism
 // implements the discharge, so instructions accumulate in the rail forever."
 // The proposed fix was a landing-time discharge built on review.Thread's
-// surviving Resolved/Outcome fields.
+// then-surviving Resolved/Outcome fields (both since deleted).
 //
 // Measured on dev before building any of it: TWO instructions in, one send,
 // ZERO instructions out. The discharge exists and runs at SEND time —
@@ -70,6 +70,9 @@ func TestASentInstructionLeavesTheRail(t *testing.T) {
 		t.Fatalf("the fixture did not file two instructions (%d) — it cannot show a send clearing them",
 			len(before.Instructions))
 	}
+	if stored := loadUnsent(t, s); len(stored) != 2 {
+		t.Fatalf("pending.json holds %d instructions before the send, want 2: %+v", len(stored), stored)
+	}
 
 	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 && rec.Code != http.StatusConflict {
 		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
@@ -83,6 +86,11 @@ func TestASentInstructionLeavesTheRail(t *testing.T) {
 		t.Errorf("%d instruction(s) survived the send that carried them: %+v — "+
 			"they will sit in the rail as live work the reviewer has already asked for",
 			len(after.Instructions), after.Instructions)
+	}
+	// And they do not come back at the next start: the unsent round is the
+	// rail's durable half.
+	if stored := loadUnsent(t, s); len(stored) != 0 {
+		t.Errorf("pending.json still holds %d sent instruction(s): %+v", len(stored), stored)
 	}
 }
 
@@ -126,6 +134,11 @@ func TestTheRoundKeepsWhatTheRailGaveUp(t *testing.T) {
 					t.Errorf("the round kept the words and lost the key — a change can only point at an ask that has a name")
 				}
 			}
+		}
+	}
+	for _, c := range loadUnsent(t, s) {
+		if c.Text == "too many punchy sentences" {
+			t.Errorf("the round kept the words and pending.json kept them too — the next start would show them as unsent")
 		}
 	}
 	if !found {

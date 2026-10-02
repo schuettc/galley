@@ -150,7 +150,6 @@ export interface ThreadEntry extends PendingThreadEntry {
 export interface Thread extends PendingThread {
   key: string;
   heading: string;
-  resolved: boolean;
   entries: ThreadEntry[];
   run: string;
   anchor: string;
@@ -158,22 +157,13 @@ export interface Thread extends PendingThread {
   blockKind: string;
   region: Region | null;
   instruction: true;
-  // The old proposal era's decline verdict ('declined', from the
-  // now-deleted handleDecline) — cards.ts's threadCard still reads it to
-  // decide whether a settled card wears its outcome, but no live
-  // constructor writes it: pending.ts's refreshPending builds every Thread
-  // without an `outcome` field at all, on the rounds-only wire. A DEAD
-  // GUARD IS WRITTEN DOWN, NOT DELETED — left optional and reachable rather
-  // than removed; Task 9 sweeps it.
-  outcome?: string;
 }
 
 // The second argument every `threadCard` call carries: threadPlacement's own
 // verdict. `run` is optional here and not on threadPlacement's return type,
 // because the ONE caller that builds a placement by hand rather than asking
-// threadPlacement for one (the sheet's settled region, whose threads are
-// never anchored) has no run to give it — see sheet.ts's
-// paintSheetSettled.
+// threadPlacement for one (the whole-document card, whose threads are never
+// anchored) has no run to give it — see cards.ts's paintOverall.
 export interface Placement {
   where: 'mark' | 'block' | 'anchorless';
   run?: string;
@@ -268,14 +258,10 @@ export interface AppState {
     root: HTMLElement;
     head: HTMLElement;
     body: HTMLElement;
-    settled: HTMLElement;
-    settledHead: HTMLButtonElement;
-    settledList: HTMLElement;
   };
   cards: CardEntry[];
   sheetCards: CardEntry[];
   sheetOpen: boolean;
-  settledOpen: boolean;
   // The whole-document instructions already filed — built lazily by
   // paintOverall (cards.ts), never in the constructor, so it starts genuinely
   // absent rather than null-then-filled. draftRoots (entry.ts) already guards
@@ -461,6 +447,7 @@ export interface AppMethods {
   closeSheet(): void;
   closeVerdictMenu(): void;
   hideComposer(): void;
+  releaseGrip(): void;
   openComposerForm(): void;
   menuItems(): MenuItem[];
   hideRefusal(): void;
@@ -504,10 +491,7 @@ export interface AppMethods {
   showArrival(): void;
   openInstructions(): void;
   paintSheet(): void;
-  paintSheetSettled(): void;
   paintSurfaces(): void;
-  setSettledOpen(open: boolean): void;
-  applySettledOpen(): void;
   threadCard(thread: Thread, place: Placement): HTMLElement;
   changeCard(change: ReviewerChange): HTMLElement;
   revertButton(change: ReviewerChange, note: HTMLElement): HTMLButtonElement;
@@ -545,6 +529,7 @@ export interface AppMethods {
   makeOverallCard(): OverallCard;
   openCapture(): void;
   closeCapture(): void;
+  strandEdit(words: string): void;
   makeCaptureCard(): CaptureCard;
   makeCaptureButton(): HTMLButtonElement;
   paintCaptureVerb(): void;
@@ -569,7 +554,7 @@ export interface AppMethods {
   reveal(run: string, el: HTMLElement): void;
   clearTrail(): void;
   refreshVersions(): void;
-  paintNoteState(): void;
+  paintNoteWords(): void;
 
   // --- figures and the section grip (web/figures.ts) ---
   armFigure(el: HTMLElement, ref: BlockRef | null): void;
@@ -666,9 +651,6 @@ export interface AppMethods {
     root: HTMLElement;
     head: HTMLElement;
     body: HTMLElement;
-    settled: HTMLElement;
-    settledHead: HTMLButtonElement;
-    settledList: HTMLElement;
   };
 
   // --- figures' own builder (web/figures.ts) ---

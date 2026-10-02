@@ -153,3 +153,25 @@ func TestEveryPreservedByteReparsesToWhatItReplaced(t *testing.T) {
 		}
 	}
 }
+
+// TestAChangedCommentIDIsRewritten: preservation keys on what a block renders
+// to, and the ID mark is part of that, so a block whose only change is an ID
+// is written fresh rather than handed its old bytes.
+func TestAChangedCommentIDIsRewritten(t *testing.T) {
+	prev := []byte("Some {==words==}{>>@comment cm-old<<} here.\n")
+	doc, _, err := Parse(prev)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for i, in := range doc.Blocks[0].Inlines {
+		for j, m := range in.Marks {
+			if m.Kind == docmodel.Highlight {
+				doc.Blocks[0].Inlines[i].Marks[j].Attrs[docmodel.CommentIDAttr] = "cm-new"
+			}
+		}
+	}
+	want := "Some {==words==}{>>@comment cm-new<<} here.\n"
+	if got := string(SerializeOnto(doc, prev)); got != want {
+		t.Errorf("SerializeOnto = %q, want %q", got, want)
+	}
+}

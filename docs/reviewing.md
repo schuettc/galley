@@ -65,7 +65,9 @@ Hover a code block and a small `{}` grip appears in the left gutter, distinct fr
 
 ## Leaving an instruction on the whole document
 
-The first card at the top of the instruction rail is **+ instruction on the whole document**. Press it, type into the box (`add an instruction on the whole doc…`), and press Enter. Use it for anything without a place in the text: the tone, an argument that is missing, a structure you want changed.
+The first card at the top of the instruction rail is **+ instruction on the whole document**. Press it, type into the box (`add an instruction on the whole doc…`), and press Enter. Shift-Enter breaks a line instead. Use it for anything without a place in the text: the tone, an argument that is missing, a structure you want changed.
+
+Line breaks and blank lines are kept in every instruction, whichever box you wrote it in. The card shows them, the agent receives them, and so do `galley round`, `galley pending`, the ledger and History.
 
 ## Changing your mind before you send
 
@@ -73,10 +75,12 @@ Every instruction becomes a card in the rail, headed `instruction · <what it is
 
 Each card carries two verbs:
 
-- **edit** opens the words back up in a textarea with `save` and `cancel`. Saving is one mutation, not a delete and a re-file. An empty save is refused: `an instruction with no words is a delete`.
+- **edit** opens the words back up in a box with `save` and `cancel`. Enter saves and Shift-Enter breaks a line, as in every other instruction box. Saving is one mutation, not a delete and a re-file. An empty save is refused: `an instruction with no words is a delete`.
 - **delete** takes two clicks. The first arms it — the label becomes `delete?` and the card says `this removes the comment and its mark — click again`. The second click deletes. The arming lapses after four seconds on its own, so a card left armed is not a trap for the next click.
 
-If you delete the words an instruction was anchored to, the card does not disappear. It moves into an `unplaced · its words were removed` group and quotes the anchor it lost, struck through, so you can see which instruction is now floating.
+If you delete all the words an instruction on a span was about, the instruction goes with them: deleting the sentence takes back the instruction about it, and it is not sent. Undo the deletion before you send and it comes back.
+
+An instruction on a block or a figure has a mark of its own instead of highlighted words. If that mark is removed, the card does not disappear. It moves into an `unplaced · its words were removed` group, so you can see which instruction is now floating, and it is still sent with the round.
 
 ## Sending
 
@@ -151,8 +155,8 @@ In live mode a **`⏸ hold`** button appears beside it. Holding keeps new arriva
 | Key | What it does |
 |---|---|
 | `Esc` | Closes whatever is open, topmost first: a refusal note, the mark bubble, the composer, the verdict menu, the instruction sheet, History's pinned change, then History itself, then the whole-document panel. With nothing open, it takes focus out of the text and hands it back to the page. |
-| `Enter` | In any galley text box, files what you typed. |
-| `Shift-Enter` | Breaks a line inside a galley text box instead of filing. |
+| `Enter` | In any galley text box, files what you typed. In a card's edit box, saves it. |
+| `Shift-Enter` | Breaks a line instead of filing, in every instruction box: the span composer, the whole-document box and a card's edit box. |
 | `Enter` / `Space` | On a focused card, reveals what that card is about. |
 | `Cmd-Z` / `Cmd-Shift-Z` | Undo and redo your own edits. |
 | `j` / `k` | **Currently step nothing** — see the note below. Inert while History is open. |
@@ -189,7 +193,11 @@ The agent's next save fixes it, and the held save imports then. The message stan
 
 **Versions** are in `.galley/versions/<document>/`: `0001.md`, `0002.md`, one clean markdown file per round, plus `rounds.jsonl` with one line per round recording who moved it, when, why it was cut, and the instruction that produced it. They are full copies, not diffs, and the directory is gitignored — the history is insurance, not something you commit.
 
-Every stored version is a clean document. The highlights and note blocks that carry an unsent instruction are addresses, not prose: they are removed from the projection when you press Revise, so no round marker and no diff is ever stored in a version. Diffs are computed between versions when you ask to read one.
+**Unsent instructions** are in `.galley/versions/<document>/pending.json`. Every add, edit and delete writes that file before it writes the `.md`, so stopping galley, or a crash, loses none of them. The next `galley edit` puts each one back in place, and one whose place is gone shows as unplaced. Pressing Revise sends them as the round and empties the file.
+
+While an instruction is unsent, the `.md` carries only a short ID mark at its place: `{>>@comment cm-…<<}` straight after the highlighted words, a `{>>@comment cb-…<<}` line after a block, and nothing at all for an instruction on the whole document. The words are never in the `.md`. galley owns these marks. A `{>>note<<}` you type into the file yourself is not an instruction, and galley drops it: one inside a sentence at the next save, one on a line of its own when you press Revise.
+
+Every stored version is a clean document. The ID marks are addresses, not prose: they are removed from the projection when you press Revise, so no round marker and no diff is ever stored in a version. Diffs are computed between versions when you ask to read one.
 
 **The ledger** is `<repo>/.galley/decisions.jsonl` — committed, append-only, one JSON line per decision, merged with `merge=union` so a rebase keeps both sides. Your instructions are recorded there with the round that carried them. `galley ledger` reads it. A document edited outside a git repository has no ledger.
 
@@ -233,7 +241,7 @@ This routes through the `cannot` machinery and appears in the reviewer's history
 
 ### Out-of-band edits to the page — structural rounds
 
-The template is not frozen at open: galley re-extracts `page.html` every round, so the page's structure can change while a review is in progress. If you or the agent edit `page.html` directly — remove a section, reorder one, add one, change layout — galley picks that up at the next projection. In the normal loop that is the round boundary, and the reload lands where it is safe. If page.html is hand-edited while you are working, the reload can land mid-session: your prose is preserved, but an instruction you have filed and not yet sent goes with the replaced document. It re-extracts the edited page, refreshes the template, and if the recovered prose differs from what was on the editor, **reloads your editor** to match: the content pane now shows the re-derived markdown for the new structure. This looks and feels like restoring a version — the caret returns to the start and local undo history is cleared.
+The template is not frozen at open: galley re-extracts `page.html` every round, so the page's structure can change while a review is in progress. If you or the agent edit `page.html` directly — remove a section, reorder one, add one, change layout — galley picks that up at the next projection. In the normal loop that is the round boundary, and the reload lands where it is safe. If page.html is hand-edited while you are working, the reload can land mid-session: your prose is preserved, and an instruction you have filed and not yet sent is kept. Its place went with the replaced document, so it shows as an unplaced card, and it is still sent with the round. It re-extracts the edited page, refreshes the template, and if the recovered prose differs from what was on the editor, **reloads your editor** to match: the content pane now shows the re-derived markdown for the new structure. This looks and feels like restoring a version — the caret returns to the start and local undo history is cleared.
 
 You still only ever edit Markdown. Structural changes are the agent's job, made directly against the HTML; a content-only round (the agent only changes wording in `content.md`) never triggers a reload — nothing about the structure moved, so the editor stays exactly as you left it.
 

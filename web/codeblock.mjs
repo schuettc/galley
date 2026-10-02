@@ -35,11 +35,12 @@
 //   labelled with the block, sitting BESIDE the fence rather than parked in the
 //   anchorless region at the rail's foot.
 //
-//   IT ROUND-TRIPS THROUGH THE FILE — the note is `{>>…<<}` immediately after
-//   the fence on disk, and it is still there, still a block instruction on the
-//   same fence, after the server is stopped and `galley edit` is opened on the
-//   document again. The file is the document of record; a thread that lives
-//   only in a session is not a thread that survives a round.
+//   IT ROUND-TRIPS THROUGH THE FILES — the file holds the comment's ID mark,
+//   `{>>@comment cb-…<<}`, immediately after the fence and NOT its words; the
+//   unsent round, pending.json, holds the words. Both are still there after
+//   the server is stopped, and when `galley edit` is opened on the document
+//   again the card is back beside the fence with the same words. A thread that
+//   lives only in a session is not a thread that survives a round.
 //
 // Running it:
 //
@@ -376,6 +377,44 @@ await page.click('.gly-composer-send');
 await page.waitForSelector('.gly-rail-band .gly-thread', { timeout: 10000 });
 await page.waitForTimeout(600);
 
+// THE GRIP'S SELECTION GOES WITH ITS COMPOSER. The grip selected the whole
+// fence to show what the comment is about; left standing after the send, the
+// reviewer's next keystroke would be aimed at the whole block.
+{
+  const sel = await page.evaluate(() => {
+    const state = window.galleyEdit.editor.state;
+    const s = state.selection;
+    let fenceEnd = -1;
+    state.doc.descendants((node, pos) => {
+      if (node.type.name === 'codeBlock' && fenceEnd < 0) {
+        fenceEnd = pos + node.nodeSize;
+      }
+    });
+    return {
+      empty: s.empty,
+      from: s.from,
+      to: s.to,
+      in: s.$from.parent.type.name,
+      fenceEnd,
+    };
+  });
+  check(
+    'sending the fence\u2019s comment leaves nothing selected',
+    sel.empty,
+    sel,
+  );
+  // AND THE CARET IS OUT OF THE FENCE, past it. Inside, the next keystroke
+  // meets the read-only refusal rather than landing anywhere. Not in the
+  // comment's own note either, which lands right after the fence.
+  check(
+    'and the caret lands after the fence, not inside it',
+    sel.empty &&
+      !['codeBlock', 'note'].includes(sel.in) &&
+      sel.from > sel.fenceEnd,
+    sel,
+  );
+}
+
 const filed = await pendingOn(PORT);
 {
   const list = filed.instructions || [];
@@ -444,14 +483,33 @@ const filed = await pendingOn(PORT);
   );
 }
 
-// --- §6 the note is in the FILE, after the fence ------------------------
+// --- §6 the mark is in the FILE, after the fence; the words are not ------
 
+// The unsent round, beside the document's versions (internal/unsent.Path).
+const unsentPath = join(
+  dir,
+  '.galley',
+  'versions',
+  'install.md',
+  'pending.json',
+);
+const MARK = /```\n\n\{>>@comment (cb-[0-9a-f]{16})<<\}/;
+let filedKey = '';
 {
   const onDisk = readFileSync(doc, 'utf8');
+  const mark = onDisk.match(MARK);
+  filedKey = mark ? mark[1] : '';
   check(
-    'the block note is on disk as {>>\u2026<<} immediately after the fence',
-    onDisk.includes('```\n\n{>>' + ASKED + '<<}'),
+    'the file carries {>>@comment cb-\u2026<<} immediately after the fence, and not the words',
+    !!mark && !onDisk.includes(ASKED),
     onDisk,
+  );
+  const unsent = JSON.parse(readFileSync(unsentPath, 'utf8'));
+  const saved = (unsent.comments || []).filter((c) => c.key === filedKey);
+  check(
+    'pending.json holds the words, under the key the mark names',
+    saved.length === 1 && saved[0].text === ASKED && saved[0].kind === 'block',
+    unsent,
   );
 }
 
@@ -471,8 +529,10 @@ await new Promise((r) => setTimeout(r, 1500));
 {
   const settled = readFileSync(doc, 'utf8');
   check(
-    'with the editor stopped, the fence and its note are both still in the file',
-    settled.includes(FENCE) && settled.includes('{>>' + ASKED + '<<}'),
+    'with the editor stopped, the fence and its mark are both still in the file',
+    settled.includes(FENCE) &&
+      !!filedKey &&
+      settled.includes('```\n\n{>>@comment ' + filedKey + '<<}'),
     settled,
   );
 }
@@ -493,8 +553,9 @@ await reopened.waitForSelector('.gly-rail-band .gly-thread', {
   const list = view.instructions || [];
   const one = list.length === 1 ? list[0] : null;
   check(
-    'reopening the document reads the note back as a block instruction on the fence',
+    'reopening the document reads the comment back as a block instruction on the fence',
     !!one &&
+      one.key === filedKey &&
       one.text === ASKED &&
       one.anchor === 'block' &&
       one.blockKind === 'codeBlock' &&
@@ -507,13 +568,17 @@ await reopened.waitForSelector('.gly-rail-band .gly-thread', {
     return {
       cards: document.querySelectorAll('.gly-rail-band .gly-thread').length,
       head: el ? el.querySelector('.gly-card-head').textContent : '',
+      entries: el ? el.querySelectorAll('.gly-thread-entry').length : 0,
+      words: (el && el.querySelector('.gly-thread-entry p')?.textContent) || '',
       adrift: el ? el.classList.contains('gly-adrift') : true,
     };
   });
   check(
-    'and the reviewer sees the same card in the rail, still on the block',
+    'and the reviewer sees the same card in the rail, still on the block, with the same words',
     card.cards === 1 &&
       !card.adrift &&
+      card.entries === 1 &&
+      card.words === ASKED &&
       !!again &&
       card.head.includes(again.label.slice(0, 12)),
     { ...card, label: again && again.label },

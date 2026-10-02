@@ -1,9 +1,8 @@
 // ledger.go is the CLI over galley's memory: the committed log in the repo and
 // the derived index on the machine.
 //
-// NOTHING HERE IS HOW A DECISION GETS RECORDED. Every decision path writes to
-// the log as it decides — internal/serve/ledger.go for the live surface,
-// cmd/galley/decisions.go for the offline commands — so a record is in the
+// NOTHING HERE IS HOW A DECISION GETS RECORDED. The running editor writes to
+// the log as it decides — internal/serve/ledger.go — so a record is in the
 // repository the moment the reviewer acts, whether or not any of these verbs is
 // ever run. `sync` moves the LOG into the INDEX, which is the direction the
 // spec fixes: log first, then ingest, never the other way. A stale index is

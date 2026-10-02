@@ -103,9 +103,9 @@ func plainOf(src string) string {
 	return plainText(model)
 }
 
-// changeKey names one change so a card can ask for it back. Content-derived for
-// the reason `suggest.CommentKey` is: an ordinal renumbers the moment anything
-// earlier changes, and a card holding a stale one would revert the wrong words.
+// changeKey names one change so a card can ask for it back. Content-derived
+// because an ordinal renumbers the moment anything earlier changes, and a card
+// holding a stale one would revert the wrong words.
 func changeKey(c ReviewerChange) string {
 	sum := sha256.Sum256([]byte(c.Kind + "\x00" + c.Before + "\x00" + c.After))
 	return "ch-" + hex.EncodeToString(sum[:8])

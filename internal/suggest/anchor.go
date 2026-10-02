@@ -4,21 +4,19 @@
 // A range comment has a Highlight mark on the text it covers, and that mark
 // IS its anchor. Neither of the other two has anywhere to put one: docmodel
 // blocks carry no marks (an image and a code fence are blocks), and a comment
-// on the whole file has no node at all. Both therefore live in the document
-// as a docmodel.Note block — see markdown/note.go for how that is written to
-// and read back from the file — and this file turns a Note's POSITION into
-// the thing it is about.
+// on the whole file has no node at all. A block comment therefore lives in the
+// document as a docmodel.Note carrying its ID — see markdown/note.go for how
+// that is written to and read back from the file — and this file turns that
+// Note's POSITION into the thing it is about. A document comment has no mark
+// in the file at all.
 package suggest
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
 )
 
 // AnchorKind says what a comment thread is attached to.
@@ -88,12 +86,11 @@ func Blocks(d docmodel.Doc) []BlockRef {
 // blockKeys returns a key per top-level block, parallel to d.Blocks, empty
 // for the Note blocks that are not themselves addressable.
 //
-// The key is derived from the block's OWN CONTENT — the same way CommentKey
-// is derived from the quote it anchors to, and for the same reason. A path
-// ("blocks[3]") and an ordinal both renumber the moment anything is inserted
-// above them, and this codebase has already paid for that once: a comment
-// thread keyed by an ordinal silently reattached itself to different text
-// (see CommentKey, and CLAUDE.md's "an ordinal ID is not identity"). A
+// The key is derived from the block's OWN CONTENT. A path ("blocks[3]") and an
+// ordinal both renumber the moment anything is inserted above them, and this
+// codebase has already paid for that once: a comment thread keyed by an
+// ordinal silently reattached itself to different text (CLAUDE.md's "an
+// ordinal ID is not identity"). A
 // content hash moves only when the block itself changes, which is exactly
 // when a comment on it deserves re-examination anyway.
 //
@@ -207,10 +204,8 @@ func AnchorFor(d docmodel.Doc, path []int) Anchor {
 // blockKeys SERIALIZES EVERY BLOCK to markdown, so calling it once per note is
 // quadratic in the document: 50 notes made List 136 ms — 1,765x slower than the
 // same document with none — while the sidebar polls List on a timer and
-// project() calls it on every debounce. This is the regression AcceptAll's own
-// comment records having already paid for once ("that made 400 suggestions take
-// minutes"), so every caller that resolves more than one anchor computes the
-// keys once and passes them here.
+// project() calls it on every debounce. So every caller that resolves more
+// than one anchor computes the keys once and passes them here.
 func anchorForKeys(d docmodel.Doc, path []int, keys []string) Anchor {
 	b, ok := blockAt(d, path)
 	if !ok || b.Kind != docmodel.Note {
@@ -245,17 +240,14 @@ func blockAt(d docmodel.Doc, path []int) (*docmodel.Block, bool) {
 	return b, b != nil
 }
 
-// CommentOnBlock attaches a note to the block named by key, writing it into
-// the document as a {>>note<<} on its own line immediately after that block,
-// and returns the new comment's THREAD KEY (see CommentKeyFor).
+// CommentOnBlock writes the mark of the block comment id after the block named
+// by key: a {>>@comment id<<} on its own line. The comment's words are not
+// written; they live in the unsent round, linked to this mark by id alone.
 //
-// The note goes after any notes already under that block, so several
-// comments on one block stack in the order they were made and every one of
-// them still resolves to the same anchor.
-func CommentOnBlock(d docmodel.Doc, key, note, author string, at time.Time) (docmodel.Doc, string, error) {
-	if err := checkNote(note); err != nil {
-		return docmodel.Doc{}, "", err
-	}
+// The mark goes after any notes already under that block, so several comments
+// on one block stack in the order they were made and every one of them still
+// resolves to the same anchor.
+func CommentOnBlock(d docmodel.Doc, key, id string) (docmodel.Doc, error) {
 	keys := blockKeys(d)
 	target := -1
 	for i, k := range keys {
@@ -265,7 +257,7 @@ func CommentOnBlock(d docmodel.Doc, key, note, author string, at time.Time) (doc
 		}
 	}
 	if target < 0 {
-		return docmodel.Doc{}, "", fmt.Errorf(
+		return docmodel.Doc{}, fmt.Errorf(
 			"suggest: no block with key %q", key)
 	}
 
@@ -279,119 +271,14 @@ func CommentOnBlock(d docmodel.Doc, key, note, author string, at time.Time) (doc
 	clone := cloneDoc(d)
 	blocks := make([]docmodel.Block, 0, len(clone.Blocks)+1)
 	blocks = append(blocks, clone.Blocks[:insert]...)
-	blocks = append(blocks, markdown.NewNote(docmodel.AnchorBlock, note))
+	blocks = append(blocks, markdown.NewCommentNote(id))
 	blocks = append(blocks, clone.Blocks[insert:]...)
 	clone.Blocks = blocks
-	return clone, CommentKeyFor(Anchor{Kind: AnchorBlock, Target: key}, note, author, at), nil
+	return clone, nil
 }
 
-// CommentOnDocument attaches a note to the file itself, written as a
-// {>>@document note<<} on its own line at the END of the document, and
-// returns the new comment's THREAD KEY.
-func CommentOnDocument(d docmodel.Doc, note, author string, at time.Time) (docmodel.Doc, string, error) {
-	if err := checkNote(note); err != nil {
-		return docmodel.Doc{}, "", err
-	}
-	clone := cloneDoc(d)
-	clone.Blocks = append(clone.Blocks, markdown.NewNote(docmodel.AnchorDocument, note))
-	return clone, CommentKeyFor(Anchor{Kind: AnchorDocument}, note, author, at), nil
-}
-
-// checkNote refuses a note the file cannot carry.
-//
-// Refusing is the right answer here rather than mangling: a block or document
-// comment exists ONLY in the markdown (a range comment at least has a
-// highlight to fall back on), so a note that cannot be spelled has nowhere
-// else to be. Better a clear error at the point of writing than a comment
-// that silently reads back as prose. See markdown.UnwritableNoteText.
-func checkNote(note string) error {
-	switch {
-	case strings.TrimSpace(note) == "":
-		return fmt.Errorf("suggest: a comment needs some text")
-	case markdown.UnwritableNoteText(note):
-		return fmt.Errorf(
-			"suggest: a comment cannot contain a line break or the sequence \"<<}\" — " +
-				"CriticMarkup has no escape for either, so the note would be cut short in the file")
-	}
-	return nil
-}
-
-// NoteThread is one block or document comment as it stands in the FILE: the
-// anchor it resolves to, its text, and a human label for what it is about.
-// It is what a thread has to be opened against when the sidecar has no thread
-// for it yet.
-type NoteThread struct {
-	Anchor Anchor
-	Text   string
-	Label  string
-	// Kind is the docmodel kind of the block this note anchors to, empty for
-	// a document anchor. It is recorded on the thread (review.Thread.BlockKind)
-	// because it is the only thing that can tell an EDIT to the commented block
-	// from its DELETION once the old key is gone — see ReconcileNotes.
-	Kind string
-	// Ordinal breaks the one tie the text cannot: two notes on one anchor whose
-	// WORDS are identical. It counts, in document order, how many earlier notes
-	// share this note's anchor and text, so the first of them is 0 and keys
-	// exactly as it would if it were alone. See NewNoteThread.
-	Ordinal int
-}
-
-// Notes lists every block and document comment in d, in document order.
-func Notes(d docmodel.Doc) []NoteThread {
-	notes, _ := notesWithPaths(d)
-	return notes
-}
-
-// notesWithPaths is Notes with each note's docmodel.Walk path alongside it, in
-// the same order.
-//
-// The path stays INSIDE this package, exactly as Pending.Path does: it is an
-// internal coordinate that renumbers the moment a block is inserted above it,
-// so publishing one would hand a caller an address it could neither interpret
-// nor safely send back. The one thing outside this file that needs it —
-// removing the note a thread is the conversation for — is Detach, which is
-// here.
-func notesWithPaths(d docmodel.Doc) ([]NoteThread, [][]int) {
-	keys := blockKeys(d)
-	out := make([]NoteThread, 0, 4)
-	paths := make([][]int, 0, 4)
-	seen := map[[3]string]int{}
-	for _, sp := range noteSpans(d) {
-		// anchorForKeys, not AnchorFor: one blockKeys pass for the whole call
-		// rather than one per note. See anchorForKeys.
-		a := anchorForKeys(d, sp.path, keys)
-		label := "the whole document"
-		kind := ""
-		if a.Kind == AnchorBlock {
-			for i, k := range keys {
-				if k != "" && k == a.Target {
-					label = blockLabel(d.Blocks[i])
-					kind = string(d.Blocks[i].Kind)
-					break
-				}
-			}
-		}
-		n := NoteThread{Anchor: a, Text: sp.text, Label: label, Kind: kind}
-		// In document order, so a note keeps its ordinal as long as the notes
-		// before it do — appending a third identical note does not re-key the
-		// first two.
-		n.Ordinal = seen[noteIdentity(n)]
-		seen[noteIdentity(n)]++
-		out = append(out, n)
-		paths = append(paths, sp.path)
-	}
-	return out, paths
-}
-
-// noteIdentity is what two notes have to share before an ordinal is needed to
-// tell them apart.
-func noteIdentity(n NoteThread) [3]string {
-	return [3]string{string(n.Anchor.Kind), n.Anchor.Target, n.Text}
-}
-
-// BlockKindFor is the kind of the block a block anchor names, for a caller
-// opening a thread outside the Notes path (the live comment endpoints).
-// Empty for any other anchor, and for a key that names nothing.
+// BlockKindFor is the kind of the block a block anchor names. Empty for any
+// other anchor, and for a key that names nothing.
 func BlockKindFor(d docmodel.Doc, a Anchor) string {
 	if a.Kind != AnchorBlock {
 		return ""
@@ -399,189 +286,8 @@ func BlockKindFor(d docmodel.Doc, a Anchor) string {
 	return blockKindsByKey(d)[a.Target]
 }
 
-// ReconcileNotes pairs the file's block and document comments against the
-// threads the sidecar already holds, and reports what is missing.
-//
-// It exists because these two comments are recorded in two places that are
-// each authoritative about a different half. The FILE carries the note itself
-// — that is the zero-tooling promise, that an agent reads pending state from
-// the .md alone — and the SIDECAR carries the conversation that grew around
-// it: replies, resolution, who said what and when. Neither can be rebuilt
-// from the other, so on every load they have to be matched back up, and
-// getting that wrong duplicates a thread on every restart.
-//
-// There is no shared identifier to match on: a thread's key is derived once,
-// at creation, and is never recomputed to FIND a thread by — deriving one to
-// look up with would reattach a conversation to whatever the derivation
-// happened to land on, which is the hazard CommentKey's own comment is about.
-// So the match is made on what both sides DO have — the anchor and the
-// reviewer's own words — in two passes, and the second pass is the one that
-// earns its keep:
-//
-// AND THAT IS ALSO THE MIGRATION STORY FOR ANY CHANGE TO THE DERIVATION. Note
-// keys used to digest the instant they were minted at, which no reader could
-// reproduce from the file; they no longer do (CommentKeyFor). Every sidecar
-// written before that change still works, because this function matches on
-// TEXT and the thread it matches keeps the key it was stored under — matched
-// rather than orphaned, so no duplicate opens beside it either. cmd/galley's
-// TestALegacyNoteKeyStaysReachable is that promise, and it is what makes a
-// derivation change a change rather than a data migration.
-//
-//  1. Exact: same anchor kind, same anchor key, same text.
-//  2. Loose: same anchor kind, same text, any anchor key. This is what
-//     survives an EDIT TO THE COMMENTED BLOCK. The key is derived from the
-//     block's content, so fixing a typo in the paragraph a comment is about
-//     moves the key — and without this pass the thread would be orphaned and
-//     a fresh, reply-less duplicate opened beside it. A matched thread has
-//     its anchor key refreshed to the block's current one, which is reported
-//     through the returned changed flag so the caller knows to write back.
-//
-// THE LOOSE PASS CANNOT TELL AN EDIT FROM A DELETION, and that is the whole
-// reason for the guard below. A note is a free-standing block: delete the
-// block it was about and the note remains, AnchorFor re-resolves it to
-// "nearest top-level block above" — which is now something else entirely —
-// and rewriting AnchorKey with that result turns "this diagram is wrong" into
-// a comment about the "# Title" heading, on disk and in the panel, with no
-// signal. That is CLAUDE.md's "an ordinal ID is not identity" arriving by a
-// different route: the thread KEY is content-derived as promised, but the
-// ANCHOR is positional, and the loose pass launders a positional re-resolution
-// into an authoritative rewrite.
-//
-// So a re-anchor that lands on a block of a DIFFERENT KIND is refused and the
-// note orphaned instead — an image's comment does not become a heading's. A
-// re-anchor within the same kind is applied, because that is what an edit
-// looks like, but it is REPORTED through reanchored so the rail can say the
-// target moved rather than silently showing the comment on something new.
-//
-// Each thread matches at most one note, so two identical notes on one block
-// keep two threads.
-//
-// Notes with no thread at all come back as orphans for the caller to open
-// threads for. Threads with no note are left exactly as they are: the note
-// may have been resolved (which deletes it from the file) or the file may be
-// mid-edit, and deleting a conversation because its anchor is momentarily
-// missing is the one outcome nothing can undo.
-func ReconcileNotes(d docmodel.Doc, threads []review.Thread) (out []review.Thread, orphans []NoteThread, reanchored []Reanchor, changed bool) {
-	out = append([]review.Thread(nil), threads...)
-	notes := Notes(d)
-	matched := matchNotes(notes, out)
-	kinds := blockKindsByKey(d)
-	for i, n := range notes {
-		j := matched[i]
-		if j < 0 {
-			orphans = append(orphans, n)
-			continue
-		}
-		if prev := out[j].AnchorKey; prev != "" && prev != n.Anchor.Target {
-			// The thread's RECORDED kind, not kinds[prev]: prev names a block
-			// that is gone from d in BOTH cases — that is exactly why the loose
-			// pass exists — so looking it up here would return "" for a plain
-			// edit and detach every thread the pass was written to carry.
-			// review.Thread.BlockKind is what the old block WAS.
-			//
-			// Editing a paragraph gives a new key for a paragraph; deleting an
-			// image hands its note to whatever heading sits above it. So a
-			// re-anchor across kinds keeps the PAIRING — the conversation and
-			// its replies stay attached to this note, and no reply-less
-			// duplicate is opened beside it — and refuses the REWRITE. The
-			// thread goes on naming the block it was actually about, which no
-			// longer exists, so it reads as detached instead of as a comment
-			// about something it was never about. Reported so the rail can say
-			// so out loud.
-			//
-			// An empty recorded kind is "no opinion" and allows the rewrite: a
-			// sidecar written before this field existed must keep loading.
-			if was := out[j].BlockKind; was != "" && was != kinds[n.Anchor.Target] {
-				reanchored = append(reanchored, Reanchor{
-					Key: out[j].Key, From: prev, To: n.Anchor.Target, Refused: true,
-				})
-				continue
-			}
-			reanchored = append(reanchored, Reanchor{
-				Key: out[j].Key, From: prev, To: n.Anchor.Target,
-			})
-		}
-		if out[j].AnchorKey != n.Anchor.Target {
-			out[j].AnchorKey = n.Anchor.Target
-			changed = true
-		}
-		if n.Kind != "" && out[j].BlockKind != n.Kind {
-			out[j].BlockKind = n.Kind
-			changed = true
-		}
-		if out[j].Heading != n.Label {
-			out[j].Heading = n.Label
-			changed = true
-		}
-	}
-	return out, orphans, reanchored, changed
-}
-
-// matchNotes pairs each note against at most one thread, and each thread
-// against at most one note, returning the thread index per note (-1 for a note
-// nothing holds a conversation for).
-//
-// IT IS THE ONE PAIRING RULE, and it is a function so it stays that way:
-// ReconcileNotes runs it on every load to carry conversations across an edit,
-// and Detach runs it to find the note a thread being deleted is about. A second
-// implementation would agree with this one right up until either grew a case.
-//
-// Two passes, exact then loose — see ReconcileNotes for what the loose one
-// survives and why the caller, not this function, decides whether a loose match
-// may rewrite an anchor key.
-func matchNotes(notes []NoteThread, threads []review.Thread) []int {
-	matched := make([]int, len(notes))
-	for i := range matched {
-		matched[i] = -1
-	}
-	taken := make([]bool, len(threads))
-	match := func(n NoteThread, exact bool) int {
-		for i := range threads {
-			if taken[i] || threads[i].Anchor != string(n.Anchor.Kind) {
-				continue
-			}
-			if exact && threads[i].AnchorKey != n.Anchor.Target {
-				continue
-			}
-			if openingText(threads[i]) != n.Text {
-				continue
-			}
-			return i
-		}
-		return -1
-	}
-	for pass := 0; pass < 2; pass++ {
-		for i, n := range notes {
-			if matched[i] >= 0 {
-				continue
-			}
-			if j := match(n, pass == 0); j >= 0 {
-				matched[i], taken[j] = j, true
-			}
-		}
-	}
-	return matched
-}
-
-// Reanchor reports a thread whose anchor key moved because the block it is
-// about was edited. It is not an error — it is what the loose pass exists to
-// do — but it is not invisible either: the rail has to be able to say "the
-// text this is about has changed" rather than showing a comment beside prose
-// that no longer matches it.
-type Reanchor struct {
-	Key  string // the thread
-	From string // the block key it was recorded against
-	To   string // the block key it resolves to now
-	// Refused is set when the move was NOT applied because it crossed block
-	// kinds — the deletion case. The thread still names From, which no longer
-	// exists: it is detached, not re-pointed, and the rail should say the
-	// target was deleted rather than show the comment beside To.
-	Refused bool
-}
-
-// blockKindsByKey maps every addressable block key in d to its kind, so a
-// re-anchor can be checked for "same kind of thing" without a second scan per
-// note. Computed once per ReconcileNotes call — see Notes on why that matters.
+// blockKindsByKey maps every addressable block key in d to its kind, in one
+// blockKeys pass.
 func blockKindsByKey(d docmodel.Doc) map[string]string {
 	keys := blockKeys(d)
 	out := make(map[string]string, len(keys))
@@ -594,56 +300,6 @@ func blockKindsByKey(d docmodel.Doc) map[string]string {
 	return out
 }
 
-// openingText is the text a thread STARTED with — the words that were written
-// into the file as the {>>note<<}, whoever wrote them.
-//
-// Deliberately NOT review.Thread.Comment, which is "the reviewer's own text"
-// and returns "" for a thread the agent opened. Every comment the agent makes
-// through /_galley/suggest is one of those, so matching on Comment orphaned
-// every agent-written note on the next load and opened a duplicate thread
-// beside it, attributed to the reviewer — silently, once per restart.
-func openingText(t review.Thread) string {
-	if len(t.Entries) == 0 {
-		return ""
-	}
-	return t.Entries[0].Text
-}
-
-// NewNoteThread is the thread a note with no thread yet becomes.
-//
-// The key takes the note's Ordinal as well as its text, and since the key
-// stopped digesting the instant (CommentKeyFor) the ordinal is the ONLY thing
-// telling two identical notes on one anchor apart — review.Session.Append
-// upserts by key, so without it they would merge into one thread holding both
-// their words. It was already the only thing that worked: every import path
-// stamps its orphans with ONE time.Now() and one author constant, so the
-// instant never discriminated between two notes imported together; it only
-// discriminated between two READERS of the same note, which is precisely the
-// bug it was removed for. The ordinal is 0 for the first note of its (anchor,
-// text), and CommentKeyFor is fed the plain text there, so the overwhelmingly
-// common case keys exactly as it reads.
-func NewNoteThread(n NoteThread, author string, at time.Time) review.Thread {
-	return review.Thread{
-		Key:       CommentKeyFor(n.Anchor, ordinalText(n.Text, n.Ordinal), author, at),
-		Heading:   n.Label,
-		Anchor:    string(n.Anchor.Kind),
-		AnchorKey: n.Anchor.Target,
-		BlockKind: n.Kind,
-		Entries:   []review.Entry{{Author: author, At: at, Text: n.Text}},
-	}
-}
-
-// ordinalText is the note text CommentKeyFor digests: the words themselves for
-// the first note of its (anchor, text), and the words plus a counter for each
-// later duplicate. digestKey length-prefixes every part, so the suffix cannot
-// spell a different note's text.
-func ordinalText(text string, ordinal int) string {
-	if ordinal == 0 {
-		return text
-	}
-	return text + "\x00#" + strconv.Itoa(ordinal)
-}
-
 // noteSpans finds every Note block in d, at any depth, as a span the rest of
 // this package can list, order and resolve alongside the mark-based ones.
 func noteSpans(d docmodel.Doc) []span {
@@ -653,10 +309,11 @@ func noteSpans(d docmodel.Doc) []span {
 			return
 		}
 		spans = append(spans, span{
-			path: append([]int(nil), path...),
-			kind: KindComment,
-			note: true,
-			text: markdown.NoteText(*b),
+			path:      append([]int(nil), path...),
+			kind:      KindComment,
+			note:      true,
+			commentID: b.Attrs[docmodel.CommentIDAttr],
+			text:      markdown.NoteText(*b),
 		})
 	})
 	return spans

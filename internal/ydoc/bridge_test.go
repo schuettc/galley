@@ -459,3 +459,43 @@ func TestRoundTrip_NoteBlock(t *testing.T) {
 		}
 	}
 }
+
+// TestRoundTrip_NoteCarriesItsCommentID: a block comment's mark is a <note>
+// with an anchor, an id and NO text run — its words are in the unsent round.
+// The fragment has to carry that shape both ways, empty content included.
+func TestRoundTrip_NoteCarriesItsCommentID(t *testing.T) {
+	model := docmodel.Doc{Blocks: []docmodel.Block{
+		para(text("A paragraph.")),
+		{Kind: docmodel.Note, Attrs: map[string]string{
+			"anchor": docmodel.AnchorBlock, docmodel.CommentIDAttr: "cb-0123456789abcdef",
+		}},
+	}}
+	got := roundTrip(t, model)
+	if !docmodel.Equal(got, model) {
+		t.Fatalf("the ID note did not survive the fragment:\n got: %#v\nwant: %#v", got, model)
+	}
+	if n := len(got.Blocks[1].Inlines); n != 0 {
+		t.Errorf("the ID note came back with %d inlines, want none", n)
+	}
+}
+
+// TestRoundTrip_HighlightCarriesItsCommentID: a text comment's ID rides on the
+// highlight format beside its run, and both come back exactly. Equal ignores
+// runs, so the run is asserted by hand.
+func TestRoundTrip_HighlightCarriesItsCommentID(t *testing.T) {
+	model := docmodel.Doc{Blocks: []docmodel.Block{
+		para(
+			text("keep "),
+			marked("this", mark(docmodel.Highlight,
+				docmodel.CommentIDAttr, "cm-0123456789abcdef", docmodel.RunAttr, "r1")),
+			text(" here"),
+		),
+	}}
+	got := roundTrip(t, model)
+	if !docmodel.Equal(got, model) {
+		t.Fatalf("the highlight's id did not survive the fragment:\n got: %#v\nwant: %#v", got, model)
+	}
+	if run := got.Blocks[0].Inlines[1].Attr(docmodel.Highlight, docmodel.RunAttr); run != "r1" {
+		t.Errorf("run = %q, want r1", run)
+	}
+}

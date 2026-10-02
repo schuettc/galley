@@ -109,11 +109,11 @@ func candidates(prev []byte) map[string][]string {
 		doc, comments, err := Parse([]byte(chunk))
 		if err != nil || len(comments) > 0 {
 			// A refusal cannot be a candidate, and neither can a chunk whose
-			// parse LIFTS something out of it: the comment is recorded in the
-			// sidecar from the whole document's parse, and writing the chunk
-			// back verbatim would leave the marker in the file as well. That
-			// is a real question — a lifted note currently vanishes from the
-			// author's prose — and it is deliberately NOT answered here.
+			// parse LIFTS something out of it: the whole document's parse
+			// lifted the same note out of the model, and writing the chunk
+			// back verbatim would put the marker back in the file. A lifted
+			// note is not imported as a comment, so it leaves the file at the
+			// next save; that is decided by the parse, not here.
 			continue
 		}
 		r := renderedBlocks(doc.Blocks)

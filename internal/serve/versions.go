@@ -87,7 +87,7 @@ func (s *EditServer) Versions() *versions.Store {
 //
 // AN INTENT MAY NEVER OUTLIVE THE PROJECTION IT ASKED FOR. project can return
 // before it ever reaches the cut — a refused snapshot (ydoc.ErrConcurrentWrite),
-// a failed write of the .md or of the sidecar — and an intent left lying in
+// a failed write of the .md or of pending.json — and an intent left lying in
 // pendingCut would then be committed by the NEXT projection, against bytes this
 // press never saw and after the press had already been told its round was v0.
 // That is precisely the instruction-to-diff pairing the history exists for, so
@@ -126,7 +126,7 @@ func (s *EditServer) markMovedByAgent() { s.movedByAgent = true }
 //
 // A PROPOSAL WAS ATOMIC AND A REVISION IS NOT, and that is the whole reason this
 // type exists. Phase 1 could treat the agent's return as one event — the first
-// projection whose pending fingerprint moved — because one `galley suggest` is
+// projection whose pending fingerprint moved — because one `galley suggest` was
 // one proposal and the reviewer decides it. A revision is six edits over ten
 // seconds, so cutting on the first of them would commit a round that holds one
 // sixth of the answer and leave the other five to be swept into whatever round
@@ -394,7 +394,7 @@ func digestOf(b []byte) string { return fileDigest(b) }
 // passes it that way for the reason every other round is a projection output. A
 // version is what galley READ, and the parse is where reading happens: a setext
 // heading is a `#`, a `*` bullet is a `-`, `__bold__` is `**bold**`, and an
-// inline {>>note<<} has been lifted into the sidecar and will never be written
+// inline {>>note<<} has been lifted out of the model and will never be written
 // back. Seed from the raw file and the very first diff attributes all of that to
 // the reviewer — including the disappearance of every margin note they wrote —
 // on any document that did not already arrive in canonical form. Nothing else in
@@ -433,8 +433,8 @@ func (s *EditServer) seedVersions(content []byte) {
 // their direct edits — and NOT re-derived in the browser, so the history and
 // the button cannot disagree about what was sent.
 //
-// IT IS STILL READ OFF THE THREADS, which is the only place it lives while the
-// sidecar exists — but it is now SAID ONCE.
+// IT IS READ OFF THE THREADS, the live state pending.json mirrors, and it is
+// SAID ONCE.
 //
 // AN INSTRUCTION BELONGS TO THE ROUND THAT CARRIED IT. Phase 1 recorded the
 // outstanding conversation on every round, and stated the consequence rather
@@ -462,13 +462,19 @@ func (s *EditServer) seedVersions(content []byte) {
 // is outstanding at this instant, not a sentence somebody wrote, and two rounds
 // legitimately carry the same one.
 //
+// ONLY THE ROUND BEING SENT. sending names the keys the round's capture
+// carries, the same set its Asks record: a thread still in the review map but
+// not in the round (one whose words the reviewer deleted, which waits there for
+// the send's clear) was not asked for, and recording it would put words the
+// reviewer took back into History and the ledger.
+//
 // Callers must not hold mu.
-func (s *EditServer) reviewerInstruction() (string, []ledger.Record, func()) {
+func (s *EditServer) reviewerInstruction(sending map[string]bool) (string, []ledger.Record, func()) {
 	var said, fresh []string
 	var records []ledger.Record
 	s.instrMu.Lock()
 	for _, th := range review.Read(s.doc) {
-		if th.Resolved {
+		if !sending[th.Key] {
 			continue
 		}
 		for _, e := range th.Entries {
@@ -527,6 +533,13 @@ type roundView struct {
 	// has one implementation and the list has one shape.
 	Answers int    `json:"answers"`
 	Asked   string `json:"asked"`
+	// Instructions is the round's asks, one entry each, in order and
+	// unclipped, and AskedInstructions is the same list for the round this one
+	// answers. History shows each instruction on its own, with its line breaks;
+	// Instruction and Asked are the `·`-joined sentence, kept for rounds written
+	// before asks were recorded, which have nothing else.
+	Instructions      []string `json:"instructions,omitempty"`
+	AskedInstructions []string `json:"askedInstructions,omitempty"`
 	// Changed is how many regions this round moved against the one before it.
 	// A count, not a diff: it is recomputed on every request from the two
 	// documents, and nothing about it is stored.
@@ -558,17 +571,22 @@ func (s *EditServer) handleVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asked := map[int]string{}
+	asks := map[int][]string{}
 	for _, x := range rounds {
 		if x.Instruction != "" {
 			asked[x.N] = x.Instruction
 		}
+		asks[x.N] = askTexts(x.Asks)
 	}
 	view := versionsView{Doc: s.docName(), Rounds: []roundView{}}
 	for i, x := range rounds {
 		rv := roundView{
 			N: x.N, At: x.At.UTC().Format(time.RFC3339), Authors: versions.Authors(x.Authors),
 			Reason: x.Reason, Instruction: x.Instruction, Answers: x.Answers,
-			Asked: asked[x.Answers],
+			Asked: asked[x.Answers], Instructions: asks[x.N],
+		}
+		if x.Answers > 0 {
+			rv.AskedInstructions = asks[x.Answers]
 		}
 		if i > 0 {
 			rv.Changed = s.changedRegions(rounds[i-1].N, x.N)
@@ -576,6 +594,19 @@ func (s *EditServer) handleVersions(w http.ResponseWriter, r *http.Request) {
 		view.Rounds = append(view.Rounds, rv)
 	}
 	writeJSON(w, view)
+}
+
+// askTexts is a round's asks as History shows them: the words of each, in
+// order, verbatim. Nil for a round with none, so the field is left out.
+func askTexts(asks []versions.Ask) []string {
+	if len(asks) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(asks))
+	for _, a := range asks {
+		out = append(out, a.Text)
+	}
+	return out
 }
 
 // changedRegions is the count the history shows beside a round. COMPUTED, NEVER

@@ -10,31 +10,10 @@ import (
 	"github.com/reearth/ygo/crdt"
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/review"
+	"github.com/schuettc/galley/internal/ydoc"
 )
 
-// waitForKeys polls until the live instructions match `want`, or gives up. The
-// retraction is deliberately ASYNCHRONOUS — sweepLostAnchors detects inside the
-// projection and hands the deletion to a goroutine that goes through `mutate`,
-// because a write inside a projection cuts spurious rounds — so a test that
-// read straight after Project would be racing the fix rather than testing it.
-func waitForKeys(t *testing.T, s *EditServer, want int) []string {
-	t.Helper()
-	var got []string
-	for i := 0; i < 100; i++ {
-		got = keysOf(t, s)
-		if len(got) == want {
-			return got
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return got
-}
-
-// keysOf reads THE PENDING VIEW, which is what every surface renders from, and
-// deliberately not the review map. The retraction writes nothing — see
-// noteAnchored for the measurements that ruled an eager deletion out — so the
-// claim being made is about what the reviewer is SHOWN. The thread itself is
-// cleared by the send that already clears every instruction thread.
+// keysOf reads THE PENDING VIEW, which is what every surface renders from.
 func keysOf(t *testing.T, s *EditServer) []string {
 	t.Helper()
 	view, err := s.pending()
@@ -112,9 +91,117 @@ func TestDeletingTheSentenceDeletesTheInstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := waitForKeys(t, s, 0); len(got) != 0 {
+	if got := keysOf(t, s); len(got) != 0 {
 		t.Errorf("the instruction outlived the words it was about: %v — it would sit in the rail as work the reviewer already retracted", got)
 	}
+	// AND A RESTART DOES NOT BRING IT BACK: pending.json is what a new process
+	// reads, and it no longer holds the comment.
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = again.Close() }()
+	if got := keysOf(t, again); len(got) != 0 {
+		t.Errorf("a restart brought the retracted instruction back: %v", got)
+	}
+}
+
+// TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound is the spurious round.
+// In live mode a settle is a send, so any fingerprint the agent did not cause
+// is a round. The agent rewrites the words a seen comment highlights; mutate
+// seeds the notifier with what the agent was handed, and the projection that
+// follows must hand the notifier that same fingerprint. A projection that
+// writes the review map (deleting the thread) moves it, and cuts a round.
+func TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	s.Notify.Quiet = 50 * time.Millisecond
+	if err := s.SetMode(ModeLive); err != nil {
+		t.Fatal(err)
+	}
+	instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 13, "text": "which fox?"})
+	if err := s.Project(); err != nil { // seen
+		t.Fatal(err)
+	}
+	if _, err := s.mutate(byAgent, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+		out := docmodel.Clone(model)
+		for i := range out.Blocks {
+			for j := range out.Blocks[i].Inlines {
+				if strings.Contains(out.Blocks[i].Inlines[j].Text, "quick") {
+					out.Blocks[i].Inlines[j] = docmodel.Inline{Text: "A dog"}
+				}
+			}
+		}
+		return out, nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := roundCount(t, s)
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if after := roundCount(t, s); after != before {
+		t.Errorf("the agent's own write cut %d round(s) after it (%d -> %d)", after-before, before, after)
+	}
+}
+
+// TestUndoingTheDeletionBringsTheCommentBack: the reviewer deletes the
+// highlighted words, a projection runs, and they press undo. The words and the
+// highlight, with its ID, come back, and so does the comment: in the rail and
+// in pending.json. Deleting the thread at the projection made this a comment
+// lost to an undo.
+func TestUndoingTheDeletionBringsTheCommentBack(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 13, "text": "which fox?"})
+	key := onlyKey(t, s)
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	withMark, err := s.readLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewerDeletes(t, s, "the quick fox")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadUnsent(t, s); len(got) != 0 {
+		t.Fatalf("the fixture did not retract the comment from pending.json: %+v", got)
+	}
+	gone, err := s.readLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Undo is the browser writing the old fragment back, ID attrs and all.
+	if err := s.yjs.Apply(t.Context(), s.Room, func(doc *crdt.Doc, transact func(func(*crdt.Transaction))) {
+		ydoc.Write(doc, transact, gone, withMark)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	v := pendingView(t, s)
+	if len(v.Instructions) != 1 || v.Instructions[0].Key != key || v.Instructions[0].Run == "" {
+		t.Errorf("after undo the rail lists %+v, want %s placed", v.Instructions, key)
+	}
+	if got := loadUnsent(t, s); len(got) != 1 || got[0].Key != key {
+		t.Errorf("after undo pending.json = %+v, want %s", got, key)
+	}
+}
+
+func roundCount(t *testing.T, s *EditServer) int {
+	t.Helper()
+	rs, err := s.Versions().List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(rs)
 }
 
 // TestAWholeDocumentInstructionIsNeverSwept is the counter-case: a block or
@@ -122,10 +209,10 @@ func TestDeletingTheSentenceDeletesTheInstruction(t *testing.T) {
 // mark to lose and must never be swept.
 //
 // IT DOES NOT PROVE THE `Anchor` CLAUSE, and that is recorded rather than
-// implied. Measured by deleting that clause: this test stays green, because
-// `seenAnchored` catches the same threads for a different reason — one that
-// never paired is never a candidate. Both guards are kept (see sweepLostAnchors
-// for why); only one of them is reachable, so only one of them has a red proof.
+// implied: `seenAnchored` catches the same threads for a different reason — one
+// that never paired is never a candidate. Both guards are kept (see
+// lostanchor.go for why); only one of them is reachable, so only one of them
+// has a red proof.
 func TestAWholeDocumentInstructionIsNeverSwept(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "d.md")
@@ -157,10 +244,9 @@ func TestAWholeDocumentInstructionIsNeverSwept(t *testing.T) {
 	}
 }
 
-// TestAnInstructionWithNoMarkAtStARTUPSurvives holds the guard honest. A
-// sidecar this build cannot pair — an older galley's, a legacy key — also has
-// no mark, and sweeping on that evidence would destroy instructions nobody
-// touched, at startup, with no keystroke.
+// TestAnInstructionNeverSeenAnchoredSurvives holds the guard honest. A comment
+// whose mark this process never saw also has no mark, and sweeping on that
+// evidence would destroy instructions nobody touched, with no keystroke.
 func TestAnInstructionNeverSeenAnchoredSurvives(t *testing.T) {
 	dir := t.TempDir()
 	md := filepath.Join(dir, "d.md")
@@ -238,4 +324,103 @@ func TestTrimmingTheSentenceKeepsTheInstruction(t *testing.T) {
 	if got := keysOf(t, s); len(got) != 1 {
 		t.Errorf("trimming the sentence retracted the instruction: %v — the mark still covers what survived", got)
 	}
+}
+
+// TestTheSendDeletesARetractedThread: the retracted comment's thread waits in
+// the review map for the next send, whose clear deletes it with the threads it
+// sent. It is not one of the round's asks: the pending view hid it.
+func TestTheSendDeletesARetractedThread(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	s.OnRevise = "true"
+	instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 13, "text": "which fox?"})
+	retracted := onlyKey(t, s)
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Second para here.", "text": "cut it"})
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	reviewerDeletes(t, s, "the quick fox")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := threadByKey(s.doc, retracted); !ok {
+		t.Fatal("the fixture's retracted thread already left the review map before the send")
+	}
+
+	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 {
+		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
+	}
+	if threads := review.Read(s.doc); len(threads) != 0 {
+		t.Errorf("the send left threads in the review map: %+v", threads)
+	}
+	rs, err := s.Versions().List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := rs[len(rs)-1]
+	for _, a := range sent.Asks {
+		if a.Key == retracted {
+			t.Errorf("the round asks for the retracted comment %s", retracted)
+		}
+	}
+	// History's instruction line and the ledger come from the same set as the
+	// Asks: words the reviewer took back are recorded nowhere.
+	if strings.Contains(sent.Instruction, "which fox?") || !strings.Contains(sent.Instruction, "cut it") {
+		t.Errorf("the round's instruction = %q, want the sent comment only", sent.Instruction)
+	}
+}
+
+// A text comment filed while a round is being sent loses its highlight to the
+// send's clear, which lifts every mark. The reviewer deleted nothing, so the
+// comment stays: as an unplaced card, never hidden as a retraction.
+func TestACommentFiledMidSendIsNotRetractedByTheClear(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	s.OnRevise = "true"
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Second para here.", "text": "cut it"})
+	var late string
+	testHookAfterRoundCaptured = func() {
+		instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 13, "text": "filed mid-send"})
+		if err := s.Project(); err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range pendingNow(t, s) {
+			if v.Text == "filed mid-send" {
+				late = v.Key
+			}
+		}
+	}
+	t.Cleanup(func() { testHookAfterRoundCaptured = nil })
+	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 {
+		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
+	}
+	if late == "" {
+		t.Fatal("the comment filed mid-send was never placed")
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	var kept bool
+	for _, v := range pendingNow(t, s) {
+		kept = kept || v.Key == late
+	}
+	if !kept {
+		t.Error("the send's clear hid a comment the reviewer never deleted")
+	}
+	var saved bool
+	for _, c := range loadUnsent(t, s) {
+		saved = saved || c.Key == late
+	}
+	if !saved {
+		t.Error("the comment filed mid-send left pending.json")
+	}
+}
+
+func pendingNow(t *testing.T, s *EditServer) []InstructionView {
+	t.Helper()
+	view, err := s.pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view.Instructions
 }

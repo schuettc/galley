@@ -59,83 +59,46 @@ func TestSubstitutionListsAsOneSuggestion(t *testing.T) {
 	}
 }
 
-func TestSubstitutionAcceptKeepsTheReplacement(t *testing.T) {
-	d, err := Accept(parseDoc(t, subDoc), "s1")
-	if err != nil {
-		t.Fatal(err)
+func TestSubstitutionTakenReadsAsTheReplacement(t *testing.T) {
+	d := parseDoc(t, subDoc)
+	taken, _ := readings(d)
+	if taken != "The quick red fox" {
+		t.Errorf("taken reads %q, want %q", taken, "The quick red fox")
 	}
-	if got := string(markdown.Serialize(d)); got != "The quick red fox\n" {
-		t.Errorf("accept -> %q, want %q", got, "The quick red fox\n")
-	}
-	if got := List(d); len(got) != 0 {
-		t.Errorf("accept left %d pending, want none: %+v", len(got), got)
-	}
-}
-
-func TestSubstitutionRejectKeepsTheOriginal(t *testing.T) {
-	d, err := Reject(parseDoc(t, subDoc), "s1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(markdown.Serialize(d)); got != "The quick brown fox\n" {
-		t.Errorf("reject -> %q, want %q", got, "The quick brown fox\n")
-	}
-	if got := List(d); len(got) != 0 {
-		t.Errorf("reject left %d pending, want none: %+v", len(got), got)
+	p := List(d)[0]
+	if got := "The quick " + p.New + " fox"; got != taken {
+		t.Errorf("the one span's New gives %q, want the taken reading %q", got, taken)
 	}
 }
 
-// No sequence of decisions can produce "brownred" — the whole point. This
-// walks every document reachable by deciding anything still pending, in
-// either direction, and checks each one as it is serialized: an
-// intermediate state is on disk the moment it exists.
-func TestSubstitutionHasNoIncoherentReachableState(t *testing.T) {
-	seen := map[string]bool{}
-	var walk func(d docmodel.Doc, trail []string)
-	walk = func(d docmodel.Doc, trail []string) {
-		out := string(markdown.Serialize(d))
-		if strings.Contains(out, "brownred") {
-			t.Fatalf("%v produced %q", trail, out)
-		}
-		if seen[out] {
-			return
-		}
-		seen[out] = true
-		for _, p := range List(d) {
-			for verb, accept := range map[string]bool{"accept": true, "reject": false} {
-				next, err := applyDecision(d, p.ID, accept)
-				if err != nil {
-					t.Fatalf("%s %s: %v", verb, p.ID, err)
-				}
-				walk(next, append(append([]string(nil), trail...), verb+" "+p.ID))
-			}
-		}
+func TestSubstitutionDeclinedReadsAsTheOriginal(t *testing.T) {
+	d := parseDoc(t, subDoc)
+	_, declined := readings(d)
+	if declined != "The quick brown fox" {
+		t.Errorf("declined reads %q, want %q", declined, "The quick brown fox")
 	}
-	walk(parseDoc(t, subDoc), nil)
-}
-
-func TestSubstitutionDecideAllIsOneDecision(t *testing.T) {
-	for _, tc := range []struct {
-		accept bool
-		want   string
-	}{
-		{true, "The quick red fox\n"},
-		{false, "The quick brown fox\n"},
-	} {
-		d, n := DecideAll(parseDoc(t, subDoc), tc.accept)
-		if n != 1 {
-			t.Errorf("DecideAll(%v) decided %d, want 1", tc.accept, n)
-		}
-		if got := string(markdown.Serialize(d)); got != tc.want {
-			t.Errorf("DecideAll(%v) -> %q, want %q", tc.accept, got, tc.want)
-		}
+	p := List(d)[0]
+	if got := "The quick " + p.Old + " fox"; got != declined {
+		t.Errorf("the one span's Old gives %q, want the declined reading %q", got, declined)
 	}
 }
 
-func TestSubstitutionAcceptAll(t *testing.T) {
-	d := AcceptAll(parseDoc(t, subDoc))
-	if got := string(markdown.Serialize(d)); got != "The quick red fox\n" {
-		t.Errorf("AcceptAll -> %q", got)
+// No reading of the file can say "brownred" — the whole point. That word was
+// reachable only by deciding the halves apart, and the halves cannot be decided
+// apart when nothing lists them apart: the read path reports one replace, and
+// no insert or delete beside it.
+func TestSubstitutionHasNoIncoherentReading(t *testing.T) {
+	d := parseDoc(t, subDoc)
+	for _, p := range List(d) {
+		if p.Kind == KindInsert || p.Kind == KindDelete {
+			t.Fatalf("a half of the substitution listed on its own: %+v", p)
+		}
+	}
+	taken, declined := readings(d)
+	for _, r := range []string{taken, declined} {
+		if strings.Contains(r, "brownred") {
+			t.Fatalf("a reading of the file says %q", r)
+		}
 	}
 }
 
@@ -150,10 +113,10 @@ func TestHighlightedDeletionDoesNotGroup(t *testing.T) {
 		Inlines: []docmodel.Inline{
 			{Text: "The quick "},
 			{Text: "brown", Marks: []docmodel.Mark{
-				suggestionMark(docmodel.Highlight, "court", at),
-				suggestionMark(docmodel.Del, "court", at),
+				authoredMark(docmodel.Highlight, "court", at, newRun()),
+				authoredMark(docmodel.Del, "court", at, newRun()),
 			}},
-			{Text: "red", Marks: []docmodel.Mark{suggestionMark(docmodel.Ins, "court", at)}},
+			{Text: "red", Marks: []docmodel.Mark{authoredMark(docmodel.Ins, "court", at, newRun())}},
 			{Text: " fox"},
 		},
 	}}}
@@ -213,30 +176,6 @@ func TestUnpairableSubstitutionListsAsTwo(t *testing.T) {
 	}
 }
 
-// Replace is the transform that creates a substitution, so what it writes
-// must be what List reads back as one.
-func TestReplaceCreatesOneSuggestion(t *testing.T) {
-	at := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	d, err := Replace(parseDoc(t, "The quick brown fox\n"), "brown", "red", "agent", at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := List(d)
-	if len(got) != 1 || got[0].Kind != KindReplace {
-		t.Fatalf("List = %+v, want one replace", got)
-	}
-	if got[0].Author != "agent" {
-		t.Errorf("author = %q, want %q", got[0].Author, "agent")
-	}
-	accepted, err := Accept(d, got[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := string(markdown.Serialize(accepted)); s != "The quick red fox\n" {
-		t.Errorf("accept -> %q", s)
-	}
-}
-
 // The ordinal stays the display coordinate: after grouping there is simply
 // one fewer id in the list, and the ones that remain still number from 1 in
 // document order.
@@ -254,17 +193,13 @@ func TestSubstitutionRenumbersTheOrdinals(t *testing.T) {
 			t.Errorf("entry %d = %s/%s, want %s/%s", i, got[i].ID, got[i].Kind, want.id, want.kind)
 		}
 	}
-	after, err := Accept(d, "s2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := string(markdown.Serialize(after)); s != "A {++one++} b red c {--two--} d\n" {
-		t.Errorf("accept s2 -> %q", s)
+	if got[1].Old != "brown" || got[1].New != "red" {
+		t.Errorf("s2 halves = %q -> %q, want brown -> red", got[1].Old, got[1].New)
 	}
 }
 
-// The run is the DEL half's: see substitutionSpan. Both halves have one and
-// only the listed one decides, so the choice has to be stable and stated.
+// The run is the DEL half's: see substitutionSpan. Both halves have one, so
+// which one is Run has to be stable and stated; the other is InsRun.
 func TestSubstitutionRunIsTheDeletedHalfs(t *testing.T) {
 	d := MintRuns(parseDoc(t, subDoc))
 	got := List(d)
@@ -275,12 +210,9 @@ func TestSubstitutionRunIsTheDeletedHalfs(t *testing.T) {
 	if got[0].Run == "" || got[0].Run != del.Attr(docmodel.Del, docmodel.RunAttr) {
 		t.Fatalf("run = %q, want the Del mark's %q", got[0].Run, del.Attr(docmodel.Del, docmodel.RunAttr))
 	}
-	out, err := AcceptRun(d, got[0].Run)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := string(markdown.Serialize(out)); s != "The quick red fox\n" {
-		t.Errorf("AcceptRun -> %q", s)
+	ins := d.Blocks[0].Inlines[2]
+	if got[0].InsRun == "" || got[0].InsRun != ins.Attr(docmodel.Ins, docmodel.RunAttr) {
+		t.Fatalf("insRun = %q, want the Ins mark's %q", got[0].InsRun, ins.Attr(docmodel.Ins, docmodel.RunAttr))
 	}
 }
 

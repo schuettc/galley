@@ -31,7 +31,7 @@ import (
 // rather than blocking the decision (see Record), and a process that exits
 // without calling Flush loses whatever is still queued. Both are losses of
 // MEMORY, which is what this store holds; neither can lose a decision, which
-// lives in the .md and its sidecar, and neither can corrupt the log, because
+// lives in the .md and its versions, and neither can corrupt the log, because
 // every record still goes out through Append's single atomic write.
 type Recorder struct {
 	// log is Log in production and the test seam everywhere else — the only

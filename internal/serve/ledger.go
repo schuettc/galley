@@ -2,40 +2,36 @@
 // to the repository's committed decision log at the moment it is reached.
 //
 // THE LEDGER IS MEMORY, NEVER TRUTH, and this file is where that stops being a
-// slogan. Review state stays exactly where it was — the .md and its sidecar —
+// slogan. Review state stays exactly where it was — the .md and the unsent round —
 // and nothing here is on the path that puts it there. The whole surface is
 // EditServer.remember, which returns nothing: there is no error for a handler
-// to check, so no handler can be written to refuse an accept because a disk was
+// to check, so no handler can be written to refuse a send because a disk was
 // full. internal/ledger.Recorder does the rest (bounded queue, its own
-// goroutine, a recover around the append), and TestALedgerFailureCannotFailA
-// Decision drives a server whose every append fails and asserts the decisions
-// still land.
+// goroutine, a recover around the append), and its TestRecorderSwallowsAFailed
+// Append and TestRecorderSwallowsAPanickingAppend hold that.
 //
 // LATENCY: THE DECISION PATH PAYS A CHANNEL SEND AND NOTHING ELSE. The append
 // is a file write — a repo-root walk, a MkdirAll, a .gitattributes check and an
 // O_APPEND write — and on a network mount or a wedged disk that is unbounded.
 // None of it happens here. What happens here is building a small struct and
 // handing it to a buffered channel, which is why remember can be called from
-// inside a handler that has just decided forty proposals in one mutation
-// without the reviewer waiting on forty file writes. The trade is stated in
+// inside a handler that has just sent a forty-instruction round without the
+// reviewer waiting on forty file writes. The trade is stated in
 // Recorder: a process that exits without flushing loses whatever is queued.
 // `galley edit`'s shutdown and the CLI's exit both flush.
 //
 // EVERY RECORD IS TAKEN BEFORE THE MUTATION AND WRITTEN AFTER IT. Before,
 // because a Pending is meaningful only against the model it was listed from —
-// the ordinal-identity rule CLAUDE.md states, and the same reason handleDecline
-// captures its text inside the transform. After, because a transform that runs
-// and then fails to apply decided nothing, and a ledger that recorded it would
-// be remembering something that never happened.
+// the ordinal-identity rule CLAUDE.md states. After, because a transform that
+// runs and then fails to apply decided nothing, and a ledger that recorded it
+// would be remembering something that never happened.
 package serve
 
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/ledger"
 	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
 )
 
 // recorder is the ledger this server writes through — the process-wide default
@@ -90,84 +86,6 @@ func clipContext(s string) string {
 	return s
 }
 
-// ProposalRecord is one decision about one proposal, in ledger shape.
-//
-// Exported because cmd/galley's OFFLINE paths reach the same decisions with no
-// server in the room, and this codebase's rule for those is that they are
-// twins of the live handler rather than second implementations of it (see
-// offlineDecline's own comment). Two mappings from a Pending to a Record would
-// be two answers to "what was decided", and the ledger's whole value is that
-// there is one.
-//
-// The field pairing is exact and not a choice: Pending already carries the
-// deleted and inserted halves separately (Old/New), the text the decision
-// covers (Text), the author of the thing being decided, and the neighbourhood
-// it sits in — which are, in order, the record's old, new, quote, author and
-// context.
-func ProposalRecord(kind ledger.Kind, p suggest.Pending) ledger.Record {
-	return ledger.Record{
-		Kind:    kind,
-		Author:  proposalAuthor(p.Author),
-		Old:     p.Old,
-		New:     p.New,
-		Quote:   p.Text,
-		Context: clipContext(p.Context),
-	}
-}
-
-// proposalAuthor is who a record about a proposal is authored to, and it is a
-// function because TWO kinds of record are about a proposal.
-//
-// A mark parsed from a file carries no author — CriticMarkup has nowhere to
-// write one, and the sidecar is the only record of it (see CLAUDE.md).
-// Attributing it to the agent is the honest default: it is the only party that
-// proposes, and leaving it blank would put a row with no author into a store
-// whose central question is whose proposals fare how.
-//
-// handRecord asks the same question of the author the BROWSER read off the mark
-// (review.Change.Proposal), and asks it here rather than repeating the `if ==
-// ""` beside it: a rewrite and an accept of one span must name the same party,
-// and two spellings of the default are how they would come to disagree.
-func proposalAuthor(author string) string {
-	if author == "" {
-		return ledger.AuthorAgent
-	}
-	return author
-}
-
-// ThreadRecord is one decision about one conversation.
-//
-// The AUTHOR is whoever opened it — the record's author names who authored the
-// thing being decided, and for a thread that is the first entry's writer. A
-// thread with no entries at all is a note reconciled off the file that nobody
-// has spoken in yet; the reviewer is the honest default there, since a note in
-// the file with no sidecar row was typed by hand.
-//
-// The QUOTE is the thread's heading — what the conversation is about — and
-// falls back to its opening words when there is none. A heading is set on
-// create and is usually the anchored text, but a thread reconciled off a note
-// the sidecar had never opened a row for has nothing there, and a delete's
-// record is, from the moment it lands, the whole of what is left to say the
-// conversation existed. A row naming nothing would be a memory of nothing.
-func ThreadRecord(kind ledger.Kind, th review.Thread) ledger.Record {
-	author := review.AuthorCourt
-	var opening string
-	if len(th.Entries) > 0 {
-		author = th.Entries[0].Author
-		opening = th.Entries[0].Text
-	}
-	quote := th.Heading
-	if strings.TrimSpace(quote) == "" {
-		quote = opening
-	}
-	return ledger.Record{
-		Kind:    kind,
-		Author:  author,
-		Quote:   quote,
-		Context: clipContext(opening),
-	}
-}
-
 // verdictRecord is the review's own ending, which is a decision about the
 // ROUND and not about any one span — hence its own kinds, and hence the empty
 // quote: there is no text it is about.
@@ -188,45 +106,4 @@ func verdictRecord(kind ledger.Kind, reason string) ledger.Record {
 		Author: review.AuthorCourt,
 		Reason: reason,
 	}
-}
-
-// ledgerAuthor translates THIS PACKAGE'S word for a party into THE LOG'S.
-//
-// They are not the same word and there is no reason they should be: `by` names
-// who pressed something in a review ("reviewer" · "agent"), and the ledger's
-// author vocabulary mirrors review.AuthorCourt / review.AuthorAgent ("court" ·
-// "agent"), which is what every other record in the file already carries.
-// handleReopen wrote `by` through untranslated, so the log held
-// `"author":"reviewer"` beside `"author":"court"` for one person and every
-// GROUP BY author reported three parties for two — a rollup cannot be
-// un-split after the fact, because the log is authoritative and lines are
-// never rewritten.
-//
-// Anything unrecognised maps to the reviewer, which is also handleReopen's own
-// default for an absent `by`: a record with an author outside the vocabulary is
-// worse than one with the wrong side of a two-valued guess, and the guard above
-// this call has already refused every value but two.
-// Decidable is every proposal suggest.DecideAll will act on — the population of
-// every bulk gesture, live or offline, read off the model BEFORE the transform
-// since afterwards there is nothing left to list.
-//
-// Comment kinds are excluded through suggest.Kind.Decidable — the SAME call
-// DecideAll's own firstDecidable makes, rather than a `!= KindComment` beside
-// it that agrees for now: a highlight is settled by resolving its thread, never
-// by a bulk decision, and a note's words ARE the content. Exported for
-// cmd/galley's offline sweep, which decides the same population through a file
-// rather than through a live document — one rule with one owner, the discipline
-// this codebase applies to every live/offline pair.
-//
-// One entry per DECISION, not per span: `{~~brown~>red~~}` is a single decision
-// everywhere in this codebase, and a ledger counting its two halves would
-// inflate every number the store exists to make trustworthy.
-func Decidable(model docmodel.Doc) []suggest.Pending {
-	var out []suggest.Pending
-	for _, p := range suggest.List(model) {
-		if p.Decidable {
-			out = append(out, p)
-		}
-	}
-	return out
 }

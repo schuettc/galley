@@ -179,7 +179,8 @@ func TestAStaleCardIsRefused(t *testing.T) {
 // TestAnInstructionIsNotAnEdit is the bug the undo gate found by being made to
 // prove its own precondition.
 //
-// Filing an instruction writes a `{==…==}` highlight into the document, so a
+// Filing an instruction writes a `{==…==}` highlight, with its
+// `{>>@comment …<<}` ID mark, into the document, so a
 // diff of the last version against the live model reported the highlight as
 // something the reviewer had CHANGED — and the rail listed it as an edit,
 // directly beneath the instruction card it is. One thing, twice, on the one

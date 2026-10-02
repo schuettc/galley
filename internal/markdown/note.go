@@ -9,22 +9,44 @@ import (
 // note.go is the one place galley WRITES CriticMarkup comment syntax back
 // into a file, and the rules that make reading it back unambiguous.
 //
+// # Comment ID marks
+//
+// A reviewer comment's words live in the unsent round (internal/unsent's
+// pending.json), never in the .md. The file carries only a MARK at the
+// comment's place, naming the comment by its ID:
+//
+//	{==words==}{>>@comment cm-…<<}   a text comment: one mark after EACH
+//	                                 highlighted piece, flush against "==}"
+//	{>>@comment cb-…<<}              a block comment: on a line of its own
+//	                                 after the block, or inside the cell for a
+//	                                 table cell
+//	(nothing)                        a document comment
+//
+// The first is bound to its highlight by the scanner (critic.go's
+// stampCommentID) and becomes the Highlight mark's docmodel.CommentIDAttr. The
+// second is a Note block carrying the ID and no words. galley links a comment
+// to its place by that ID and nothing else.
+//
+// An ID is one token of letters, digits and hyphens (commentID). A body that
+// says "@comment" and anything else is not a mark, and reads as the ordinary
+// note it looks like.
+//
+// # Notes without an ID
+//
 // A {>>note<<} has always meant "a comment attached at this position in this
 // paragraph's text" — a RANGE anchor, lifted out of the document into an
-// InlineComment and never serialized again (see critic.go's InlineComment and
-// the editor spec's "comments live in the sidecar"). Two anchors have no
-// position to be lifted out of:
+// InlineComment and never serialized again (see critic.go's InlineComment).
+// Two anchors have no position to be lifted out of:
 //
 //   - BLOCK: the comment is about an image, a code fence, a whole paragraph.
 //     There is no text run to highlight — docmodel blocks carry no marks —
 //     so there is nothing in the file to hang the anchor on.
 //   - DOCUMENT: the comment is about the file. There is not even a block.
 //
-// Both are still expected to be readable from the .md alone (the zero-tooling
-// promise: an agent reads pending state from the document, with no sidecar and
-// no running server). So both are written into the file, as a {>>note<<} on a
-// line of its own, and both come back as a docmodel.Note BLOCK rather than as
-// an out-of-band InlineComment.
+// A hand-typed note on a line of its own therefore comes back as a
+// docmodel.Note BLOCK rather than as an out-of-band InlineComment, and it
+// round-trips byte for byte. The grammar below decides which reading a
+// {>>…<<} gets.
 //
 // # The discriminator
 //
@@ -82,9 +104,42 @@ import (
 // A marker is one leading whitespace-delimited word. Everything after the
 // first space is the note's text, verbatim.
 const (
-	docMarker   = "@document"
-	blockMarker = "@block"
+	docMarker     = "@document"
+	blockMarker   = "@block"
+	commentMarker = "@comment"
 )
+
+// commentID reads a note body as a comment ID mark: "@comment" and one token
+// of ASCII letters, digits and hyphens, nothing else. ok is false for any
+// other body, which is then an ordinary note.
+func commentID(body string) (id string, ok bool) {
+	word, rest, _ := strings.Cut(body, " ")
+	if word != commentMarker || !validCommentID(rest) {
+		return "", false
+	}
+	return rest, true
+}
+
+// validCommentID reports whether id can be written inside an ID mark and read
+// back as the same ID. galley mints "cm-"/"cb-"/"cd-" and sixteen hex digits;
+// the grammar accepts the wider token so the reader never has to know the
+// minter's spelling.
+func validCommentID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// commentMark is the ID mark's spelling, without its "{>>" and "<<}".
+func commentMark(id string) string { return commentMarker + " " + id }
 
 // splitNoteMarker reads a note body's leading anchor marker, returning the
 // anchor it names and the text after it. With no marker the anchor is block —
@@ -121,15 +176,28 @@ func noteBody(anchor, text string) string {
 	return text
 }
 
+// startsWithMarker reports whether a note with these words would be misread
+// as a marker. An "@comment" note is misread only when it spells a whole ID
+// mark; any other note that begins "@comment" already reads back as itself,
+// and escaping it would rewrite a line the author typed.
 func startsWithMarker(text string) bool {
 	word, _, _ := strings.Cut(text, " ")
+	if _, ok := commentID(text); ok {
+		return true
+	}
 	return word == docMarker || word == blockMarker
 }
 
 // noteBlock builds the docmodel.Note a standalone {>>…<<} parses to. Its text
 // is one unmarked run: a comment is a note, not a document, so criticPass has
 // already flattened whatever markup was inside it (see cellText).
+//
+// An ID mark is a Note with the ID and no words: the words are in the unsent
+// round, not in the file.
 func noteBlock(body string) docmodel.Block {
+	if id, ok := commentID(body); ok {
+		return NewCommentNote(id)
+	}
 	anchor, text := splitNoteMarker(body)
 	b := docmodel.Block{Kind: docmodel.Note, Attrs: map[string]string{"anchor": anchor}}
 	if text != "" {
@@ -156,36 +224,13 @@ func NoteText(b docmodel.Block) string {
 	return out.String()
 }
 
-// NewNote builds a Note block — the constructor every producer outside this
-// package uses, so the attrs are spelled in exactly one place.
-func NewNote(anchor, text string) docmodel.Block {
-	if anchor != docmodel.AnchorDocument {
-		anchor = docmodel.AnchorBlock
-	}
-	b := docmodel.Block{Kind: docmodel.Note, Attrs: map[string]string{"anchor": anchor}}
-	if text != "" {
-		b.Inlines = []docmodel.Inline{{Text: text}}
-	}
-	return b
-}
-
-// UnwritableNoteText reports whether text cannot be written inside a
-// {>>…<<} without corrupting it.
-//
-// CriticMarkup has no escape mechanism and its reader closes a span at the
-// FIRST matching closer, so a note whose own text contains "<<}" would be cut
-// short and the remainder would fall out into the document as prose. There is
-// no alternate spelling for a comment the way there is for a deletion (see
-// render_inline.go's wrapSuggestion), so the only honest answers are "refuse
-// it at the API" — which is what the suggest layer does with this — and
-// "write the words and lose the marker", which is what renderNote falls back
-// to for a note that got into a document some other way.
-//
-// A newline is refused for the same reason: the marker has to occupy ONE line
-// to be a block of its own, and a note broken across two lines would be read
-// back as a paragraph with a stray "<<}" in it.
-func UnwritableNoteText(text string) bool {
-	return strings.Contains(text, "<<}") || strings.ContainsAny(text, "\r\n")
+// NewCommentNote builds a block comment's mark: a Note carrying the comment's
+// ID and no words.
+func NewCommentNote(id string) docmodel.Block {
+	return docmodel.Block{Kind: docmodel.Note, Attrs: map[string]string{
+		"anchor":               docmodel.AnchorBlock,
+		docmodel.CommentIDAttr: id,
+	}}
 }
 
 // renderNote writes a Note block as "{>>body<<}" on a line of its own.
@@ -196,10 +241,10 @@ func UnwritableNoteText(text string) bool {
 // delimiter and simply disappears on the way back in. Escaping it is what
 // makes the note's text survive verbatim.
 //
-// A note whose text cannot be spelled at all (see UnwritableNoteText) is
-// written as PLAIN TEXT with the markers dropped. Same ruling as
-// wrapSuggestion's: losing the anchor is recoverable from the sidecar, losing
-// the author's words is not.
+// No producer writes words into a note any more: a comment's words live in the
+// unsent round, and the file holds only its ID mark. The words a note can
+// still carry are the ones a parse read out of a {>>…<<}, and a parse never
+// reads a "<<}" or a line break into one, so every note spells.
 func renderNote(b docmodel.Block) string {
 	return spellNote(b, lineContext{atLineStart: true})
 }
@@ -226,9 +271,9 @@ func renderNote(b docmodel.Block) string {
 //
 // Without this, renderCell fell through to the inlines case and wrote the
 // note's BARE TEXT: "| x | {>>note here<<} | z |" came back
-// "| x | note here | z |", the comment read as prose and the only surviving
-// copy was in the sidecar — the zero-tooling promise broken by opening a file
-// and saving it.
+// "| x | note here | z |", and the comment read as prose after opening a file
+// and saving it. An ID mark in a cell is the same shape and needs the same
+// case: it is how a table cell's block comment keeps its place.
 //
 // "@document" IS HONOURED IN A CELL. Position cannot answer block-vs-document
 // anywhere — that is why the marker exists — so a cell, being a position, gets
@@ -244,13 +289,21 @@ func renderCellNote(b docmodel.Block) string {
 	return spellNote(b, lineContext{})
 }
 
+// spellNote writes a note's body between "{>>" and "<<}". A BLOCK note
+// carrying a comment ID is written as its ID mark and nothing else: the
+// comment's words are not the file's to hold.
+//
+// A DOCUMENT note never is, whatever it carries. An ID mark always reads back
+// as a block note, so spelling one for a document note would turn a comment on
+// the whole file into a comment on the block above it. Document comments have
+// no mark at all; a document note that arrives with an id anyway is written as
+// the @document form it is, without the id.
 func spellNote(b docmodel.Block, ctx lineContext) string {
-	text := NoteText(b)
-	if UnwritableNoteText(text) {
-		return renderInlines([]docmodel.Inline{{Text: text}}, ctx)
+	if id := b.Attrs[docmodel.CommentIDAttr]; validCommentID(id) && NoteAnchor(b) == docmodel.AnchorBlock {
+		return renderPlan(literalChars("{>>"+commentMark(id)+"<<}"), ctx)
 	}
 	plan := literalChars("{>>")
-	plan = append(plan, contentChars(noteBody(NoteAnchor(b), text))...)
+	plan = append(plan, contentChars(noteBody(NoteAnchor(b), NoteText(b)))...)
 	plan = append(plan, literalChars("<<}")...)
 	return renderPlan(plan, ctx)
 }

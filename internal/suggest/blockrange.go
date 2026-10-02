@@ -29,30 +29,33 @@ import (
 // inline that edit touches carries the same token — that is what makes it a
 // decision rather than a coordinate. A selection over three paragraphs is one
 // decision; it was only ever "one block" because nothing had asked it to be
-// more. `addSuggestionMark` mints a fresh run per call, so this cannot reuse
-// it: the run is minted ONCE here and handed to every block in the span.
+// more. The run is minted ONCE here and handed to every block in the span.
 //
 // THE ENDS ARE PARTIAL AND THE MIDDLE IS WHOLE. The first block is marked from
 // the offset the selection started at to its end, the last from its start to
 // where the selection stopped, and everything between them entirely.
-func CommentAcross(d docmodel.Doc, fromPath []int, from int, toPath []int, to int, author string, at time.Time) (docmodel.Doc, string, error) {
+//
+// ONE ID ON EVERY PIECE, for the same reason: the file has no run, so the
+// comment ID the caller minted is what says, after a restart, that the pieces
+// are one comment (markdown gives pieces that share an ID one run).
+func CommentAcross(d docmodel.Doc, fromPath []int, from int, toPath []int, to int, id, author string, at time.Time) (docmodel.Doc, error) {
 	if pathEqual(fromPath, toPath) {
 		// Not a cross-block selection at all. Answered by the single-block
 		// path rather than duplicated here, so there is one implementation of
 		// what commenting on a range means.
-		return CommentOnRange(d, fromPath, from, to, author, at)
+		return CommentOnRange(d, fromPath, from, to, id, author, at)
 	}
 	span, err := blocksBetween(d, fromPath, toPath)
 	if err != nil {
-		return docmodel.Doc{}, "", err
+		return docmodel.Doc{}, err
 	}
 	first, last := span[0], span[len(span)-1]
 	if n := runeLen(d, first); from < 0 || from >= n {
-		return docmodel.Doc{}, "", fmt.Errorf(
+		return docmodel.Doc{}, fmt.Errorf(
 			"suggest: the selection starts at %d, outside the block at %v (%d runes)", from, first, n)
 	}
 	if n := runeLen(d, last); to <= 0 || to > n {
-		return docmodel.Doc{}, "", fmt.Errorf(
+		return docmodel.Doc{}, fmt.Errorf(
 			"suggest: the selection ends at %d, outside the block at %v (%d runes)", to, last, n)
 	}
 
@@ -68,8 +71,8 @@ func CommentAcross(d docmodel.Doc, fromPath []int, from int, toPath []int, to in
 			hi = to
 		}
 		m := match{path: append([]int(nil), path...), start: lo, end: hi}
-		if _, cAuthor, cAt, found := conflictingMark(d, m, docmodel.Highlight); found {
-			return docmodel.Doc{}, "", fmt.Errorf(
+		if cAuthor, cAt, found := conflictingComment(d, m); found {
+			return docmodel.Doc{}, fmt.Errorf(
 				"suggest: part of that selection already has a pending comment by %s (at %s)", cAuthor, cAt)
 		}
 	}
@@ -90,26 +93,19 @@ func CommentAcross(d docmodel.Doc, fromPath []int, from int, toPath []int, to in
 			hi = to
 		}
 		before, matched, after := sliceByRuneRange(b.Inlines, lo, hi)
-		marked := make([]docmodel.Inline, len(matched))
-		for j, in := range matched {
-			marked[j] = docmodel.Inline{
-				Text:  in.Text,
-				Marks: append(cloneMarks(in.Marks), authoredMark(docmodel.Highlight, author, at, run)),
-			}
-		}
 		said = append(said, plainText(matched))
-		b.Inlines = concatInlines(before, marked, after)
+		b.Inlines = concatInlines(before, commentMarked(matched, id, author, at, run), after)
 	})
 
 	// THE TARGET IS THE WHOLE SELECTION, joined the way a soft line break is
 	// joined everywhere else in this pipeline: with a space. It is what the
-	// thread's key is derived from and what the card quotes, so it has to read
-	// as the words the reviewer highlighted rather than as a list of fragments.
+	// card quotes, so it has to read as the words the reviewer highlighted
+	// rather than as a list of fragments.
 	target := strings.Join(said, " ")
 	if strings.TrimSpace(target) == "" {
-		return docmodel.Doc{}, "", fmt.Errorf("suggest: that selection has no text in it")
+		return docmodel.Doc{}, fmt.Errorf("suggest: that selection has no text in it")
 	}
-	return clone, CommentKey(target, author, at), nil
+	return clone, nil
 }
 
 // blocksBetween is every TEXT block from fromPath to toPath inclusive, in

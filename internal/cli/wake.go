@@ -54,8 +54,8 @@ type wake struct {
 //
 // AN APPROVE IS AN ENDING ONLY WHEN IT ENTRUSTED NOTHING. Both halves are
 // measured facts about the same server: after a trust press with two threads
-// surviving, `galley suggest` is accepted and `galley ack --state answered` is
-// refused as unfinished — the review is demonstrably not over, and the pull
+// surviving, `galley suggest` was accepted and `galley ack --state answered`
+// was refused as unfinished — the review was demonstrably not over, and the pull
 // carrier said it was. `handoff()` is the same branch approveContent takes, so
 // the sentence and the instruction cannot come apart.
 func (w wake) over() bool {

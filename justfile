@@ -39,15 +39,16 @@ hooks:
     echo "lefthook hooks installed in $d"
 
 # ---- galley -----------------------------------------------------------------
-# The wasm client is embedded in the binary and built rather than committed,
-# and a serve test asserts it is served, so it is built before the gate.
-prepare: wasm
+# Nothing to prepare: everything the gate builds is committed, including the
+# editor bundle (kept honest by `bundle-fresh` below). The slot stays because
+# `verify` and ci.yml's gate job both run it.
+prepare:
 
 # Tool-specific checks beyond the gate (CI runs this too): the TypeScript gate
 # and the committed editor bundle matching web/.
 verify-extra: verify-web bundle-fresh
 
-# The editor bundle is COMMITTED (unlike galley.wasm), so nothing else notices
+# The editor bundle is COMMITTED, so nothing else notices
 # when web/ changes and the bundle does not: the Go tests pass, the binary
 # builds, and the browser silently runs last week's editor. mermaid.js is
 # checked with the other two; it is the output a page only fetches when it
@@ -85,11 +86,6 @@ ldflags := "-X github.com/schuettc/galley/internal/version.version=" + version +
 # and a build that works from a worktree to gain.
 buildflags := "-buildvcs=false"
 
-# Build the browser client. Go all the way down: no node, no npm, no bundler.
-wasm:
-    GOOS=js GOARCH=wasm go build {{ buildflags }} -ldflags "{{ ldflags }}" \
-      -o internal/serve/assets/galley.wasm ./cmd/galley-wasm
-
 # Build the edit-mode editor bundle from web/ into internal/serve/assets.
 #
 # A PASS-THROUGH, LIKE `just types`. Every esbuild invocation and the probe now
@@ -104,8 +100,7 @@ wasm:
 # somebody who knows this repo runs `just assets`; both reach the same code.
 #
 # npm is DEV-TIME ONLY. The built editor.js, editor.css and mermaid.js are
-# COMMITTED — unlike galley.wasm, which `just build` regenerates from Go on
-# every build — so neither a `go build` nor a release needs node anywhere near
+# COMMITTED, so neither a `go build` nor a release needs node anywhere near
 # it. Run this after changing anything under web/, and commit what it writes.
 #
 # WHY THE SCRIPTS ARE SHAPED THE WAY THEY ARE. package.json is JSON and cannot
@@ -276,12 +271,13 @@ dead-code: check-entries _web-deps
 # finding, so a real improvement moved the number UP (177 -> 178, measured).
 # A gate that fails on the refactor it exists to encourage is worse than none.
 #
-# SO THE BOUND IS 14 — the findings that exceed a COGNITIVE or CYCLOMATIC
+# SO THE BOUND IS 13 — the findings that exceed a COGNITIVE or CYCLOMATIC
 # threshold, the ones where the metric is describing the code. It was 16 until
-# #143 ("Break up the five accreted functions") took it to 14, and the ratchet
-# was lowered with it; a bound left above the measurement is not a bound. The
-# list is short enough to read and `just complexity-ratchet` prints it on a red
-# run — today it is trail.ts `apply`/`reanchor`/`settleEntries`/`loadedEntry`/
+# #143 ("Break up the five accreted functions") took it to 14, and 14 until
+# trail.ts `loadedEntry` was deleted as code nothing called; the ratchet was
+# lowered both times, because a bound left above the measurement is not a
+# bound. The list is short enough to read and `just complexity-ratchet` prints
+# it on a red run — today it is trail.ts `apply`/`reanchor`/`settleEntries`/
 # `retractReverted`/`placeEmptyBlocks`, schemacheck.mjs `build`/`checkDrift`,
 # rail.ts `carryDrafts`, preflight.mjs `armLoop`/`anchor`, keys.ts `onKey`,
 # versions.ts `paintChanges`, bar.ts `paintReadout`. No per-function
@@ -289,8 +285,8 @@ dead-code: check-entries _web-deps
 # .superpowers/ assessment this comment used to cite is gone), so this does not
 # claim a split — what survives #143 is the count.
 #
-# Fourteen is a CEILING and is said out loud to be one, in the shape
-# eslint.config.mjs uses. A fifteenth is a red build, so nothing new arrives
+# Thirteen is a CEILING and is said out loud to be one, in the shape
+# eslint.config.mjs uses. A fourteenth is a red build, so nothing new arrives
 # under cover of the backlog, and the branch that simplifies one lowers the
 # number with it. If TypeScript coverage instrumentation ever lands, CRAP
 # becomes meaningful and this should be revisited.
@@ -340,20 +336,21 @@ analyse: check-entries _web-deps
 #     duplicate export (`BlockRef`, in trail.ts and in the generated wire.d.ts).
 #     The unused-EXPORT backlog this started from — 36 issues, 32 of them
 #     unused exports — was cleared by narrowing exports, not by deleting code.
-#   · dupes-ratchet: 33 clone groups / 76 instances, 2.6% duplication (1047 of
-#     39,694 lines), bound 33. 74 of the 76 instances are the six standalone
+#   · dupes-ratchet: 52 clone groups / 137 instances, 3.9% duplication (1778
+#     of 45,676 lines), bound 52. 135 of the 137 instances are the standalone
 #     `.mjs` gate harnesses, whose independence is deliberate and was refused a
 #     shared module on purpose; the other 2 are one real group in composer.ts.
-#   · complexity-ratchet: 14 functions over a COGNITIVE or CYCLOMATIC
-#     threshold, bound 14 — not fallow's headline 181 of 1786, which is 92% an
+#     See dupes-ratchet.py for how it got from 33 to 52.
+#   · complexity-ratchet: 13 functions over a COGNITIVE or CYCLOMATIC
+#     threshold, bound 13 — not fallow's headline 181 of 1786, which is 92% an
 #     artifact of having no coverage data (see `complexity-ratchet` above).
 #     Worst: trail.ts `apply` (cyc 23, cog 31).
 #
 # The bounds are considered limits and not backlog sizes, which is what took
 # them from a survey to a gate: the sweep that cleared the unused exports and
 # #143's break-up of the five accreted functions are what earned the right to
-# gate on 4 / 33 / 14. A ratchet stops the number GROWING without demanding it
-# shrink; the branch that clears a finding lowers the bound with it, the way
+# gate on 4 / 33 / 14 (52 and 13 today). A ratchet stops the number GROWING
+# without demanding it shrink; the branch that clears a finding lowers the bound with it, the way
 # the five `no-unused-vars` findings became the four `--max-warnings` holds.
 # `check-entries` above never needed that argument: it has no backlog and no
 # threshold, only "the file is there or it isn't".
@@ -482,12 +479,8 @@ livestructure: build
 sweep corpus=".":
     GALLEY_CORPUS="$(cd {{ corpus }} && pwd)" go test ./internal/diff -run Sweep -v -count=1
 
-# Refresh Go's own wasm loader from the installed toolchain.
-wasm-exec:
-    cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" internal/serve/assets/wasm_exec.js
-
-# Build the binary. The wasm client is embedded, so it is built first.
-build: wasm
+# Build the binary, stamped the way a release build is.
+build:
     CGO_ENABLED=0 go build {{ buildflags }} -ldflags "{{ ldflags }}" -o bin/galley ./cmd/galley
 
 # THE TYPESCRIPT GATE, in TypeScript's own tools: tsc for types, prettier for
@@ -535,7 +528,3 @@ gates: build
 # sample's quotes in a plan an implementer copies verbatim.
 fmt-md:
     npx --yes prettier@3 --write "*.md" "docs/**/*.md"
-
-# Serve a review page and collect comments beside it.
-serve page: build
-    ./bin/galley serve "{{ page }}"

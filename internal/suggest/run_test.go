@@ -104,10 +104,9 @@ func TestMintRunsReachesNestedBlocks(t *testing.T) {
 	}
 }
 
-// The failure this phase exists to remove: two marks over identical text,
-// decided independently. By ordinal the second is ambiguous the moment the
-// first resolves; by run it is exact.
-func TestAcceptRunDecidesTheIntendedDuplicate(t *testing.T) {
+// Two marks over identical text get two runs: a run is what tells them apart
+// once an ordinal has renumbered.
+func TestMintRunsKeepsIdenticalMarksApart(t *testing.T) {
 	at := map[string]string{"author": "court", "at": "2026-08-07T00:00:00Z"}
 	d := MintRuns(docmodel.Doc{Blocks: []docmodel.Block{{
 		Kind: docmodel.Paragraph,
@@ -125,27 +124,5 @@ func TestAcceptRunDecidesTheIntendedDuplicate(t *testing.T) {
 	}
 	if pending[0].Run == "" || pending[0].Run == pending[1].Run {
 		t.Fatalf("runs not distinct: %q %q", pending[0].Run, pending[1].Run)
-	}
-
-	out, err := AcceptRun(d, pending[1].Run)
-	if err != nil {
-		t.Fatalf("AcceptRun: %v", err)
-	}
-	left := List(out)
-	if len(left) != 1 {
-		t.Fatalf("want 1 pending left, got %d", len(left))
-	}
-	if left[0].Run != pending[0].Run {
-		t.Errorf("wrong mark decided: %q survived, wanted %q", left[0].Run, pending[0].Run)
-	}
-}
-
-func TestAcceptRunUnknownRunIsAnError(t *testing.T) {
-	d := MintRuns(delMarked("x"))
-	if _, err := AcceptRun(d, "deadbeef"); err == nil {
-		t.Error("want an error for an unknown run, got nil")
-	}
-	if _, err := RejectRun(d, ""); err == nil {
-		t.Error("want an error for an empty run, got nil")
 	}
 }
