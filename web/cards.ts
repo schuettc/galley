@@ -824,10 +824,7 @@ export const cardMethods = {
     // place that has to know it: an empty rail with a non-zero count is
     // "holding", not "settled", and saying "settled" there would be the editor
     // telling the reviewer their document is done when it is not.
-    const census = censusCounts({
-      suggestions: this.suggestions,
-      comments: this.comments,
-    });
+    const census = censusCounts({ comments: this.comments });
     const held = this.heldArrivals.length;
     // A ROUND WITH EDITS IN IT IS NOT EMPTY, and this test used to say it was.
     // The empty state offers the teach card — *select any words to ask for a
@@ -836,11 +833,7 @@ export const cardMethods = {
     // paragraph: their edit IS in the round, it IS what Revise will send, and
     // the rail would have answered by telling them how to begin.
     const changeCards = this.changes.map((c) => this.changeCard(c));
-    if (
-      census.pending === 0 &&
-      census.threads === 0 &&
-      changeCards.length === 0
-    ) {
+    if (census.threads === 0 && changeCards.length === 0) {
       // AND IT IS ALREADY IN CARD SPACE, WHICH IS WHY IT IS NOT MOVED INTO THE
       // BAND. It reads like a third band stacked above the map — head, band,
       // this — and it is not: this branch runs only when the census is EMPTY,

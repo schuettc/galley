@@ -101,15 +101,13 @@ import { sectionSpan, codeBlockPos } from './figures.ts';
 import { composerPlacement } from './composer.ts';
 // The verdict vocabulary moved out of entry.ts — see web/verdict.ts's header.
 import {
-  reviseLabel,
-  reviseIdleLabel,
+  verdictMethods,
   verdictLabel,
   REVISE_IDLE,
   APPROVE_IDLE,
   MENU_REVISE,
   MENU_TRUST,
   clockTime,
-  VERDICT_APPROVED,
   VERDICT_ENTRUSTED,
   VERDICT_DISCARDED,
 } from './verdict.ts';
@@ -178,7 +176,6 @@ import {
   stackCards,
   railSurfaces,
   censusCounts,
-  CENSUS_KINDS,
   unplacedSaid,
   decidable,
   threadAnswered,
@@ -208,6 +205,93 @@ function check(name, ok, detail) {
   console.log(
     `FAIL  ${name}${detail === undefined ? '' : ` — ${JSON.stringify(detail)}`}`,
   );
+}
+
+// paintedRevise is the primary's label as PRODUCTION paints it: makeRevise
+// builds the button over a fake DOM, paintRevise writes the digits and the
+// count and picks the face, and this reads back the one label left
+// unreserved. The fake carries only what those two methods touch.
+function paintedRevise({ pendingCount = 0, waitedMs = null }) {
+  class FakeEl {
+    constructor(tag) {
+      this.tagName = tag;
+      this.className = '';
+      this.nodes = [];
+      this.text = '';
+      this.disabled = false;
+      this.title = '';
+    }
+    get classList() {
+      const names = () => this.className.split(/\s+/).filter(Boolean);
+      return {
+        contains: (c) => names().includes(c),
+        add: (c) => {
+          if (!names().includes(c)) this.className = [...names(), c].join(' ');
+        },
+        remove: (c) => {
+          this.className = names()
+            .filter((n) => n !== c)
+            .join(' ');
+        },
+        toggle: (c, on) => {
+          if (on ?? !names().includes(c)) {
+            if (!names().includes(c))
+              this.className = [...names(), c].join(' ');
+          } else {
+            this.className = names()
+              .filter((n) => n !== c)
+              .join(' ');
+          }
+        },
+      };
+    }
+    append(...nodes) {
+      this.nodes.push(...nodes);
+    }
+    get textContent() {
+      return this.nodes.length
+        ? this.nodes
+            .map((n) => (typeof n === 'string' ? n : n.textContent))
+            .join('')
+        : this.text;
+    }
+    set textContent(v) {
+      this.nodes = [];
+      this.text = String(v);
+    }
+    addEventListener() {}
+  }
+  class FakeButton extends FakeEl {}
+  const had = {
+    document: globalThis.document,
+    HTMLButtonElement: globalThis.HTMLButtonElement,
+  };
+  const button = new FakeButton('button');
+  globalThis.document = {
+    getElementById: (id) => (id === 'gly-revise' ? button : null),
+    createElement: (tag) => new FakeEl(tag),
+  };
+  globalThis.HTMLButtonElement = FakeButton;
+  try {
+    const shell = {
+      reviseWaiting: waitedMs !== null,
+      reviseStartedAt: Date.now() - (waitedMs ?? 0),
+      reviseRunning: false,
+      approved: false,
+      approveNotBefore: 0,
+      verdict: REVISE_IDLE,
+      pendingCount,
+    };
+    shell.revise = verdictMethods.makeRevise.call(shell);
+    verdictMethods.paintRevise.call(shell);
+    return button.nodes
+      .filter((n) => !n.classList.contains('gly-reserved'))
+      .map((n) => n.textContent)
+      .join('|');
+  } finally {
+    globalThis.document = had.document;
+    globalThis.HTMLButtonElement = had.HTMLButtonElement;
+  }
 }
 
 // --- the schema the editor actually builds ---
@@ -4176,87 +4260,24 @@ const unplacedEntry = (c) => {
   // constraint: censusCounts is handed the /_galley/pending payload and has no
   // access to a card list, so there is no path by which it can report what was
   // rendered instead of what is pending.
-  const view = {
-    suggestions: [
-      { run: 'a', kind: 'insert' },
-      { run: 'b', kind: 'delete' },
-      { run: 'c', kind: 'insert' },
-      { run: 'd', kind: 'comment' },
-    ],
-    comments: [{ key: 'cm-1' }, { key: 'cm-2' }],
-  };
+  const view = { comments: [{ key: 'cm-1' }, { key: 'cm-2' }] };
   const c = censusCounts(view);
-  check(
-    'the census counts suggestions from the payload, not comments among them',
-    c.pending === 3 && c.inserts === 2 && c.deletes === 1,
-    c,
-  );
   check('the census counts every thread', c.threads === 2, c);
   check(
     'an empty payload counts to zero rather than throwing',
-    censusCounts({}).pending === 0 && censusCounts(undefined).threads === 0,
+    censusCounts({}).threads === 0 && censusCounts(undefined).threads === 0,
+  );
+  // The payload carries no suggestions, so the census has no suggestion half
+  // left: nothing beside the thread numbers.
+  check(
+    'the census reports thread numbers and nothing else',
+    Object.keys(c).sort().join(',') === 'answered,docThreads,threads',
+    Object.keys(c),
   );
 
-  // A SUBSTITUTION IS ONE PENDING DECISION. "{~~old~>new~~}" arrives as a
-  // single 'replace'; counting it as an insert AND a delete would claim two
-  // decisions are waiting where one is, and the ✓ all beside this number
-  // would be describing work that does not exist.
-  const sub = censusCounts({
-    suggestions: [
-      { run: 'a', kind: 'replace' },
-      { run: 'b', kind: 'insert' },
-    ],
-  });
-  check(
-    'a replace counts once, in a tally of its own',
-    sub.pending === 2 &&
-      sub.replaces === 1 &&
-      sub.inserts === 1 &&
-      sub.deletes === 0,
-    sub,
-  );
-
-  // THE TOTAL AND THE POPULATION THE TICK SWEEPS ARE THE SAME NUMBER, and this
-  // is the JS half of holding them together. `pending` is a sum of the kinds
-  // CENSUS_KINDS names — deliberately NOT a call to `decidable`, because
-  // absent-means-no is fail-closed for a verb and fail-OPEN for a count that
-  // decides whether Approve is offered — so what has to be true is that the
-  // list names exactly the decidable kinds. The GO side is the tripwire for
-  // that (internal/serve's TestTheCensusBreakdownNamesEveryDecidableKind reads
-  // the Kind constants out of suggest's own source, because that is where a
-  // fourth kind would be introduced); this half asserts the arithmetic the
-  // pinning is FOR, over a payload that carries the server's own answer.
-  const mixed = {
-    suggestions: [
-      { run: 'a', kind: 'insert', decidable: true },
-      { run: 'b', kind: 'delete', decidable: true },
-      { run: 'c', kind: 'replace', decidable: true },
-      { run: 'd', kind: 'comment', decidable: false },
-    ],
-  };
-  const mc = censusCounts(mixed);
-  check(
-    'the census total is exactly the population ✓ all would sweep',
-    mc.pending === mixed.suggestions.filter(decidable).length,
-    mc,
-  );
-  check(
-    'and the breakdown accounts for every one of them — a kind the strip ' +
-      'has no number for would sit in neither side of this',
-    mc.inserts + mc.deletes + mc.replaces === mc.pending,
-    mc,
-  );
-  check(
-    'CENSUS_KINDS is the breakdown, in the order the strip reports it',
-    CENSUS_KINDS.join(',') === 'insert,delete,replace',
-    CENSUS_KINDS,
-  );
-
-  // ✓ all is the SWEEP, and its other half is "which threads would it
-  // settle". threadAnswered is the JS twin of review.Thread.Answered — it
-  // asks WHO SPOKE LAST, not "is it open" — and this is its ONLY spelling in
-  // this language: paintCensus consumes it through the `answered` tally
-  // rather than inlining a copy that agrees for now.
+  // threadAnswered is the JS twin of review.Thread.Answered — it asks WHO
+  // SPOKE LAST, not "is it open" — and this is its ONLY spelling in this
+  // language; censusCounts' `answered` tally is built on it.
   check(
     'a thread the agent answered last reads answered',
     threadAnswered({
@@ -4345,7 +4366,6 @@ const unplacedEntry = (c) => {
   check(
     'and verdictLabel still refuses Approve on it',
     verdictLabel({
-      suggestions: [],
       comments: [{ key: 'cd-1', anchor: 'document' }],
     }) === REVISE_IDLE,
   );
@@ -6312,28 +6332,40 @@ function bindsContentField(src) {
       // tongue.
       check(
         'the census is not filtered by hold',
-        censusCounts({ suggestions: [{ kind: 'insert' }, { kind: 'delete' }] })
-          .pending === 2,
+        censusCounts({ comments: [{ key: 'a' }, { key: 'b' }] }).threads === 2,
       );
     }
 
     {
       // R10. The counter runs until the revision LANDS, not until the request
       // returns — the request returns in milliseconds and the revision does not.
+      //
+      // These read the label PRODUCTION PAINTS: makeRevise builds the button's
+      // three-node faces and paintRevise writes the digits and picks the face,
+      // over a fake DOM just rich enough for the two of them. A pure string
+      // helper standing in for the button could agree with itself forever.
       check(
         'a settled button says Revise and discloses its menu',
-        reviseLabel(false, 99000) === 'Revise ▾',
+        paintedRevise({ pendingCount: 0 }) === 'Revise ▾',
+        paintedRevise({ pendingCount: 0 }),
+      );
+      check(
+        'the composed primary carries the pending count on the verb',
+        paintedRevise({ pendingCount: 4 }) === 'Revise · 4 ▾',
+        paintedRevise({ pendingCount: 4 }),
       );
       check(
         'the counter reads whole seconds, floored',
-        reviseLabel(true, 0) === 'revising · 0s' &&
-          reviseLabel(true, 1999) === 'revising · 1s' &&
-          reviseLabel(true, 6000) === 'revising · 6s',
+        paintedRevise({ waitedMs: 0 }) === 'revising · 0s' &&
+          paintedRevise({ waitedMs: 1500 }) === 'revising · 1s' &&
+          paintedRevise({ waitedMs: 6200 }) === 'revising · 6s',
+        paintedRevise({ waitedMs: 1500 }),
       );
       // A clock that skewed backwards must not print a negative age.
       check(
         'a backwards clock reads 0s, never -1s',
-        reviseLabel(true, -500) === 'revising · 0s',
+        paintedRevise({ waitedMs: -500 }) === 'revising · 0s',
+        paintedRevise({ waitedMs: -500 }),
       );
     }
 
@@ -6352,16 +6384,12 @@ function bindsContentField(src) {
       );
       check(
         'a clean document offers Approve',
-        verdictLabel({ suggestions: [], comments: [] }) === 'Approve',
+        verdictLabel({ comments: [] }) === 'Approve',
       );
-      // A comment-kind entry is not decidable, so only its THREAD can hold up
-      // Approve.
+      // An open thread holds up Approve.
       check(
         'an open legacy note still offers Revise through its thread',
-        verdictLabel({
-          suggestions: [{ kind: 'comment' }],
-          comments: [{}],
-        }) === 'Revise ▾',
+        verdictLabel({ comments: [{}] }) === 'Revise ▾',
       );
       // The reviewer's own hand edits are outgoing markup: a pending change
       // offers Revise, or the button reads Approve over unsent edits and the
@@ -6374,7 +6402,6 @@ function bindsContentField(src) {
       check(
         'a reviewer hand edit offers Revise in the census path',
         verdictLabel({
-          suggestions: [],
           comments: [],
           changes: [{ kind: 'removed' }],
         }) === 'Revise ▾',
@@ -6417,7 +6444,7 @@ function bindsContentField(src) {
       const at = new Date(2026, 7, 15, 11, 42).getTime();
       check(
         'a pure approve reads as closed',
-        sealLine(VERDICT_APPROVED, at, 0) ===
+        sealLine('approved', at, 0) ===
           'Approved 11:42 · review closed · restart galley edit to reopen',
       );
       check(
@@ -6478,7 +6505,7 @@ function bindsContentField(src) {
       // closed" with a hole in it.
       check(
         'a verdict with no instant still reads',
-        sealLine(VERDICT_APPROVED, 0, 0) ===
+        sealLine('approved', 0, 0) ===
           'Approved · review closed · restart galley edit to reopen' &&
           clockTime(0) === '',
       );
@@ -7148,14 +7175,12 @@ function bindsContentField(src) {
       /\.gly-revise-count\{[^}]*min-width:5ch/.test(css) &&
         /\.gly-census-count\{display:none/.test(css),
     );
-    // And the label those three nodes read as is one spelling, not two: the
-    // button composes `Revise` + the clause + ` ▾`, and reviseIdleLabel is the
-    // same sentence as a string for everything that wants the text.
+    // And the three nodes read as the resting label: a clean count composes
+    // to exactly REVISE_IDLE, the spelling the verdict compares against.
     check(
-      'the composed primary and reviseIdleLabel say the same thing',
-      reviseIdleLabel(4) === 'Revise · 4 ▾' &&
-        reviseIdleLabel(0) === REVISE_IDLE,
-      reviseIdleLabel(4),
+      'the composed primary at zero is REVISE_IDLE',
+      paintedRevise({ pendingCount: 0 }) === REVISE_IDLE,
+      paintedRevise({ pendingCount: 0 }),
     );
     // THE FIXED GRAMMAR ALWAYS FITS, which is the whole reason it replaced a
     // sentence that ellipsized to `instructions in this …`.
@@ -7166,8 +7191,8 @@ function bindsContentField(src) {
         roundPhrase(2, PHASE_AGENT) === 'round 2 · with the agent',
       roundPhrase(0, PHASE_DRAFT),
     );
-    // AND IT IS A BUTTON THAT LOOKS LIKE ONE. `.gly-census-overall` beside it
-    // was found only after Court failed to find it, and the diagnosis was that
+    // AND IT IS A BUTTON THAT LOOKS LIKE ONE. The whole-document handle that
+    // once sat beside it was found only after Court failed to find it, and the diagnosis was that
     // it read as a noun in a row of verbs. A count that opens the review's
     // whole list has to be dressed as a control, so it takes the strip's own
     // button chrome and adds the hover every other control there has.
@@ -7299,14 +7324,6 @@ function bindsContentField(src) {
         /\.gly-revise\{[^}]*grid-template-areas:"label"/.test(css) &&
         /\.gly-revise-secs\{[^}]*min-width:4ch/.test(css) &&
         bundle.includes('gly-revise-secs'),
-    );
-    // The handle's label carries a count, and the count changes when a note is
-    // filed in the panel it opens. 16ch is a bound, like the census count's —
-    // retuned from 28ch when the label pair dropped "on the whole doc". This
-    // reads the SHIPPED stylesheet.
-    check(
-      'the whole-doc handle reserves its width against its own count',
-      /\.gly-census-overall\{[^}]*min-width:calc\(24ch/.test(css),
     );
   }
 }

@@ -51,15 +51,9 @@ const REVIEWER = 'court';
 export const AUTHOR = REVIEWER;
 
 // The shapes of a pending-payload entry, in the loose form this module has
-// always read them: every field optional, because a suggestion and a thread
-// arrive over JSON and this file's whole discipline is treating what it
-// cannot see as absent rather than assuming a shape it hasn't checked.
-type PendingSuggestion = {
-  kind?: string;
-  run?: string;
-  decidable?: boolean;
-};
-
+// always read them: every field optional, because a thread arrives over JSON
+// and this file's whole discipline is treating what it cannot see as absent
+// rather than assuming a shape it hasn't checked.
 // EXPORTED so web/appshell.ts's `Thread` — the richer shape the App actually
 // carries in `this.comments` — can be DECLARED against this shape rather than
 // duplicating its fields by hand; see appshell.ts's own header for why a
@@ -227,13 +221,8 @@ export function railSurfaces({
  *
  * WHAT IT GOVERNS IS WHAT IS OFFERED. Every surface that puts a ✓ or a ✗ in
  * front of the reviewer, or that `a`/`r` can land on, asks this: the rail's
- * card loop, the sheet's, and stepOrder. Two neighbours deliberately do
- * NOT, because it is not offering a verdict and its question is its own:
- * censusCounts counts by KIND rather than asking this, because absent-
- * means-no is fail-closed for a verb and fail-OPEN for a count that decides
- * whether Approve is offered (see CENSUS_KINDS, which is what now holds its
- * breakdown to this predicate's population instead). Nothing it does can
- * reach an endpoint.
+ * card loop, the sheet's, and stepOrder. censusCounts does NOT: it counts
+ * threads, not verbs, and nothing it does can reach an endpoint.
  *
  * @param s a pending-payload entry
  */
@@ -323,89 +312,39 @@ export function threadAnswered(
  */
 
 /**
- * censusCounts reduces the /_galley/pending payload to the numbers the census
- * strip shows.
+ * censusCounts reduces the /_galley/pending payload to the thread numbers the
+ * page reads.
  *
  * IT TAKES THE SERVER'S ANSWER, NOT THE RAIL'S. The count is derived from the
  * same projection the document is, which is the whole reason the census is a
  * separate surface: a strip that counted the rail's cards would count what was
  * rendered, and what is rendered is what is near the viewport.
  *
- * Comment highlights are counted apart from suggestions because they are not
- * decidable — a thread is resolved, never accepted — and the bulk verbs beside
- * this count act on suggestions only.
- *
- * A 'replace' is a SUBSTITUTION — "{~~old~>new~~}" — and it is ONE pending
- * item with one decision, so it gets its own tally rather than being counted
- * as an insert and a delete. Counting it twice would say two decisions are
- * waiting where one is, and the ✓ all beside this number would then be
- * describing work that does not exist.
- *
- * `answered` sits beside `threads` because ✓ all is the SWEEP now: it settles
- * the threads the agent has answered as well as approving every proposal, so
- * "is there anything for the sweep to do" is pending + answered, not pending
- * alone.
+ * IT COUNTS THREADS ONLY. It used to count suggestions too — a total, a
+ * per-kind breakdown and an allowlist of kinds holding the two together — and
+ * the payload no longer carries any, so every one of those numbers was zero.
  *
  * `threads` IS EVERY OPEN CONVERSATION AND MUST STAY THAT WAY, because
- * `verdictLabel` turns `pending === 0 && threads === 0` into **Approve** — and a
- * total that quietly left the whole-document conversation out would offer
- * Approve on a document with an unanswered question in it, which is fail-OPEN
- * exactly as `decidable` would be here (see the paragraph above). So the
- * document-anchored ones are SPLIT OUT rather than subtracted: `docThreads`
- * counts them, `threads` still counts them too, and the STRIP prints the
- * difference. That is what stops the bar double-counting: `3 pending ·
- * 3 threads` beside `1 doc note` was four conversations advertised where there
- * were three, because the doc note was one of the three and the handle beside
- * it counted the same conversation a second time. `2 threads · 1 doc note`
- * sums to what the rail actually holds.
+ * `verdictLabel` turns `threads === 0` into **Approve** — and a total that
+ * quietly left the whole-document conversation out would offer Approve on a
+ * document with an unanswered question in it. So the document-anchored ones
+ * are SPLIT OUT rather than subtracted: `docThreads` counts them and `threads`
+ * still counts them too. That is what stops a bar double-counting: `3 threads`
+ * beside `1 doc note` was four conversations advertised where there were
+ * three, because the doc note was one of the three.
  *
- * `pending` IS THE SUM OF THE BREAKDOWN, AND IT DELIBERATELY DOES NOT ASK
- * `decidable`. That looks like the one-rule move this codebase makes everywhere
- * else, and here it would be wrong in a way that matters: `decidable` reads
- * ABSENT AS NO, which is fail-closed for a VERB (a tick withheld is
- * recoverable) and fail-OPEN for this number, because `verdictLabel` turns
- * `pending === 0` into **Approve**. Offering Approve on a document that still
- * has proposals in it is the one act this tool exists to make unnecessary, so
- * the total is computed from `kind`, which is always present.
- *
- * WHAT THAT COSTS IS AN ALLOWLIST, AND CENSUS_KINDS IS WHERE IT IS PAID FOR.
- * The comment here used to say a fourth decidable kind "must show up as its own
- * number, not silently inside pending" and nothing enforced it — such a kind
- * would have been swept by `✓ all`, missing from this total, and a document
- * with work outstanding would have read as settled. The list below is now
- * pinned to the decidable kinds from the Go side, so that kind cannot reach a
- * release without this file being told about it.
+ * `answered` is how many of them the agent spoke last on (threadAnswered).
  */
 export function censusCounts(
-  view:
-    | { suggestions?: PendingSuggestion[]; comments?: PendingThread[] }
-    | null
-    | undefined,
+  view: { comments?: PendingThread[] } | null | undefined,
 ) {
-  const suggestions = (view && view.suggestions) || [];
   const threads = (view && view.comments) || [];
-  const counts = CENSUS_KINDS.map(
-    (k) => suggestions.filter((s) => s.kind === k).length,
-  );
-  // SUM THE LIST, DO NOT SUM THE THREE NAMES. The Go-side pin makes a fourth
-  // decidable kind reach CENSUS_KINDS, and a destructure of exactly three names
-  // would then obey that pin while leaving the new kind OUT of `pending` — a
-  // document with work outstanding reading as settled, and `verdictLabel`
-  // offering Approve on it, which is the precise fail-open the allowlist was
-  // kept to avoid. The named fields are the breakdown the strip prints; the
-  // total is the whole list, so the two cannot drift by one kind again.
-  const [inserts, deletes, replaces] = counts;
   const docOpen = threads.filter((t) => t.anchor === 'document');
   return {
-    pending: counts.reduce((n, c) => n + c, 0),
-    inserts,
-    deletes,
-    replaces,
     threads: threads.length,
-    // The whole-document conversation, counted apart so the strip and the
-    // handle beside it can each name it once. Both numbers are over the SAME
-    // partition rail.ts already exports — `overallThreads` is `anchor ===
-    // 'document'`, and this is that predicate as a count.
+    // The whole-document conversation, counted apart. Over the SAME partition
+    // rail.ts already exports — `overallThreads` is `anchor === 'document'`,
+    // and this is that predicate as a count.
     docThreads: docOpen.length,
     answered: threads.filter(threadAnswered).length,
   };
@@ -460,27 +399,6 @@ export function unplacedSaid(n: number | string | null | undefined): string {
     ? 'unplaced \u00b7 its words were removed'
     : `unplaced \u00b7 ${count} \u00b7 their words were removed`;
 }
-
-/**
- * CENSUS_KINDS is the census strip's breakdown, in the order it reports it, and
- * it is a DECLARATION so that something can be held to it.
- *
- * It must name every DECIDABLE suggest.Kind — the population `✓ all` sweeps —
- * which is what makes `pending`, computed from this list, the same number as
- * the work the tick would do. The two lists are pinned to each other from the Go
- * side: internal/serve's TestTheCensusBreakdownNamesEveryDecidableKind reads
- * the Kind constants out of suggest's own source, keeps the ones
- * Kind.Decidable() answers yes for, and fails if this array is not exactly
- * that set. A fourth decidable kind therefore cannot be added in Go without a
- * Go author being told this file exists — the same division of labour as
- * probe.mjs's FRAGMENT_NODES, and for the same reason: the drift is introduced
- * on the other side of the wire.
- *
- * It is not a blocklist and it does not decide anything. `decidable` is what
- * governs which verbs are offered; this only decides which numbers the strip
- * prints beside the total.
- */
-export const CENSUS_KINDS = ['insert', 'delete', 'replace'];
 
 /**
  * stepPending returns the run `j` or `k` moves to next.

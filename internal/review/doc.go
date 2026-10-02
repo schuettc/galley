@@ -11,7 +11,6 @@
 //	threads: YMap                      key = the comment's ID (unsent.NewID)
 //	  <id>: YMap
 //	    heading:  string               the quoted words the comment is on
-//	    resolved: bool
 //	    entries:  YArray               chronological
 //	      [n]: YMap
 //	        author: "court" | "agent"
@@ -20,6 +19,9 @@
 //
 // The reviewer's words are a YText, so an edit is the smallest delete and
 // insert (SetComment) and a concurrent edit from another peer merges.
+//
+// A key this schema does not name is ignored on read: a `resolved` written by
+// an older galley is one.
 package review
 
 import (
@@ -88,11 +90,10 @@ type Entry struct {
 // WHICH block is never stored. It is read off the comment's ID mark every time
 // (serve's instructionsOf).
 type Thread struct {
-	Key      string  `json:"key"`
-	Heading  string  `json:"heading"`
-	Resolved bool    `json:"resolved"`
-	Entries  []Entry `json:"entries"`
-	Anchor   string  `json:"anchor,omitempty"`
+	Key     string  `json:"key"`
+	Heading string  `json:"heading"`
+	Entries []Entry `json:"entries"`
+	Anchor  string  `json:"anchor,omitempty"`
 	// BlockKind is the docmodel kind of the block the thread was opened on —
 	// "image", "paragraph", "heading", "codeBlock". It is stored in the unsent
 	// round so a block comment whose mark is gone can still say what it was
@@ -203,9 +204,6 @@ func readThread(key string, tm *crdt.YMap) Thread {
 	if v, ok := tm.Get("heading"); ok {
 		t.Heading, _ = v.(string)
 	}
-	if v, ok := tm.Get("resolved"); ok {
-		t.Resolved, _ = v.(bool)
-	}
 	if v, ok := tm.Get("anchor"); ok {
 		t.Anchor, _ = v.(string)
 	}
@@ -286,7 +284,6 @@ func (s *Session) Append(key, heading, author, text string, at time.Time) {
 			thread = crdt.NewMapPrelim()
 			root.Set(txn, key, thread)
 			thread.Set(txn, "heading", heading)
-			thread.Set(txn, "resolved", false)
 		} else if heading != "" {
 			thread.Set(txn, "heading", heading)
 		}
@@ -430,7 +427,6 @@ func (s *Session) SetComment(key, heading, text string, at time.Time) {
 			thread = crdt.NewMapPrelim()
 			root.Set(txn, key, thread)
 			thread.Set(txn, "heading", heading)
-			thread.Set(txn, "resolved", false)
 		} else if heading != "" {
 			thread.Set(txn, "heading", heading)
 		}

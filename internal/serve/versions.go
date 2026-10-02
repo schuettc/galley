@@ -474,7 +474,7 @@ func (s *EditServer) reviewerInstruction(sending map[string]bool) (string, []led
 	var records []ledger.Record
 	s.instrMu.Lock()
 	for _, th := range review.Read(s.doc) {
-		if th.Resolved || !sending[th.Key] {
+		if !sending[th.Key] {
 			continue
 		}
 		for _, e := range th.Entries {

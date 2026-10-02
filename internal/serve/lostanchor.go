@@ -102,7 +102,7 @@ func (s *EditServer) noteAnchored(model docmodel.Doc) {
 		s.seenAnchored = map[string]bool{}
 	}
 	for _, th := range threads {
-		if th.Resolved || th.Anchor != "" {
+		if th.Anchor != "" {
 			continue
 		}
 		if _, ok := suggest.PairFor(pending, th); ok {
@@ -120,7 +120,7 @@ func (s *EditServer) retractedIn(model docmodel.Doc) map[string]bool {
 	seen := maps.Clone(s.seenAnchored)
 	s.anchorMu.Unlock()
 	for _, th := range review.Read(s.doc) {
-		if th.Resolved || th.Anchor != "" || !seen[th.Key] {
+		if th.Anchor != "" || !seen[th.Key] {
 			continue
 		}
 		if _, ok := suggest.PairFor(pending, th); !ok {

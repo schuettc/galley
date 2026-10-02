@@ -27,11 +27,26 @@ func TestAppendCreatesTheThread(t *testing.T) {
 	if got.Key != "01-shape" || got.Heading != "01 Shape" {
 		t.Fatalf("thread identity wrong: %+v", got)
 	}
-	if got.Resolved {
-		t.Fatal("a new thread must start open")
-	}
 	if got.Comment() != "the split is right" {
 		t.Fatalf("comment lost: %q", got.Comment())
+	}
+}
+
+// TestAnOlderResolvedKeyIsIgnored: a review map written by a galley that still
+// had resolve carries a `resolved` key on each thread. Nothing reads it any
+// more, so the thread reads exactly as it would without it.
+func TestAnOlderResolvedKeyIsIgnored(t *testing.T) {
+	doc := crdt.New()
+	Wrap(doc).Append("01-shape", "01 Shape", AuthorCourt, "the split is right", at("2026-08-02T10:00:00Z"))
+	thread, ok := mustGet[*crdt.YMap](doc.GetMap(threadsRoot), "01-shape")
+	if !ok {
+		t.Fatal("thread map missing")
+	}
+	doc.Transact(func(txn *crdt.Transaction) { thread.Set(txn, "resolved", true) })
+
+	threads := Read(doc)
+	if len(threads) != 1 || threads[0].Comment() != "the split is right" {
+		t.Fatalf("an old resolved key changed the read: %+v", threads)
 	}
 }
 

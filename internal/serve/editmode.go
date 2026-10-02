@@ -1566,7 +1566,7 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			threads := review.Read(s.doc)
 			var target review.Thread
 			for _, thread := range threads {
-				if thread.Key != in.Key || thread.Resolved {
+				if thread.Key != in.Key {
 					continue
 				}
 				for _, entry := range thread.Entries {
@@ -1670,7 +1670,7 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 		threads := review.Read(s.doc)
 		var instruction bool
 		for _, thread := range threads {
-			if thread.Key != in.Key || thread.Resolved {
+			if thread.Key != in.Key {
 				continue
 			}
 			for _, entry := range thread.Entries {

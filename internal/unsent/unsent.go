@@ -183,15 +183,11 @@ func prefix(k Kind) string {
 
 // FromThreads converts the live review threads to unsent comments, in order.
 //
-// A thread is an unsent comment when it is unresolved and has a reviewer entry
-// with words in it — the filter the instruction builders apply. Text, Author
+// A thread is an unsent comment when it has a reviewer entry with words in it — the filter the instruction builders apply. Text, Author
 // and At come from the first such entry, verbatim.
 func FromThreads(ts []review.Thread) []Comment {
 	var out []Comment
 	for _, th := range ts {
-		if th.Resolved {
-			continue
-		}
 		e, ok := reviewerEntry(th)
 		if !ok {
 			continue

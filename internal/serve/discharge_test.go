@@ -17,7 +17,7 @@ import (
 // REAL DEFECT IS THAT NOTHING EVER MARKS AN INSTRUCTION DONE… no mechanism
 // implements the discharge, so instructions accumulate in the rail forever."
 // The proposed fix was a landing-time discharge built on review.Thread's
-// then-surviving Resolved/Outcome fields (Outcome has since been deleted).
+// then-surviving Resolved/Outcome fields (both since deleted).
 //
 // Measured on dev before building any of it: TWO instructions in, one send,
 // ZERO instructions out. The discharge exists and runs at SEND time —

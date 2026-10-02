@@ -1087,89 +1087,6 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   font: var(--gly-card-font);
   z-index: 5;
 }
-/* The overall thread lives in the chrome, not in the rail.
-   It is the one card that is true of EVERY document, which is what made every
-   place in the rail wrong: at the top it stole from the map (measured at
-   1141px — 234px of card, the band starting at 299, a mark at 221 carded at
-   299), and at the foot it was furthest from the eye on exactly the long
-   documents where it matters. In the strip it is always reachable and costs
-   the band nothing in either state. */
-/* AND IT RESERVES ITS WIDTH, for the reason .gly-revise-count does. Its label
-   carries the count — `+ doc note` becomes `1 doc note` becomes `2 doc notes`
-   — and that count changes as a DIRECT RESULT of a click: filing a note in
-   the panel this handle opens. Measured on a 2000px window (against the old,
-   longer wording): filing the second note took the handle from 240.73 to
-   249.16px and slid all three of the bar's then-separate readouts 8.43px
-   right, from a click a thousand pixels away. There is one readout now, and
-   it slid just the same.
-
-   16ch is a BOUND, not a proof — the same shape as the count's 24ch beside
-   it. The arithmetic: `▾ 99 doc notes` is 14 units in the strip's own mono,
-   plus two units of slack — `ch` is the `0` glyph's advance, and the ▾
-   triangle's width is not guaranteed ≤ 1ch across the --gly-mono stack's
-   fallbacks; a bound the widest state can EXCEED is not a bound, because
-   `min-width` lets the button grow past the reserve and that growth is
-   exactly the click-jump this rule exists to prevent. Its predecessor kept a
-   unit of slack the same way (28ch over a 27-unit widest state). Past a
-   hundred whole-file notes the handle grows again, and a document in that
-   state has bigger problems than an 8px slide. The bound answers to
-   overallHandle's label pair (rail.ts) and was retuned with it when "on the
-   whole doc" was trimmed — the old 28ch reserve held ~86px of preposition at
-   every width and was a third of why the bar folded at ordinary desktop
-   widths. The padding and border are added back because the shell sets
-   `box-sizing: border-box`, so a bare `min-width` would reserve the border
-   box and under-reserve the text. */
-/* RADIUS IS A CASTE MARK (§1 of the visual-layers handoff): full pills are for
-   verbs on cards and passive chips, and every chrome control — this handle
-   included — is 6px in `.gly-census button` below.
-
-   THIS RULE DECLARES EXACTLY ONE PROPERTY, and that is the whole point of it.
-   `border-radius`, `padding`, `border`, `background`, `color`, `font`,
-   `font-size` and `cursor` were all declared here at one time or another, and
-   every one of them was dead: `.gly-census button` (0,1,1) out-specifies this
-   rule (0,1,0) for every property they share, so not one of them was ever
-   painted. They all happened to MATCH what the census painted, which is worse
-   than a mismatch and not better — a reader cannot tell "dead but agrees" from
-   "live", and will maintain it as though changing it would change the pixel.
-   Keeping `border-radius: 6px` here after the fact would have read as though
-   this rule were the one asserting the caste, when it is not; the same is true
-   of the other six, so they are gone too.
-   Browser-measured before that fix: the handle's actual padding was neither
-   this rule's old value NOR `.gly-census button`'s `3px 10px` — `.gly-bar
-   button`, then the shell's fallback style in edit.html, tied `.gly-census
-   button` on specificity and won the cascade by living in a later stylesheet,
-   so it was setting the real padding, font-size and color (and,
-   coincidentally, a `border-radius: 6px` of its own) on every button the
-   census appends into `.gly-bar`. THAT COLLISION IS FIXED — `.gly-bar button`
-   now lives in this file, above `.gly-census button`, so the census wins its
-   own paint. Measured after: `3px 10px`, 12px, the foreground colour.
-
-   The min-width calc that survives is the ONE live declaration — `.gly-census
-   button` never sets `min-width`, so nothing out-specifies it. Its `+ 1.2rem`
-   is an approximation of the padding rather than a transcription of it, and
-   it is a no-motion bound: the ch count moves only when the label pair in
-   overallHandle moves, never while tidying paint. The handle's type dropped
-   14px → 12px with the rest of the bar, and the reserve is stated in `ch`, so
-   it scaled with the text it bounds.
-
-   THE LABEL PAIR IS NOW A LABEL TRIO and 16ch still bounds it, which is
-   arithmetic rather than luck: the widest is `▾ ✓ 99 doc notes` at sixteen
-   characters, the ▸/▾ affordance included, because it is `content` on this
-   element's own ::before and inside this box. The settled face is new — see
-   overallHandle, where `+ doc note` meant both "none" and "one, settled" — and
-   it is one character wider than the open face it replaces at zero. Past 99
-   notes the box grows, which is what a BOUND means and is the same admission
-   `.gly-revise-count`'s 5ch makes. (It used to cite `.gly-census-count`'s
-   24ch; that box is hidden now and reserves nothing, and a citation of a
-   reserve that no longer exists is the next reader's excuse to delete this
-   one.) */
-.gly-census-overall {
-  min-width: calc(24ch + 1.2rem + 2px);
-}
-.gly-census-overall::before { content: "▸ "; opacity: 0.7; }
-.gly-census-overall.is-open { border-color: var(--gly-signal); color: var(--gly-signal); }
-.gly-census-overall.is-open::before { content: "▾ "; }
-
 /* THE FIXED PANEL IS DELETED, AND WITH IT THE ONLY SPELLING THAT WAS NOT THE
    RAIL'S. It was a full-bleed band hung off the bar's bottom edge, floating at
    z-index 21 over the rail, with its own column tokens, its own elevation
@@ -1210,9 +1127,8 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    added to every card's position in the column.
 
    A RESERVED SLOT, which is the primitive the bar already uses for its own
-   label swaps (`.gly-reserved`, and `.gly-revise-count`'s reserve, and
-   `.gly-census-overall`'s): reserve the space and change what is painted in it,
-   never the space. Switching modes swaps the label; it does not swap the
+   label swaps (`.gly-reserved`, and `.gly-revise-count`'s reserve): reserve
+   the space and change what is painted in it, never the space. Switching modes swaps the label; it does not swap the
    layout. `min-height` rather than `height` because the three labels are within
    a couple of pixels of each other today and a fourth may not be — a slot that
    CLIPS is a worse failure than one that grows, and the growth is visible in
@@ -2596,12 +2512,10 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    `✗ all` (since retired — the measurement predates the sweep) slid 7.24px
    toward the cursor that had just pressed accept. That is the misclick this
    rule is about, one character at a time. The reserve outlives that button:
-   the whole-doc handle and the bar's one readout still sit downstream of this
-   width, and `✓ all` itself is still the click that changes it.
+   the bar's one readout still sits downstream of this width.
 
    24ch, in the strip's own mono, is `999 pending · 99 threads` and then some —
-   a BOUND rather than a proof, the same shape as the whole-doc handle's 16ch
-   below. Past it the count grows again; a document with a four-digit backlog
+   a BOUND rather than a proof. Past it the count grows again; a document with a four-digit backlog
    has bigger problems than a 7px slide.
 
    IT IS A BUTTON NOW, AND IT HAS TO LOOK LIKE ONE. It was a `<span>` — a pure
@@ -2614,15 +2528,14 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    width.
 
    The chrome comes from `.gly-census button` below and is not overridden,
-   which is the point: `.gly-census-overall` beside it was found only after
-   Court failed to find it and the diagnosis was that it looked like a readout
-   in a row of controls. A count that opens something has to be dressed as a
-   control or it is a control nobody presses.
+   which is the point: the whole-document handle that once sat beside it was
+   found only after Court failed to find it, and the diagnosis was that it
+   looked like a readout in a row of controls. A count that opens something has
+   to be dressed as a control or it is a control nobody presses.
 
    The padding and border are added back to the reserve because the shell sets
    `box-sizing: border-box` — a bare 24ch would reserve the BORDER box and
-   under-reserve the text, which is the same arithmetic `.gly-census-overall`
-   spells out at length. 20px of padding, 2px of border. */
+   under-reserve the text. 20px of padding, 2px of border. */
 /* `Instructions · N` IS DELETED FROM THE BAR, AND THE COUNT IS NOT.
    The number moved onto the primary (see .gly-revise-count) — one number, on
    the verb it is a number of, instead of a chip three controls away from the
@@ -2663,7 +2576,12 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    resize the button. Reserving the DIGITS rather than the label is still the
    answer to that question and is still spelled out — on `.gly-revise-secs` and
    `.gly-revise-count`, which is where the reserve now lives. */
-/* Chrome caste, 6px — see .gly-census-overall above for the full note.
+/* Chrome caste, 6px (§1 of the visual-layers handoff): full pills are for
+   verbs on cards and passive chips, and every chrome control is 6px.
+   A census control's paint belongs HERE and not on its bare class: a bare
+   class is (0,1,0) and this rule is (0,1,1), so every property the two share
+   is this rule's, and a dead declaration that happens to match reads exactly
+   like a live one.
    These declarations are LIVE again: they tie `.gly-bar button` at (0,1,1) and
    win on source order because that rule sits above them in this same file.
    While the shell owned `.gly-bar button` they were all dead, and the census
