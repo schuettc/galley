@@ -45,8 +45,10 @@ var unsentStderr io.Writer = os.Stderr
 // unsentPath is this document's unsent round.
 func (s *EditServer) unsentPath() string { return unsent.Path(s.MdPath) }
 
-// saveUnsentLocked mirrors the review map into pending.json, plus the round
-// being sent (s.sending) for any key the map no longer holds. Callers hold mu,
+// saveUnsentLocked mirrors the review map into pending.json, minus the text
+// comments whose words were deleted (s.retracted; see lostanchor.go), plus the
+// round being sent (s.sending) for any key the map no longer holds. Callers
+// hold mu,
 // and call it after the Apply that changed the map has returned: review.Read
 // inside a Transact deadlocks.
 //
@@ -54,7 +56,12 @@ func (s *EditServer) unsentPath() string { return unsent.Path(s.MdPath) }
 // clear and the cut, a comment filed concurrently or a save made from inside
 // project must not be what lets the sent comments go. See sendReviewerRound.
 func (s *EditServer) saveUnsentLocked() error {
-	live := unsent.FromThreads(review.Read(s.doc))
+	var live []unsent.Comment
+	for _, c := range unsent.FromThreads(review.Read(s.doc)) {
+		if !s.retracted[c.Key] {
+			live = append(live, c)
+		}
+	}
 	have := make(map[string]bool, len(live))
 	for _, c := range live {
 		have[c.Key] = true
@@ -164,10 +171,18 @@ func replayUnsent(doc *crdt.Doc, threads []review.Thread) {
 }
 
 // liveInstructions is the live server's instruction list: the review map,
-// through the one builder.
+// through the one builder, with every text comment whose words were deleted
+// hidden. Every live reader lists instructions through here. See lostanchor.go.
 func (s *EditServer) liveInstructions(model docmodel.Doc) []InstructionView {
 	threads := review.Read(s.doc)
-	return instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads))
+	all := instructionsOf(unsent.FromThreads(threads), model, anchorKeysOf(threads))
+	out := all[:0]
+	for _, v := range all {
+		if !s.isRetracted(v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // anchorKeysOf maps each thread to the block it sits on. A block comment's
@@ -189,9 +204,8 @@ func anchorKeysOf(threads []review.Thread) map[string]string {
 // pending` all list instructions through it, so none of them can disagree
 // about which instructions there are. There were three, and the wait builder
 // had no retraction filter: the agent was handed comments the reviewer had
-// taken back by deleting their words. A comment whose words were deleted is
-// now deleted from the review map and pending.json by the projection (see
-// sweepRetracted), so there is nothing left here to filter.
+// taken back by deleting their words. The live filter for those is in
+// liveInstructions; offline, pending.json already leaves them out.
 //
 // ONE INSTRUCTION PER THREAD, not one per reviewer entry: a thread is one
 // comment, unsent.FromThreads keeps its first reviewer entry, and galley

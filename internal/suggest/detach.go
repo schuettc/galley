@@ -96,7 +96,10 @@ func Detach(d docmodel.Doc, threads []review.Thread, key string) (docmodel.Doc, 
 // every block, and reports whether there was one. One comment can be several
 // pieces — a selection across paragraphs, or around a code span — and every
 // piece carries the ID, so lifting by the ID takes them all and nothing else.
-// The words stay: the highlight is over the author's prose.
+// The words stay: the highlight is over the author's prose. By ID, where
+// Accept and Reject lift one span named by its run or ordinal (applyDecision):
+// a decision is about the span on a card, and this removes the comment, which
+// is every span carrying its ID.
 func liftComment(d docmodel.Doc, id string) (docmodel.Doc, bool) {
 	if id == "" {
 		return d, false

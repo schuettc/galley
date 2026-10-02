@@ -261,10 +261,15 @@ type EditServer struct {
 	// round does. Under mu. See sendReviewerRound.
 	sending map[string]unsent.Comment
 	// seenAnchored is every text comment this server has seen placed: its ID on
-	// a mark in the live document. See sweepRetracted: "there is no mark now"
+	// a mark in the live document. See lostanchor.go: "there is no mark now"
 	// and "the reviewer deleted the words" are different claims, and only this
-	// set tells them apart. Under mu, with the projection that writes it.
+	// set tells them apart. Written under mu by the projection; anchorMu
+	// guards it because `pending` reads it without mu.
 	seenAnchored map[string]bool
+	anchorMu     sync.Mutex
+	// retracted is the seen text comments the last projection found with no
+	// mark: the keys pending.json leaves out. Under mu. See noteRetracted.
+	retracted map[string]bool
 
 	// The exception, in the agent's own words — see handleCannot. Under reviseMu
 	// with the ack for the same reason the ack is: the window opens on a press
@@ -721,12 +726,13 @@ func (s *EditServer) project() error {
 
 	// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM. This is
 	// the one place the server learns the reviewer moved — typing has no HTTP
-	// hook. It records which text comments are placed, deletes the ones whose
-	// place has since gone, and rewrites pending.json, all before the .md is
-	// written below, so the unsent round still reaches disk first. See
-	// lostanchor.go.
+	// hook. It records which text comments are placed and, when the set whose
+	// place has gone moves, rewrites pending.json without them, before the .md
+	// is written below, so the unsent round still reaches disk first. It
+	// writes nothing to the review map: see lostanchor.go for why. A failed
+	// save fails the projection, for the same ordering; see noteRetracted.
 	s.noteAnchored(model)
-	if err := s.sweepRetracted(model); err != nil {
+	if err := s.noteRetracted(model); err != nil {
 		return err
 	}
 
@@ -1831,9 +1837,18 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 			s.sending = map[string]unsent.Comment{}
 		}
 		maps.Copy(s.sending, sendingOf(review.Read(s.doc), keys))
+		// A RETRACTED COMMENT GOES WITH THIS CLEAR. Its words were deleted, so
+		// the pending view hid it and it is not among keys; its thread has
+		// waited in the review map for this write, which already reaches every
+		// peer and is seeded below. See lostanchor.go.
+		retracted := s.retractedIn(model)
+		s.forgetRetractedLocked(retracted)
 		return suggest.ClearInstructions(model), func(doc *crdt.Doc, tx review.Tx) {
 			session := review.Bind(doc, tx)
 			for _, key := range keys {
+				_ = session.Delete(key)
+			}
+			for key := range retracted {
 				_ = session.Delete(key)
 			}
 		}, nil

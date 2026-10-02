@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/reearth/ygo/crdt"
 	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/unsent"
@@ -233,22 +232,31 @@ func TestReviseRecordsTheRoundBeforeEmptyingTheUnsentRound(t *testing.T) {
 // Bug 5: the rail filtered a retracted instruction and the wait payload and
 // the notify fingerprint did not, so the agent was handed work the reviewer
 // had already taken back.
+//
+// AND THE FINGERPRINT MAY NOT MOVE ACROSS THE PROJECTION. SeedNotify (after an
+// agent's write) and handleWait take it in the window between a write that
+// removes a comment's last mark and the next projection. If it still counted
+// the comment there while the projection's did not, the notifier would see a
+// change nobody made and, in live mode, cut a round for it.
 func TestTheWaitPayloadAndTheRailAgree(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "d.md", "# T\n\nCognito mints every token.\n\nSecond para here.\n")
 	t.Cleanup(func() { _ = s.Close() })
 	instructOK(t, s, map[string]any{
 		"op": "comment", "target": "Cognito mints every token.", "text": "too punchy",
 	})
-	keys := keysOf(t, s)
-	if len(keys) != 1 {
+	if keys := keysOf(t, s); len(keys) != 1 {
 		t.Fatalf("the fixture did not file one instruction: %v", keys)
 	}
-	key := keys[0]
 	// The projection has to see the anchor before it can know it went.
 	if err := s.Project(); err != nil {
 		t.Fatal(err)
 	}
 	reviewerDeletes(t, s, "Cognito mints every token.")
+	model, err := s.readLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	between := s.editFingerprint(model)
 	if err := s.Project(); err != nil {
 		t.Fatal(err)
 	}
@@ -256,32 +264,15 @@ func TestTheWaitPayloadAndTheRailAgree(t *testing.T) {
 	if got := keysOf(t, s); len(got) != 0 {
 		t.Fatalf("the fixture did not retract the instruction from the rail: %v", got)
 	}
-	_, view, err := s.waitFingerprint()
+	projected, view, err := s.waitFingerprint()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(view.Instructions) != 0 {
 		t.Errorf("the wait payload still carries the retracted instruction: %+v", view.Instructions)
 	}
-
-	// The fingerprint input: removing the retracted thread outright must not
-	// move it, because the fingerprint should never have counted it.
-	model, err := s.readLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	withThread := s.editFingerprint(model)
-	if _, err := s.mutate(bySystem, func(m docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
-		return m, func(doc *crdt.Doc, tx review.Tx) { _ = review.Bind(doc, tx).Delete(key) }, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	model, err = s.readLive()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if without := s.editFingerprint(model); without != withThread {
-		t.Errorf("the notify fingerprint counted the retracted instruction: %s with it, %s without", withThread, without)
+	if projected != between {
+		t.Errorf("the fingerprint moved across a projection that changed nothing: %s before it, %s after", between, projected)
 	}
 }
 
