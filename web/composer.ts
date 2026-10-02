@@ -620,6 +620,18 @@ export const composerMethods = {
   // constant somebody typed is a box that is wrong the first time its contents
   // change, and this one changes every time the form opens.
   //
+  // AND IT IS PLACED FOR THE HEIGHT IT CAN GROW TO, not the height it opened
+  // at. It is placed once, often as the one-button bar, and then the form
+  // opens in place and the box grows with what is typed, up to its cap at half
+  // the window. Placed for the bar, it ran off the foot of a 600px window by
+  // 94px with the passage in the middle, and a box flipped above grew DOWN
+  // through the passage it is about (`just layers` §8c). So the room asked
+  // for is the grown height (grownHeight), and a box above the passage is
+  // hung by its BOTTOM, so it grows upward and away from the words. When
+  // neither side has that room, it hangs from the window's foot: below the
+  // passage while it is short, and over it only once the reviewer's own
+  // words need the space. Every case stays inside the window.
+  //
   // NOTHING HERE MAY ANIMATE AND NOTHING MAY REFLOW. The composer is
   // `position: absolute` on `document.body` — never inside `.ProseMirror`,
   // where it would be CONTENT and the next projection would write it to the
@@ -633,14 +645,18 @@ export const composerMethods = {
   ) {
     const c = this.composer;
     const left = `${start.left + window.scrollX}px`;
-    // Measured while it is on screen: `hidden` is cleared by every caller
-    // before this runs, so the box has a real height to be flipped against.
-    const height = c.root.offsetHeight;
+    const height = grownHeight(c);
     const below = end.bottom + gap;
-    const room = window.innerHeight - below >= height;
-    const top = room ? below : Math.max(0, start.top - gap - height);
+    let top = below;
+    let hang = '';
+    if (window.innerHeight - below < height) {
+      // Hung by its bottom edge: `top` is where the bottom goes.
+      hang = 'translateY(-100%)';
+      top = start.top - gap >= height ? start.top - gap : window.innerHeight;
+    }
     c.root.style.top = `${top + window.scrollY}px`;
     c.root.style.left = left;
+    c.root.style.transform = hang;
   },
 
   // headComposer writes the head's sentence. `ON "…"` only where there is
@@ -1054,4 +1070,25 @@ function typeableAfter(doc: PMNode, pos: number): number | null {
     return false;
   });
   return found;
+}
+
+// grownHeight is the tallest the composer can become: its form open and its
+// box at the stylesheet's cap. Measured, not guessed — `hidden` is cleared by
+// every caller before placeComposer runs, and the form is shown for the one
+// synchronous read and put back, so nothing paints. A refusal never opens the
+// form, so it is as tall as it is. See placeComposer.
+function grownHeight(c: Composer): number {
+  if (!c.deny.hidden) {
+    return c.root.offsetHeight;
+  }
+  const form = c.form.hidden;
+  const bar = c.bar.hidden;
+  c.form.hidden = false;
+  c.bar.hidden = true;
+  const open = c.root.offsetHeight;
+  const box = c.input.offsetHeight;
+  const cap = parseFloat(getComputedStyle(c.input).maxHeight);
+  c.form.hidden = form;
+  c.bar.hidden = bar;
+  return Number.isFinite(cap) ? open - box + Math.max(box, cap) : open;
 }

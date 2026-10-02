@@ -5147,6 +5147,101 @@ console.log('\n--- §8b · the three comment boxes are one design ---');
   );
 }
 
+// --- §8c · the composer, grown to its cap, stays in the window ------------
+//
+// THE COMPOSER IS PLACED ONCE, WHEN IT OPENS, and then grows with what is
+// typed, up to half the window. Placed for the height it opened at, a box that
+// later grows by a third of the window can run off the bottom of it. Measured
+// at a short window, with the passage in the middle (placed below) and near
+// the foot (flipped above), each grown to its cap with sixty lines.
+console.log(
+  '\n--- §8c · the composer, grown to its cap, stays in the window ---',
+);
+{
+  const SHORT = { width: 1280, height: 600 };
+  await page.setViewportSize(SHORT);
+  await page.waitForTimeout(400);
+  const sixty = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join(
+    '\n',
+  );
+  // The passage is the first eight characters of an unmarked paragraph, set at
+  // `atY` in the window: the nth such paragraph, or (nth null) the first one
+  // far enough down the page to be scrolled there.
+  const grown = async (atY, nth) => {
+    const at = await page.evaluate(
+      ([y, n]) => {
+        const editor = window.galleyEdit.editor;
+        const seen = [];
+        editor.state.doc.descendants((node, pos) => {
+          const first = node.firstChild;
+          if (
+            node.type.name === 'paragraph' &&
+            first &&
+            first.isText &&
+            first.marks.length === 0 &&
+            first.text.length > 12
+          )
+            seen.push(pos + 1);
+          return true;
+        });
+        // A caret, so the selection below is always a fresh one.
+        editor.commands.setTextSelection(seen[0]);
+        const pageTop = (p) => editor.view.coordsAtPos(p).top + window.scrollY;
+        const from =
+          n !== null
+            ? seen[Math.min(n, seen.length - 1)]
+            : seen.find((p) => pageTop(p) >= y) || seen[seen.length - 1];
+        window.scrollTo(0, pageTop(from) - y);
+        return from;
+      },
+      [atY, nth],
+    );
+    await page.waitForTimeout(150);
+    await page.evaluate((from) => {
+      const editor = window.galleyEdit.editor;
+      editor.commands.focus(undefined, { scrollIntoView: false });
+      editor.commands.setTextSelection({ from, to: from + 8 });
+    }, at);
+    await page.waitForTimeout(150);
+    await page
+      .locator('.gly-comment-button')
+      .waitFor({ state: 'visible', timeout: 5000 });
+    await page.click('.gly-comment-button');
+    await page.waitForTimeout(150);
+    await page.fill('.gly-composer-text', sixty);
+    await page.waitForTimeout(150);
+    const out = await page.evaluate(() => {
+      const r = document.querySelector('.gly-composer').getBoundingClientRect();
+      const sel = window.galleyEdit.editor.view.coordsAtPos(
+        window.galleyEdit.editor.state.selection.from,
+      );
+      return {
+        top: +r.top.toFixed(1),
+        bottom: +r.bottom.toFixed(1),
+        window: window.innerHeight,
+        passage: +sel.top.toFixed(1),
+      };
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    return out;
+  };
+  const middle = await grown(300, 3);
+  const foot = await grown(540, null);
+  check(
+    'the composer grown to its cap stays inside a short window — passage in the middle, and at the foot',
+    [middle, foot].every((g) => g.top >= 0 && g.bottom <= g.window + 0.5),
+    { middle, foot },
+  );
+  check(
+    'and at the foot it flips above the passage rather than over it',
+    foot.passage > SHORT.height / 2 && foot.bottom <= foot.passage,
+    foot,
+  );
+  await page.setViewportSize(WIDE);
+  await page.waitForTimeout(400);
+}
+
 // --- §12 · the rounds -------------------------------------------------------
 //
 // THE SURFACE THE RECORD LIVES ON, read at the two states that can be wrong.
