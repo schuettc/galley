@@ -118,9 +118,10 @@ func (s *EditServer) retractedIn(model docmodel.Doc) map[string]bool {
 	pending := suggest.List(model)
 	out := map[string]bool{}
 	s.anchorMu.Lock()
-	defer s.anchorMu.Unlock()
+	seen := maps.Clone(s.seenAnchored)
+	s.anchorMu.Unlock()
 	for _, th := range review.Read(s.doc) {
-		if th.Resolved || th.Anchor != "" || !s.seenAnchored[th.Key] {
+		if th.Resolved || th.Anchor != "" || !seen[th.Key] {
 			continue
 		}
 		if _, ok := suggest.PairFor(pending, th); !ok {
@@ -175,5 +176,22 @@ func (s *EditServer) forgetRetractedLocked(keys map[string]bool) {
 	for key := range keys {
 		delete(s.seenAnchored, key)
 		delete(s.retracted, key)
+	}
+}
+
+// forgetPlacedLocked forgets that any text comment NOT in sent was placed, so a
+// mark the send's own clear lifted is never read as a retraction. Callers hold
+// mu.
+func (s *EditServer) forgetPlacedLocked(sent []string) {
+	in := make(map[string]bool, len(sent))
+	for _, key := range sent {
+		in[key] = true
+	}
+	s.anchorMu.Lock()
+	defer s.anchorMu.Unlock()
+	for key := range s.seenAnchored {
+		if !in[key] {
+			delete(s.seenAnchored, key)
+		}
 	}
 }

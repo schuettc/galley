@@ -38,6 +38,10 @@ var testHookBeforeUnsentCleared func()
 // window in which pending.json must still hold them.
 var testHookAfterInstructionsCleared func()
 
+// testHookAfterRoundCaptured runs in sendReviewerRound between the round's
+// capture and the clear that lifts its marks. Tests only.
+var testHookAfterRoundCaptured func()
+
 // unsentStderr is where startup says it moved an unreadable unsent round
 // aside: NewEdit has no Log yet when it reads the file.
 var unsentStderr io.Writer = os.Stderr

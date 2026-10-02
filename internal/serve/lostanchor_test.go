@@ -357,9 +357,70 @@ func TestTheSendDeletesARetractedThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range rs[len(rs)-1].Asks {
+	sent := rs[len(rs)-1]
+	for _, a := range sent.Asks {
 		if a.Key == retracted {
 			t.Errorf("the round asks for the retracted comment %s", retracted)
 		}
 	}
+	// History's instruction line and the ledger come from the same set as the
+	// Asks: words the reviewer took back are recorded nowhere.
+	if strings.Contains(sent.Instruction, "which fox?") || !strings.Contains(sent.Instruction, "cut it") {
+		t.Errorf("the round's instruction = %q, want the sent comment only", sent.Instruction)
+	}
+}
+
+// A text comment filed while a round is being sent loses its highlight to the
+// send's clear, which lifts every mark. The reviewer deleted nothing, so the
+// comment stays: as an unplaced card, never hidden as a retraction.
+func TestACommentFiledMidSendIsNotRetractedByTheClear(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	s.OnRevise = "true"
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Second para here.", "text": "cut it"})
+	var late string
+	testHookAfterRoundCaptured = func() {
+		instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 13, "text": "filed mid-send"})
+		if err := s.Project(); err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range pendingNow(t, s) {
+			if v.Text == "filed mid-send" {
+				late = v.Key
+			}
+		}
+	}
+	t.Cleanup(func() { testHookAfterRoundCaptured = nil })
+	if rec := postRec(t, s, "/_galley/revise", map[string]any{}); rec.Code >= 300 {
+		t.Fatalf("revise: %d %s", rec.Code, rec.Body.String())
+	}
+	if late == "" {
+		t.Fatal("the comment filed mid-send was never placed")
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	var kept bool
+	for _, v := range pendingNow(t, s) {
+		kept = kept || v.Key == late
+	}
+	if !kept {
+		t.Error("the send's clear hid a comment the reviewer never deleted")
+	}
+	var saved bool
+	for _, c := range loadUnsent(t, s) {
+		saved = saved || c.Key == late
+	}
+	if !saved {
+		t.Error("the comment filed mid-send left pending.json")
+	}
+}
+
+func pendingNow(t *testing.T, s *EditServer) []InstructionView {
+	t.Helper()
+	view, err := s.pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view.Instructions
 }

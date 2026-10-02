@@ -462,13 +462,19 @@ func (s *EditServer) seedVersions(content []byte) {
 // is outstanding at this instant, not a sentence somebody wrote, and two rounds
 // legitimately carry the same one.
 //
+// ONLY THE ROUND BEING SENT. sending names the keys the round's capture
+// carries, the same set its Asks record: a thread still in the review map but
+// not in the round (one whose words the reviewer deleted, which waits there for
+// the send's clear) was not asked for, and recording it would put words the
+// reviewer took back into History and the ledger.
+//
 // Callers must not hold mu.
-func (s *EditServer) reviewerInstruction() (string, []ledger.Record, func()) {
+func (s *EditServer) reviewerInstruction(sending map[string]bool) (string, []ledger.Record, func()) {
 	var said, fresh []string
 	var records []ledger.Record
 	s.instrMu.Lock()
 	for _, th := range review.Read(s.doc) {
-		if th.Resolved {
+		if th.Resolved || !sending[th.Key] {
 			continue
 		}
 		for _, e := range th.Entries {

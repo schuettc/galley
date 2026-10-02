@@ -1806,7 +1806,11 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	if err != nil {
 		return reviewerRound{}, statusFor(err), err
 	}
-	said, instructions, markSaid := s.reviewerInstruction()
+	inRound := make(map[string]bool, len(handoff.Instructions))
+	for _, instruction := range handoff.Instructions {
+		inRound[instruction.Key] = true
+	}
+	said, instructions, markSaid := s.reviewerInstruction(inRound)
 	keys := make([]string, 0, len(handoff.Instructions))
 	// THE ROUND IS WHERE THE KEYS SURVIVE. The mutation below DELETES every
 	// thread this send carries — an instruction is discharged by the revision,
@@ -1822,6 +1826,9 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		asks = append(asks, versions.Ask{
 			Key: instruction.Key, Text: instruction.Text, Quote: instruction.Quote,
 		})
+	}
+	if testHookAfterRoundCaptured != nil {
+		testHookAfterRoundCaptured()
 	}
 	if code, err := s.mutate(bySystem, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
 		// HELD ASIDE BEFORE THE CLEAR, under mu and outside any Transact: once
@@ -1843,6 +1850,13 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 		// peer and is seeded below. See lostanchor.go.
 		retracted := s.retractedIn(model)
 		s.forgetRetractedLocked(retracted)
+		// AND A COMMENT FILED SINCE THE CAPTURE IS NOT RETRACTED BY IT.
+		// ClearInstructions lifts every highlight, this round's or not, so a
+		// text comment filed between the capture and this write loses its mark
+		// here without the reviewer deleting anything. Forgetting that it was
+		// placed shows it as an unplaced card, rather than letting the next
+		// projection read the lifted mark as a retraction and hide it.
+		s.forgetPlacedLocked(keys)
 		return suggest.ClearInstructions(model), func(doc *crdt.Doc, tx review.Tx) {
 			session := review.Bind(doc, tx)
 			for _, key := range keys {
