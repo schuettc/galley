@@ -203,13 +203,20 @@ const REGION_MIN_FRACTION = 0.01;
  * document because a drag ended outside the figure is the kind of state that
  * survives until reload.
  *
+ * A PICK THAT ENDS WITH NO RECTANGLE CALLS onCancel: Esc, or a press too short
+ * to be a drag. The caller put something away to make room for the pick (the
+ * composer's form), and it is the caller that knows how to bring it back.
+ *
  * @param figure the .gly-figure box the fractions are OF
  * @param onPicked
- * @returns cancel, for a caller that needs to exit pick mode itself
+ * @param onCancel
+ * @returns cancel, for a caller that needs to exit pick mode itself; it
+ *   calls neither callback
  */
 export function pickRegion(
   figure: HTMLElement,
   onPicked: (region: { x: number; y: number; w: number; h: number }) => void,
+  onCancel: () => void,
 ): () => void {
   figure.classList.add('gly-picking');
   const draft = document.createElement('div');
@@ -263,6 +270,7 @@ export function pickRegion(
   const up = (e: PointerEvent) => {
     if (!start) {
       exit();
+      onCancel();
       return;
     }
     const now = frac(e);
@@ -274,6 +282,7 @@ export function pickRegion(
     };
     exit();
     if (region.w < REGION_MIN_FRACTION || region.h < REGION_MIN_FRACTION) {
+      onCancel();
       return;
     }
     onPicked(region);
@@ -287,6 +296,7 @@ export function pickRegion(
       e.preventDefault();
       e.stopPropagation();
       exit();
+      onCancel();
     }
   };
 

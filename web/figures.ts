@@ -1,7 +1,7 @@
 // web/figures.ts owns the ways a reviewer starts an instruction from a PLACE
 // rather than from a selection: the block grip beside every heading, fence,
-// table, figure, display-math block and front matter, and a figure's ⊕ region
-// button.
+// table, figure, display-math block and front matter, and a figure's region,
+// reached from that grip's composer by Mark a region.
 //
 // It is a MIXIN — an object of methods `Object.assign`ed onto `App.prototype`
 // in entry.ts — not a class of its own, so every method here still reads and
@@ -43,13 +43,6 @@ import type { Node as PMNode } from '@tiptap/pm/model';
 import type { AppShell, Thread } from './appshell.ts';
 import type { BlockRef, Region } from './wire';
 
-// A `.gly-figure` element, carrying the block it is currently armed for.
-// `__glyBlock` is read at CLICK time rather than bind time (see armFigure),
-// so it has to live on the element itself rather than in the closure that
-// built the button — and it is optional because the element exists before
-// the first paint has told it what block it is.
-type FigureElement = HTMLElement & { __glyBlock?: BlockRef | null };
-
 export const figureMethods = {
   // --- figures, and the regions on them ---
   //
@@ -63,11 +56,11 @@ export const figureMethods = {
   // lists — figure-shaped nodes in the document, .gly-figure elements in the
   // DOM — are produced by the same traversal in the same order, so pairing them
   // is exact. A nested figure (a diagram inside a list item) pairs too, and
-  // simply gets no ⊕: it is not a top-level block, so the Go side has no key
-  // for it and a thread could not be filed against it.
+  // simply gets no pins: it is not a top-level block, so the Go side has no
+  // key for it and a thread could not be filed against it.
   figurePairs(
     this: AppShell,
-  ): Array<{ node: PMNode; pos: number; index: number; el: FigureElement }> {
+  ): Array<{ node: PMNode; pos: number; index: number; el: HTMLElement }> {
     const doc = this.editor.state.doc;
     const nodes: Array<{ node: PMNode; pos: number; index: number }> = [];
     doc.descendants((node, pos, parent) => {
@@ -83,7 +76,7 @@ export const figureMethods = {
       }
       return true;
     });
-    const els: FigureElement[] = Array.from(
+    const els: HTMLElement[] = Array.from(
       this.editor.view.dom.querySelectorAll<HTMLElement>('.gly-figure'),
     );
     if (els.length !== nodes.length) {
@@ -99,47 +92,8 @@ export const figureMethods = {
   paintFigures(this: AppShell) {
     for (const pair of this.figurePairs()) {
       const ref = this.blocks.find((b) => b.index === pair.index) || null;
-      this.armFigure(pair.el, ref);
       this.paintPins(pair.el, ref);
     }
-  },
-
-  armFigure(this: AppShell, el: FigureElement, ref: BlockRef | null) {
-    let button = el.querySelector<HTMLButtonElement>(
-      ':scope > .gly-region-button',
-    );
-    if (!ref) {
-      // No key on the Go side — a nested figure, or one the last pending
-      // refresh has not seen. Offering ⊕ here would open a composer that
-      // cannot file anything.
-      if (button) {
-        button.remove();
-      }
-      return;
-    }
-    if (!button) {
-      button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'gly-region-button';
-      // §6's verbatim affordance.
-      button.textContent = '⊕ comment on a region';
-      button.addEventListener('mousedown', (event) => event.preventDefault());
-      button.addEventListener('click', () => {
-        // Read at CLICK time, not at bind time: the block key is a content
-        // hash and moves when the figure's own markdown changes.
-        const live = el.__glyBlock;
-        if (!live) {
-          // Unreachable while this button exists — armFigure removes it the
-          // moment `ref` goes false — but `__glyBlock` is optional on the
-          // element's own type, so this is what the type checker needs to
-          // hand `live` to openRegionComposer as a real BlockRef below.
-          return;
-        }
-        pickRegion(el, (region) => this.openRegionComposer(el, live, region));
-      });
-      el.appendChild(button);
-    }
-    el.__glyBlock = ref;
   },
 
   // The pins, drawn from the thread list — which is why resolving one removes
@@ -150,7 +104,7 @@ export const figureMethods = {
   // and rendered as percentages OF this box, so a reflow never enters into it —
   // there is nothing to re-measure on resize, and so nothing that can be
   // measured wrong.
-  paintPins(this: AppShell, el: FigureElement, ref: BlockRef | null) {
+  paintPins(this: AppShell, el: HTMLElement, ref: BlockRef | null) {
     let layer = el.querySelector<HTMLElement>(':scope > .gly-region-pins');
     const pins = ref
       ? this.comments.filter(
@@ -221,35 +175,6 @@ export const figureMethods = {
     }
     el.scrollIntoView({ behavior: motion(), block: 'nearest' });
     flash(el);
-  },
-
-  openRegionComposer(
-    this: AppShell,
-    figureEl: HTMLElement,
-    ref: BlockRef,
-    region: Region,
-  ) {
-    const c = this.composer;
-    this.hideComposer();
-    c.root.hidden = false;
-    c.bar.hidden = true;
-    c.button.hidden = true;
-    c.deny.hidden = true;
-    c.denyHint.hidden = true;
-    c.form.hidden = false;
-    c.input.value = '';
-    c.block = { key: ref.key, label: ref.label, region };
-    // §6: "the composer opens beneath it". Beneath the FIGURE rather than at
-    // the rectangle, because a composer over the picture covers the thing the
-    // note is about — which is the rule placeComposer now states for every
-    // other opening too, so this one goes through it and inherits the flip.
-    const box = figureEl.getBoundingClientRect();
-    this.placeComposer(box, box, 6);
-    // A region has no phrase to quote — the anchor is a rectangle on a picture
-    // — so the head says the kind and stops. Quoting the figure's label here
-    // would read as "an instruction about those words" over an image.
-    this.headComposer('');
-    c.input.focus();
   },
 
   // --- the block grip ---
@@ -354,17 +279,14 @@ export const figureMethods = {
   // THE FORM OPENS STRAIGHT AWAY. The bar's `Add instruction` asks the reviewer
   // to confirm a scope a SELECTION left ambiguous; this gesture named its scope
   // by being pressed beside one block.
+  //
+  // A FIGURE'S IS ON THE WHOLE FIGURE, and offers Mark a region (markRegion)
+  // to narrow it to a part of the picture.
   openBlockComposer(
     this: AppShell,
     target: GripTarget,
     opener: HTMLElement | null,
   ) {
-    if (target.figure) {
-      // Every grip is painted, and a figure's composer is not built yet: the
-      // press says so where a developer will see it and opens nothing.
-      console.info(`galley: no block instruction on a ${target.kind} yet`);
-      return;
-    }
     const view = this.editor.view;
     const doc = view.state.doc;
     const node = doc.nodeAt(target.pos);
@@ -399,6 +321,9 @@ export const figureMethods = {
       ? { key: ref.key, label: label || ref.label, region: null }
       : null;
     c.opener = opener;
+    c.grip = target;
+    // Only where there is a key to file the rectangle on.
+    c.mark.hidden = !(target.figure && ref);
     c.root.hidden = false;
     c.bar.hidden = true;
     c.button.hidden = true;
@@ -440,6 +365,43 @@ export const figureMethods = {
     }
     this.headBlockComposer(target, label);
     c.input.focus();
+  },
+
+  // markRegion is Mark a region: the form is put away, its words kept, and the
+  // figure goes into picking. A finished drag brings the form back on that
+  // rectangle; Esc, or a press too short to be a drag, brings it back as it
+  // was. The composer does not move: it is already beneath the figure, clear
+  // of the picture being dragged on.
+  //
+  // The figure is found at PRESS time by the grip's index: a NodeView is
+  // rebuilt whenever its block's markdown changes, so the element the composer
+  // opened against may not be the one on the page now.
+  markRegion(this: AppShell) {
+    const c = this.composer;
+    const target = c.grip;
+    const pair =
+      target && this.figurePairs().find((p) => p.index === target.index);
+    if (!target || !pair || !c.block || c.picking) {
+      return;
+    }
+    c.form.hidden = true;
+    c.note.textContent =
+      'drag across the figure to mark a region · esc goes back';
+    c.note.classList.add('gly-quiet');
+    const back = (region: Region | null) => {
+      c.picking = null;
+      if (c.root.hidden || !c.block) {
+        return;
+      }
+      c.block = { ...c.block, region };
+      c.form.hidden = false;
+      c.note.textContent = '';
+      c.note.classList.remove('gly-quiet');
+      this.headBlockComposer(target, '', !!region);
+      c.input.focus();
+    };
+    const kept = c.block.region;
+    c.picking = pickRegion(pair.el, back, () => back(kept));
   },
 };
 

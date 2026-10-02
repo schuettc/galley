@@ -562,7 +562,6 @@ export interface AppMethods {
   paintNoteWords(): void;
 
   // --- figures and the block grips (web/figures.ts) ---
-  armFigure(el: HTMLElement, ref: BlockRef | null): void;
   figurePairs(): Array<{
     node: PMNode;
     pos: number;
@@ -571,11 +570,7 @@ export interface AppMethods {
   }>;
   flashThreadCard(key: string): void;
   paintFigures(): void;
-  openRegionComposer(
-    figureEl: HTMLElement,
-    ref: BlockRef,
-    region: Region,
-  ): void;
+  markRegion(): void;
   openBlockComposer(target: GripTarget, opener: HTMLElement | null): void;
   openSheet(): void;
   paintGrips(): void;
@@ -586,6 +581,7 @@ export interface AppMethods {
   headBlockComposer(
     target: Pick<GripTarget, 'kind' | 'figure'>,
     label: string,
+    region?: boolean,
   ): void;
   headComposer(quote: string): void;
   paintRefusal(hit: LiteralHit): void;

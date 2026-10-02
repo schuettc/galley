@@ -1325,9 +1325,9 @@ class App implements AppState {
     // one place that decides what a width means.
     window.addEventListener('resize', () => this.paintSurfaces());
     editor.on('update', () => this.scheduleAnchors());
-    // A NodeView is rebuilt from scratch when its node changes, and takes the
-    // ⊕ button and every pin on it with it. Re-fitting them is not layout, so
-    // it does not belong in the rAF-throttled anchor pass — an update is
+    // A NodeView is rebuilt from scratch when its node changes, and takes
+    // every pin on it with it. Re-fitting them is not layout, so it does not
+    // belong in the rAF-throttled anchor pass — an update is
     // exactly when it is needed and never more often than that.
     editor.on('update', () => this.paintFigures());
     // The grips are reconciled against the document, so every change to it
@@ -2439,7 +2439,7 @@ Object.assign(App.prototype, cardMethods);
 // see web/composer.ts — mixed in for the same reason.
 Object.assign(App.prototype, composerMethods);
 // The ways a reviewer starts an instruction from a PLACE rather than from a
-// selection — the block grips and a figure's ⊕ region button — are their own
+// selection — the block grips and a figure's region — are their own
 // module too — see web/figures.ts — mixed in for the same reason.
 Object.assign(App.prototype, figureMethods);
 // History — the versions door, entering and leaving the reading mode,

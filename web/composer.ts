@@ -99,6 +99,7 @@ export interface Composer {
   head: HTMLElement;
   input: HTMLTextAreaElement;
   send: HTMLButtonElement;
+  mark: HTMLButtonElement;
   cancel: HTMLButtonElement;
   esc: HTMLElement;
   note: HTMLElement;
@@ -111,6 +112,11 @@ export interface Composer {
   // otherwise. Esc hands focus back to it, and a composer with one is not
   // driven by the selection (see placeComposerButton).
   opener?: HTMLElement | null;
+  // grip is the block the grip opened this composer on; a figure's is what
+  // Mark a region picks on. Null for a selection's composer.
+  grip?: GripTarget | null;
+  // picking ends a Mark a region pick in progress, while one is.
+  picking?: (() => void) | null;
   // anchor is what the composer was last placed against, in PAGE coordinates
   // so a scroll between placing the button and opening the form does not move
   // it. See placeComposer and openComposerForm.
@@ -340,7 +346,7 @@ export const composerMethods = {
     // card in the rail will wear a moment later, so the thing being made and
     // the thing that appears are recognisably one object. It is written by
     // whoever places the composer (placeComposerButton, openBlockComposer,
-    // openRegionComposer) — the three functions that know what the anchor is.
+    // markRegion) — the three functions that know what the anchor is.
     const head = document.createElement('div');
     head.className = 'gly-composer-head';
     const input = document.createElement('textarea');
@@ -361,6 +367,17 @@ export const composerMethods = {
     send.type = 'button';
     send.className = 'gly-composer-send';
     send.textContent = 'Add instruction';
+
+    // A FIGURE'S WAY TO A PART OF IT. The grip opens an instruction on the
+    // whole figure; this narrows it to a rectangle dragged on the picture.
+    // It lives in the composer and not on the figure: anything drawn inside
+    // the picture is inside `.ProseMirror`, and a control that appears only
+    // under the pointer is one nobody finds. Shown for a figure only.
+    const mark = document.createElement('button');
+    mark.type = 'button';
+    mark.className = 'gly-composer-region';
+    mark.textContent = 'Mark a region';
+    mark.hidden = true;
 
     // THE WAY OUT WAS A KEY NOBODY WAS TOLD ABOUT. Esc has always reached
     // hideComposer through onKey's topmost-first chain, and a reviewer who had
@@ -387,7 +404,7 @@ export const composerMethods = {
 
     const actions = document.createElement('div');
     actions.className = 'gly-composer-actions';
-    actions.append(send, cancel, esc);
+    actions.append(send, mark, cancel, esc);
     form.append(head, input, actions);
 
     // The note lives OUTSIDE the form: it carries the comment endpoint's
@@ -433,6 +450,7 @@ export const composerMethods = {
     // features. See openComposerForm.
     button.addEventListener('click', () => this.openComposerForm());
     send.addEventListener('click', () => this.sendComment());
+    mark.addEventListener('click', () => this.markRegion());
     // hideComposer and not merely "close the form": cancelling an instruction
     // is abandoning the whole placement, and a composer left showing its bar
     // over a selection the reviewer has finished with is the popover that will
@@ -449,6 +467,7 @@ export const composerMethods = {
       head,
       input,
       send,
+      mark,
       cancel,
       esc,
       note,
@@ -558,8 +577,9 @@ export const composerMethods = {
     // A region composer is not driven by the selection — it was opened by a
     // drag on a figure, and the caret never moved. Recomputing placement from
     // an empty selection would decide to hide it, which is the composer
-    // vanishing the instant it opens.
-    if (c.block && c.block.region) {
+    // vanishing the instant it opens. Nor is one mid-pick: the drag is the
+    // reviewer's gesture, and it is on the picture.
+    if (c.picking || (c.block && c.block.region)) {
       return;
     }
     // NOR IS A BLOCK GRIP'S, against anything but the reviewer. The selection
@@ -600,6 +620,8 @@ export const composerMethods = {
     // comment against the previous section's heading.
     c.block = null;
     c.opener = null;
+    c.grip = null;
+    c.mark.hidden = true;
     this.clearScope();
     c.button.disabled = false;
     // A PLACEMENT OUTRANKS A DEFERRED DISMISSAL. See the blur handler: its
@@ -722,16 +744,18 @@ export const composerMethods = {
   // `on this code block`), so the button pressed and the box it opened say
   // one thing. Nothing is quoted from a fence or a table: a head holding the
   // first characters of a shell command reads as an instruction about them.
+  // A region is `on a region of this figure`: the rectangle is the anchor,
+  // and the figure is what it is a region of.
   headBlockComposer(
     this: AppShell,
     target: Pick<GripTarget, 'kind' | 'figure'>,
     label: string,
+    region = false,
   ) {
-    this.composer.head.textContent = `INSTRUCTION · ON ${gripOn(
-      target,
-      label,
-      SECTION_QUOTE_CHARS,
-    )}`;
+    const on = gripOn(target, label, SECTION_QUOTE_CHARS);
+    this.composer.head.textContent = `INSTRUCTION · ON ${
+      region ? 'a region of ' : ''
+    }${on}`;
   },
 
   headComposer(this: AppShell, quote: string) {
@@ -747,6 +771,13 @@ export const composerMethods = {
   },
 
   hideComposer(this: AppShell) {
+    // A pick in progress goes with the composer it was started from; the
+    // crosshair must not outlive the form it would have come back to.
+    const picking = this.composer.picking;
+    this.composer.picking = null;
+    if (picking) {
+      picking();
+    }
     this.clearScope();
     this.composer.root.hidden = true;
     this.composer.form.hidden = true;
@@ -764,6 +795,8 @@ export const composerMethods = {
     this.composer.anchor = null;
     this.composer.block = null;
     this.composer.opener = null;
+    this.composer.grip = null;
+    this.composer.mark.hidden = true;
     this.composer.button.disabled = false;
     // A block grip disables send for a block the server has not listed yet;
     // the next composer starts from the seal's answer, never from that.

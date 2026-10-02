@@ -6865,12 +6865,14 @@ function bindsContentField(src) {
     );
 
     // Region picking, and the card it produces. §11 fixes "on figure region"
-    // verbatim, and it reaches the bundle only through threadLabel.
+    // verbatim, and it reaches the bundle only through threadLabel. The way in
+    // is the figure grip's Mark a region; the ⊕ button on the picture is gone.
     check(
       'the built bundle carries region picking',
       src.includes('gly-region-draft') &&
         src.includes('on figure region') &&
-        src.includes('comment on a region'),
+        src.includes('Mark a region') &&
+        !src.includes('comment on a region'),
     );
 
     // §6/R4. Both halves have to be in the bundle the binary embeds: the figure

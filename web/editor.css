@@ -475,36 +475,14 @@
 
 /* --- commenting on part of a figure ---
 
-   ⊕ enters pick mode; a drag draws the rectangle; the pins are drawn from the
-   thread list. Everything here is in PERCENTAGES of the figure box, because the
+   Mark a region, in a figure's composer, enters pick mode; a drag draws the
+   rectangle; the pins are drawn from the thread list. Everything here is in PERCENTAGES of the figure box, because the
    rectangle is stored as fractions of it — which means a reflow moves a pin with
    its picture and there is nothing to re-measure, and so nothing that can be
    measured wrong. */
-.ProseMirror .gly-region-button {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--gly-line);
-  border-radius: 999px;
-  background: var(--gly-card);
-  color: var(--gly-muted);
-  font: 11px/1.5 var(--gly-mono);
-  cursor: pointer;
-  user-select: none;
-  /* Quiet until the figure is under the pointer or the button has focus: the
-     verb is discoverable without decorating every picture in the document. */
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.ProseMirror .gly-figure:hover .gly-region-button,
-.ProseMirror .gly-region-button:focus-visible { opacity: 1; }
-.ProseMirror .gly-region-button:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
-
 /* Violet — §8 gives threads and figure pins the sock violet, and a pin IS a
    thread. Crosshair and a dashed violet outline are §6's own words. */
 .ProseMirror .gly-figure.gly-picking { cursor: crosshair; outline: 2px dashed var(--gly-hl); }
-.ProseMirror .gly-figure.gly-picking .gly-region-button { display: none; }
 .ProseMirror .gly-region-draft {
   position: absolute;
   border: 1px dashed var(--gly-hl);

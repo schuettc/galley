@@ -215,17 +215,18 @@ page.on('pageerror', (e) => console.log(`      [page] ${e.message}`));
 await page.goto(base, { waitUntil: 'networkidle' });
 await page.locator('.ProseMirror table').first().waitFor({ timeout: 15000 });
 await page.waitForTimeout(1200);
-// blockBox is the box of the top-level block at `index`, read the way the grip
-// reads it: the element ProseMirror drew for that child. Put on the page once,
-// so every section asks it the same way.
+// blockDom is the element ProseMirror drew for the top-level block at
+// `index`, and blockBox its box, read the way the grip reads it. Put on the
+// page once, so every section asks it the same way.
 await page.evaluate(() => {
-  window.blockBox = (index) => {
+  window.blockDom = (index) => {
     const view = window.galleyEdit.editor.view;
     const doc = view.state.doc;
     let pos = 0;
     for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
-    return view.nodeDOM(pos).getBoundingClientRect();
+    return view.nodeDOM(pos);
   };
+  window.blockBox = (index) => window.blockDom(index).getBoundingClientRect();
 });
 
 {
@@ -713,9 +714,20 @@ let filedKey = '';
 // form's grown height fits beneath it.
 async function fileOn(kind, text) {
   const ref = ((await pending()).blocks || []).find((b) => b.kind === kind);
-  const grip = page.locator(`.gly-block-grip[data-kind="${kind}"]`);
+  const { opened, seat } = await openGrip(ref);
+  if (opened) await page.keyboard.type(text);
+  const one = opened ? await sendFor(text) : null;
+  return { ref, opened, seat, one };
+}
+
+// openGrip presses the grip of the server's block `ref` and reads where the
+// composer opened against it. See fileOn.
+async function openGrip(ref) {
+  const grip = page.locator(
+    `.gly-block-grip[data-index="${ref ? ref.index : -1}"]`,
+  );
   if (!ref || (await grip.count()) !== 1) {
-    return { ref, opened: false, seat: null, one: null };
+    return { opened: false, seat: null };
   }
   await page
     .waitForFunction(
@@ -743,29 +755,33 @@ async function fileOn(kind, text) {
     const b = window.blockBox(index);
     const c = document.querySelector('.gly-composer').getBoundingClientRect();
     const deny = document.querySelector('.gly-composer-deny');
+    const mark = document.querySelector('.gly-composer-region');
     return {
       below: Math.round((c.top - b.bottom) * 10) / 10,
       covers: c.top < b.bottom && c.bottom > b.top,
       deny: !!deny && !deny.hidden,
       head: document.querySelector('.gly-composer-head').textContent,
+      mark: !!mark && mark.checkVisibility() ? mark.textContent : null,
       lit: [...document.querySelector('.ProseMirror').children]
         .map((e, i) => (e.classList.contains('gly-grip-scope') ? i : -1))
         .filter((i) => i >= 0),
     };
   }, ref.index);
+  return { opened, seat };
+}
+
+// sendFor presses Enter in the open composer and returns the instruction the
+// server filed for `text`, once it is listed with its anchor (§5's reason).
+async function sendFor(text) {
+  await page.keyboard.press('Enter');
   let one = null;
-  if (opened) {
-    await page.keyboard.type(text);
-    await page.keyboard.press('Enter');
-    // With its anchor, for the reason §5 waits for one.
-    for (let wait = 0; wait < 40 && !one?.anchor; wait += 1) {
-      one =
-        ((await pending()).instructions || []).find((i) => i.text === text) ||
-        null;
-      if (!one?.anchor) await page.waitForTimeout(250);
-    }
+  for (let wait = 0; wait < 40 && !one?.anchor; wait += 1) {
+    one =
+      ((await pending()).instructions || []).find((i) => i.text === text) ||
+      null;
+    if (!one?.anchor) await page.waitForTimeout(250);
   }
-  return { ref, opened, seat, one };
+  return one;
 }
 
 // cardBeside reads the rail card for `key` against the block at `index`: how
@@ -962,6 +978,211 @@ for (const [kind, text, head] of [
   if (one) filed.push(one.key);
 }
 
+// --- §10 a figure, whole ---------------------------------------------------
+//
+// The image's grip opens the composer beneath the picture, on the whole
+// picture, and offers the way to a part of it. The grip is the figure's one
+// control: nothing is drawn inside the picture to reach it.
+{
+  const { ref, opened, seat, one } = await fileOn('image', 'wrong colours');
+  check(
+    'the figure’s grip opens the form beneath the figure, on the whole figure, offering Mark a region',
+    opened &&
+      !!seat &&
+      !seat.deny &&
+      seat.below >= 0 &&
+      seat.below <= 8 &&
+      !seat.covers &&
+      seat.head === 'INSTRUCTION \u00b7 ON this figure' &&
+      seat.mark === 'Mark a region',
+    seat,
+  );
+  check(
+    'and files one BLOCK instruction on the image, with no region',
+    !!one &&
+      !!ref &&
+      one.anchor === 'block' &&
+      one.blockKind === 'image' &&
+      one.anchorKey === ref.key &&
+      !one.region,
+    one,
+  );
+  if (one) filed.push(one.key);
+  const controls = await page.evaluate(
+    (index) => {
+      const el = window.blockDom(index);
+      return {
+        grips: document.querySelectorAll(
+          `.gly-block-grip[data-index="${index}"]`,
+        ).length,
+        inside: el.querySelectorAll('button:not(.gly-region-pin)').length,
+      };
+    },
+    ref ? ref.index : -1,
+  );
+  check(
+    'the figure has one grip beside it and no control of its own inside it',
+    controls.grips === 1 && controls.inside === 0,
+    controls,
+  );
+}
+
+// figureOf is the `.gly-figure` box of the top-level block at `index`, in
+// viewport coordinates, and whether it is picking.
+const figureOf = (index) =>
+  page.evaluate((i) => {
+    const el = window.blockDom(i);
+    const r = el.getBoundingClientRect();
+    const form = document.querySelector('.gly-composer-form');
+    return {
+      x: r.left,
+      y: r.top,
+      w: r.width,
+      h: r.height,
+      picking: el.classList.contains('gly-picking'),
+      drafts: el.querySelectorAll('.gly-region-draft').length,
+      form: !!form && form.checkVisibility(),
+      words: document.querySelector('.gly-composer-text').value,
+      head: document.querySelector('.gly-composer-head').textContent,
+    };
+  }, index);
+
+// The diagram, as the server lists it: the top-level fence whose language is
+// mermaid, found by the editor and matched to the server's block by index.
+const diagram = await (async () => {
+  const index = await page.evaluate(() => {
+    let at = -1;
+    window.galleyEdit.editor.state.doc.forEach((node, _pos, i) => {
+      if (node.attrs.language === 'mermaid') at = i;
+    });
+    return at;
+  });
+  return ((await pending()).blocks || []).find((b) => b.index === index);
+})();
+
+// --- §12 Esc during the pick goes back to the whole figure ----------------
+//
+// Pressing Mark a region and then thinking better of it keeps the words: the
+// form comes back on the whole figure, and the picture is left as it was.
+{
+  const { opened } = await openGrip(diagram);
+  if (opened) await page.keyboard.type('kept words');
+  const mark = page.locator('.gly-composer-region');
+  if (opened && (await mark.isVisible())) await mark.click();
+  const picking = diagram ? await figureOf(diagram.index) : null;
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  const back = diagram ? await figureOf(diagram.index) : null;
+  check(
+    'Mark a region puts the figure into picking and puts the form away',
+    !!picking && picking.picking && !picking.form,
+    picking,
+  );
+  check(
+    'Esc while picking returns to the whole-figure form with the words kept, and leaves nothing in the figure',
+    !!back &&
+      back.form &&
+      back.words === 'kept words' &&
+      back.head === 'INSTRUCTION \u00b7 ON this diagram' &&
+      !back.picking &&
+      back.drafts === 0,
+    back,
+  );
+  await page.keyboard.press('Escape');
+}
+
+// --- §11 a region of a diagram, end to end -------------------------------
+let regionFiled = '';
+{
+  const { opened } = await openGrip(diagram);
+  if (opened) await page.keyboard.type('this arrow');
+  const mark = page.locator('.gly-composer-region');
+  if (opened && (await mark.isVisible())) await mark.click();
+  const box = diagram ? await figureOf(diagram.index) : null;
+  check(
+    'Mark a region on the diagram puts it into picking with the form put away',
+    !!box && box.picking && !box.form,
+    box,
+  );
+  // A real drag, in steps, from a quarter in to three quarters across and
+  // three fifths down.
+  if (box) {
+    await page.mouse.move(box.x + box.w * 0.25, box.y + box.h * 0.25);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.w * 0.75, box.y + box.h * 0.6, {
+      steps: 8,
+    });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+  }
+  const after = diagram ? await figureOf(diagram.index) : null;
+  check(
+    'the drag brings the form back with the words in it, on a region of this diagram',
+    !!after &&
+      after.form &&
+      !after.picking &&
+      after.drafts === 0 &&
+      after.words === 'this arrow' &&
+      after.head === 'INSTRUCTION \u00b7 ON a region of this diagram',
+    after,
+  );
+  const one = after && after.form ? await sendFor('this arrow') : null;
+  const near = (a, b) => Math.abs(a - b) <= 0.02;
+  const r = one && one.region;
+  check(
+    'sending files the instruction on the diagram with the rectangle that was dragged',
+    !!r &&
+      one.anchorKey === diagram.key &&
+      near(r.x, 0.25) &&
+      near(r.y, 0.25) &&
+      near(r.w, 0.5) &&
+      near(r.h, 0.35),
+    one,
+  );
+  regionFiled = one ? one.key : '';
+  if (regionFiled) filed.push(regionFiled);
+  const pin = await page
+    .waitForSelector('.ProseMirror .gly-figure-mermaid .gly-region-pin', {
+      timeout: regionFiled ? 10000 : 1,
+    })
+    .then(
+      (el) =>
+        el.evaluate((p) => ({
+          left: parseFloat(p.style.left),
+          top: parseFloat(p.style.top),
+          width: parseFloat(p.style.width),
+          height: parseFloat(p.style.height),
+        })),
+      () => null,
+    );
+  const pct = (a, b) => Math.abs(a - b) <= 2;
+  check(
+    'a pin is drawn on the diagram where the rectangle was',
+    !!pin &&
+      pct(pin.left, 25) &&
+      pct(pin.top, 25) &&
+      pct(pin.width, 50) &&
+      pct(pin.height, 35),
+    pin,
+  );
+  let rung = false;
+  if (pin) {
+    await page
+      .locator('.ProseMirror .gly-figure-mermaid .gly-region-pin')
+      .click();
+    rung = await page
+      .waitForSelector(
+        `.gly-rail .gly-thread[data-key="${regionFiled}"].gly-flash`,
+        { timeout: 1000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+  }
+  check('and pressing the pin rings its card in the rail', rung);
+}
+
 await browser.close();
 
 // --- §6 the file holds the marks and nothing of the grip -----------------
@@ -979,7 +1200,9 @@ await browser.close();
       filed.every((k) => marks.includes(k)) &&
       !disk.includes('+') &&
       !disk.includes('Mark a region') &&
-      !disk.includes('Add an instruction'),
+      !disk.includes('Add an instruction') &&
+      !disk.includes('gly-region') &&
+      !disk.includes('<div'),
     { marks, filed, disk },
   );
   // The table's mark is a block of its own: after the last row, before the
@@ -1027,6 +1250,17 @@ await browser.close();
       () => false,
     );
   check('and so is its card', card);
+  const region = (list || []).find((i) => i.key === regionFiled)?.region;
+  const near = (a, b) => Math.abs(a - b) <= 0.02;
+  check(
+    'reopened, the diagram’s region is the rectangle that was dragged',
+    !!region &&
+      near(region.x, 0.25) &&
+      near(region.y, 0.25) &&
+      near(region.w, 0.5) &&
+      near(region.h, 0.35),
+    region || list,
+  );
   await reopened.close();
   await stopped();
 }
