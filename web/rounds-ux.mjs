@@ -168,6 +168,28 @@ async function addRangeInstruction(page, text) {
   );
 }
 
+// THE VERDICT MENU, OPENED ONLY ONCE THE PRIMARY SAYS REVISE. The server lists
+// a new instruction at once, but the page repaints the primary on its own
+// poll, so right after a filing it can still read Approve — and pressing
+// Approve then seals the review instead of opening the menu. Wait for the
+// label, then press, then wait for the menu itself.
+async function openVerdictMenu(page) {
+  if (await page.locator('.gly-verdict-menu').isVisible()) return;
+  await page.waitForFunction(
+    () => {
+      const b = document.querySelector('#gly-revise');
+      return !!b && !b.disabled && b.innerText.includes('Revise');
+    },
+    null,
+    { timeout: 10000 },
+  );
+  await page.click('#gly-revise');
+  await page.waitForSelector('.gly-verdict-menu', {
+    state: 'visible',
+    timeout: 5000,
+  });
+}
+
 // THE HANDLE IS THE BAR'S NOW, AND IT DOES NOT TOGGLE. It used to be the rail's
 // own `+ instruction on the whole document`, and it toggled — so a second
 // unconditional click on an already-open form shut it and the fill that
@@ -2001,8 +2023,7 @@ try {
       ]),
     );
     const asked = new Map(listed);
-    if (!(await page.locator('.gly-verdict-menu').isVisible()))
-      await page.click('#gly-revise');
+    await openVerdictMenu(page);
     const before = await windowMark(page);
     await page.click('.gly-verdict-revise');
     // THE WINDOW, NOT THE CLEARED PENDING SET. The press clears the
@@ -3294,7 +3315,7 @@ try {
   );
 
   await addOverallInstruction(page, 'Final trusted pass.', 1);
-  await page.click('#gly-revise');
+  await openVerdictMenu(page);
   const beforeTrust = await windowMark(page);
   await page.click('.gly-verdict-trust');
   // The window this press opened, before the ack. See responseWindowOpen.
@@ -3313,7 +3334,7 @@ try {
   // plainly carried out; narrowing it without driving the narrow case is how it
   // would come back, because a state nothing drives is a state nothing protects.
   await addRangeInstruction(page, 'Rewrite this in the passive voice.', 1);
-  await page.click('#gly-revise');
+  await openVerdictMenu(page);
   await page.click('.gly-verdict-revise');
   await page.waitForTimeout(900);
   const cannotCode = await page.evaluate(
