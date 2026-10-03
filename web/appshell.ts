@@ -393,6 +393,8 @@ export interface AppState {
   // `gripSizes` is optional for `barSize`'s reason: it is assigned only
   // inside a `typeof window.ResizeObserver === 'function'` branch.
   grips: HTMLElement;
+  // The block instruction's one scope outline, beside the grips (paintScope).
+  scopeBox: HTMLElement;
   scheduleGrips: () => void;
   gripSizes?: ResizeObserver;
 
@@ -575,6 +577,7 @@ export interface AppMethods {
   adoptGripBlock(): void;
   openSheet(): void;
   paintGrips(): void;
+  paintScope(): void;
   paintPins(el: HTMLElement, ref: BlockRef | null): void;
 
   // --- the composer, and the refused-keystroke note (web/composer.ts) ---
@@ -659,6 +662,7 @@ export interface AppMethods {
 
   // --- figures' own builder (web/figures.ts) ---
   makeGripLayer(): HTMLElement;
+  makeScopeBox(): HTMLElement;
 
   // --- the seal and the handoff's own builders (web/seal.ts) ---
   makeHandoffCancel(): HTMLButtonElement | null;

@@ -230,6 +230,33 @@ await page.evaluate(() => {
     return view.nodeDOM(pos);
   };
   window.blockBox = (index) => window.blockDom(index).getBoundingClientRect();
+  // scopeOver reads every scope outline shown on the page against the
+  // top-level blocks `from` to `to`: how many outlines there are, whether any
+  // is inside the document (where it would be content), and how far the one
+  // outline's top and bottom stand outside the first block's top and the last
+  // block's bottom. One outline spanning the blocks is the claim.
+  window.scopeOver = (from, to) => {
+    const shown = [...document.querySelectorAll('.gly-grip-scope')].filter(
+      (e) => e.checkVisibility() && e.getBoundingClientRect().height > 0,
+    );
+    const r = shown.length === 1 ? shown[0].getBoundingClientRect() : null;
+    return {
+      n: shown.length,
+      inside: shown.some((e) => !!e.closest('.ProseMirror')),
+      top: r ? +(window.blockBox(from).top - r.top).toFixed(1) : null,
+      bottom: r ? +(r.bottom - window.blockBox(to).bottom).toFixed(1) : null,
+    };
+  };
+  // spans is that claim: exactly one outline, outside the document, whose
+  // edges stand at most 8px outside the first block's top and the last
+  // block's bottom and never inside them.
+  window.spans = (s) =>
+    s.n === 1 &&
+    !s.inside &&
+    s.top >= 0 &&
+    s.top <= 8 &&
+    s.bottom >= 0 &&
+    s.bottom <= 8;
   // gripSeats reads every shown grip where a reviewer would press it: each is
   // scrolled to the middle of the window first, so "pressable" is not asked
   // under the bar. Positions are in PAGE coordinates, so grips read at
@@ -343,9 +370,29 @@ await page.mouse.move(0, 0);
       ),
     rest,
   );
+  // FAINT AT REST, FULL UNDER THE POINTER. A gutter of full-strength buttons
+  // beside every block reads louder than the prose it is beside; the grip is
+  // drawn at full strength only when it is being reached for or has
+  // something to say (its count, §14; keyboard focus, §17).
+  const strength = await page.evaluate(() =>
+    [...document.querySelectorAll('.gly-block-grip:not([hidden])')].map((g) =>
+      Number(getComputedStyle(g).opacity),
+    ),
+  );
+  const first = page.locator('.gly-block-grip:not([hidden])').first();
+  await first.hover();
+  const hovered = await first.evaluate((g) =>
+    Number(getComputedStyle(g).opacity),
+  );
+  await page.mouse.move(0, 0);
+  check(
+    'at rest every grip is faint, and the one under the pointer is at full strength',
+    strength.length > 0 && strength.every((o) => o <= 0.6) && hovered === 1,
+    { strength, hovered },
+  );
 }
 
-// --- §2 a large target, in the gutter, level with its block --------------
+// --- §2 a target in the gutter, level with its block ---------------------
 //
 // Each grip is read where a reviewer would press it (gripSeats).
 //
@@ -354,10 +401,12 @@ await page.mouse.move(0, 0);
 // heading over a table, 61; an h4 over a table, 48), so the heading directly
 // over the table does not, by itself, crowd its grips, and "no two grips
 // overlap" would hold with no stacking at all. Closing the margins between
-// the two makes them a pair the stacker has to separate, and the document
-// changing size under the grips is what the repaint has to notice.
+// the two, and the heading's own line to less than one grip (with its
+// margins gone it is still 31px tall, more than a 24px grip), makes them a
+// pair the stacker has to separate, and the document changing size under
+// the grips is what the repaint has to notice.
 const closer = await page.addStyleTag({
-  content: `.ProseMirror > h2 { margin-bottom: 0 !important; }
+  content: `.ProseMirror > h2 { margin-bottom: 0 !important; line-height: 16px !important; }
 .ProseMirror > h2 + *, .ProseMirror > h2 + * table { margin-top: 0 !important; }`,
 });
 await page.waitForTimeout(300);
@@ -365,8 +414,11 @@ await page.waitForTimeout(300);
   const seats = await page.evaluate(() => window.gripSeats());
   const near = (a, b) => Math.abs(a - b) <= 2;
   check(
-    'every grip is at least 32px square',
-    seats.length > 0 && seats.every((s) => s.w >= 32 && s.h >= 32),
+    'every grip is 24px square',
+    seats.length > 0 &&
+      seats.every(
+        (s) => Math.abs(s.w - 24) <= 0.5 && Math.abs(s.h - 24) <= 0.5,
+      ),
     seats.map((s) => [s.kind, s.w, s.h]),
   );
   check(
@@ -374,6 +426,13 @@ await page.waitForTimeout(300);
     seats.length > 0 &&
       seats.every((s) => s.right <= s.blockLeft && s.left >= 0),
     seats.map((s) => [s.kind, s.left, s.right, s.blockLeft]),
+  );
+  // Out in the margin, not against the text: a grip touching its block reads
+  // as part of it.
+  check(
+    'every grip stands at least 12px clear of its block',
+    seats.length > 0 && seats.every((s) => s.blockLeft - s.right >= 12),
+    seats.map((s) => [s.kind, Math.round((s.blockLeft - s.right) * 10) / 10]),
   );
   // Level with its block's first line, or — where the block above it is
   // closer than one grip — pushed down just clear of the grip above.
@@ -564,19 +623,17 @@ let filedKey = '';
         if (c.type.name === 'heading' && c.attrs.level <= level) break;
         want += 1;
       }
-      const lit = [...document.querySelector('.ProseMirror').children]
-        .map((e, i) => (e.classList.contains('gly-grip-scope') ? i : -1))
-        .filter((i) => i >= 0);
-      return { want, lit, from: index };
+      const over = window.scopeOver(index, index + want - 1);
+      return { want, over, ok: window.spans(over) };
     },
     heading2 ? heading2.index : -1,
   );
+  // ONE OUTLINE AROUND THE SECTION. A box drawn round each block under the
+  // heading reads as that many separate things, which is not what the
+  // instruction is about.
   check(
-    'the scope outlines exactly the section: the heading and every block under it',
-    !!scope &&
-      scope.lit.length === scope.want &&
-      scope.lit[0] === scope.from &&
-      scope.lit[scope.lit.length - 1] === scope.from + scope.want - 1,
+    'the scope is ONE outline round the whole section, from the heading to the section\u2019s last block',
+    !!scope && scope.want > 1 && scope.ok,
     scope,
   );
 
@@ -777,9 +834,7 @@ async function openGrip(ref) {
       deny: !!deny && !deny.hidden,
       head: document.querySelector('.gly-composer-head').textContent,
       mark: !!mark && mark.checkVisibility() ? mark.textContent : null,
-      lit: [...document.querySelector('.ProseMirror').children]
-        .map((e, i) => (e.classList.contains('gly-grip-scope') ? i : -1))
-        .filter((i) => i >= 0),
+      scope: window.spans(window.scopeOver(index, index)),
     };
   }, ref.index);
   return { opened, seat };
@@ -932,6 +987,7 @@ const gripsNow = (on = page) =>
         label: g.getAttribute('aria-label'),
         title: g.title,
         commented: g.classList.contains('is-commented'),
+        opacity: Number(getComputedStyle(g).opacity),
         shown: g.checkVisibility(),
         off: g.hidden && g.disabled,
         centre: [r.left + r.width / 2, r.top + r.height / 2 + window.scrollY],
@@ -984,7 +1040,7 @@ let tableFiled = '';
     !!seat &&
       !!ref &&
       seat.head === 'INSTRUCTION \u00b7 ON this table' &&
-      seat.lit.join() === String(ref.index),
+      seat.scope,
     seat,
   );
   check(
@@ -1058,12 +1114,13 @@ let tableFiled = '';
     was,
   );
   check(
-    'after one instruction it reads 1, its name ends (1 already), and it is painted as commented',
+    'after one instruction it reads 1, its name ends (1 already), and it is painted as commented, at full strength',
     !!is &&
       is.face === '1' &&
       is.label.endsWith('(1 already)') &&
       is.title === is.label &&
-      is.commented,
+      is.commented &&
+      is.opacity === 1,
     is,
   );
   // The note the instruction put under the table moves every block after it,
@@ -1511,6 +1568,10 @@ const focused = () =>
   }
   await page.keyboard.press('Tab');
   const second = await focused();
+  const strong = await page.evaluate(() =>
+    Number(getComputedStyle(document.activeElement).opacity),
+  );
+  check('a grip with keyboard focus is at full strength', strong === 1, strong);
   check(
     'Tab from the end of the document reaches the first grip, and Tab again the next',
     order.length > 1 &&
@@ -1669,13 +1730,13 @@ for (const width of [1440, 1100, 992, 800, 390]) {
         s.left >= 0 &&
         s.right <= fit.iw &&
         s.right <= s.blockLeft &&
-        s.w >= 32 &&
-        s.h >= 32 &&
+        Math.abs(s.w - 24) <= 0.5 &&
+        Math.abs(s.h - 24) <= 0.5 &&
         s.hit
       ),
   );
   check(
-    `at ${width}px every grip is in the window, in the gutter, 32px square and pressable`,
+    `at ${width}px every grip is in the window, in the gutter, 24px square and pressable`,
     seats.length === eligible.length && bad.length === 0,
     { n: seats.length, bad },
   );
@@ -1743,6 +1804,226 @@ for (const width of [1440, 1100, 992, 800, 390]) {
   );
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1440, height: 1000 });
+}
+
+// fenceIndex is the top-level index of the fixture's plain code block, the
+// one that is not a diagram.
+const fenceIndex = () =>
+  page.evaluate(() => {
+    let at = -1;
+    window.galleyEdit.editor.state.doc.forEach((node, _pos, i) => {
+      if (
+        at < 0 &&
+        node.type.name === 'codeBlock' &&
+        node.attrs.language !== 'mermaid'
+      )
+        at = i;
+    });
+    return at;
+  });
+
+// boxUnder reads the open composer against the block at `index`, in the
+// window as it is now: how far below the block's bottom the box starts, and
+// where the box and the window end.
+const boxUnder = (index) =>
+  page.evaluate((i) => {
+    const b = window.blockBox(i);
+    const c = document.querySelector('.gly-composer').getBoundingClientRect();
+    return {
+      open: !document.querySelector('.gly-composer-form').hidden,
+      below: +(c.top - b.bottom).toFixed(1),
+      top: +c.top.toFixed(1),
+      bottom: +c.bottom.toFixed(1),
+      blockTop: +b.top.toFixed(1),
+      blockBottom: +b.bottom.toFixed(1),
+      window: window.innerHeight,
+      scrollY: window.scrollY,
+      scrolls:
+        document.querySelector('.gly-composer-text').style.overflowY === 'auto',
+    };
+  }, index);
+
+// --- §20 a grip low in a short window opens its box beneath its block ----
+//
+// THE BOX STAYS WITH ITS BLOCK. With a code block in the lower half of a
+// short window there is not room beneath it for the form, and the box used
+// to be hung from the window's foot instead — far below the block, over the
+// next one. The page is scrolled just far enough that the form fits beneath
+// its block, and the box opens there. Growing, it is held to the room the
+// window has — here none past its opening height, since the page scrolled
+// only that far — and the words scroll inside it.
+{
+  await page.setViewportSize({ width: 1440, height: 600 });
+  await page.waitForTimeout(600);
+  const index = await fenceIndex();
+  // The block's top at 62% of the window: in its lower half, with less room
+  // beneath it than the form needs.
+  await page.evaluate(
+    (i) => window.scrollBy(0, window.blockBox(i).top - 370),
+    index,
+  );
+  await page.waitForTimeout(200);
+  const before = await page.evaluate(() => window.scrollY);
+  await page.locator(`.gly-block-grip[data-index="${index}"]`).click();
+  await page
+    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+    .catch(() => {});
+  await page.waitForTimeout(200);
+  const low = await boxUnder(index);
+  check(
+    'a grip on a block in the lower half of a short window opens its box just beneath the block, scrolling the page to make room',
+    low.open &&
+      low.below >= 0 &&
+      low.below <= 8 &&
+      low.top >= 0 &&
+      low.bottom <= low.window + 0.5 &&
+      low.blockBottom > 0 &&
+      low.scrollY > before,
+    { ...low, before },
+  );
+  await page.evaluate(() => {
+    const t = document.querySelector('.gly-composer-text');
+    t.value = Array.from({ length: 60 }, (_, n) => `line ${n + 1}`).join('\n');
+    t.dispatchEvent(new Event('input'));
+  });
+  await page.waitForTimeout(150);
+  const grown = await boxUnder(index);
+  check(
+    'and with sixty lines typed it stays beneath the block and inside the window, and scrolls inside itself',
+    grown.open &&
+      Math.abs(grown.top - low.top) <= 1 &&
+      grown.bottom <= grown.window + 0.5 &&
+      grown.scrolls,
+    { low, grown },
+  );
+  await page.evaluate(() => window.galleyEdit.app.hideComposer());
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.waitForTimeout(400);
+}
+
+// --- §21 a click off an empty box closes it ------------------------------
+//
+// An open box with nothing typed in it is put away by a click anywhere
+// outside it, a grip's box and a selection's alike; one holding words stays,
+// so a stray click never throws them away. Another grip still moves the box
+// to that grip.
+{
+  const index = await fenceIndex();
+  const table = ((await pending()).blocks || []).find(
+    (b) => b.kind === 'table',
+  );
+  // A point in the empty margin, left of every grip: nothing there to press.
+  const offBox = () => page.mouse.click(4, 500);
+  const state = () =>
+    page.evaluate(() => ({
+      open: !document.querySelector('.gly-composer').hidden,
+      words: document.querySelector('.gly-composer-text').value,
+      on: window.galleyEdit.app.composer.grip?.index ?? null,
+    }));
+  const openGripBox = async (i) => {
+    await page.evaluate(
+      (n) => window.scrollBy(0, window.blockBox(n).top - 150),
+      i,
+    );
+    await page.waitForTimeout(150);
+    await page.locator(`.gly-block-grip[data-index="${i}"]`).click();
+    await page
+      .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+      .catch(() => {});
+  };
+  // The words of the first closing paragraph, selected, and the form opened
+  // from the button beside them. The caret is put down first: selecting the
+  // words already selected is no selection change, so no button would come.
+  const openWordsBox = async () => {
+    await page.evaluate(() => {
+      const editor = window.galleyEdit.editor;
+      const doc = editor.state.doc;
+      const index = [...Array(doc.childCount).keys()].find((i) =>
+        doc.child(i).textContent.startsWith('Closing note 1'),
+      );
+      let at = 1;
+      for (let i = 0; i < index; i += 1) at += doc.child(i).nodeSize;
+      window.scrollBy(0, editor.view.coordsAtPos(at).top - 200);
+      editor.view.focus();
+      editor.commands.setTextSelection(at);
+      editor.commands.setTextSelection({ from: at, to: at + 12 });
+    });
+    await page
+      .locator('.gly-comment-button')
+      .click({ timeout: 3000 })
+      .catch(() => {});
+    await page
+      .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
+      .catch(() => {});
+  };
+  const prose = () =>
+    page.locator('.ProseMirror p', { hasText: 'Closing note 3' }).click();
+
+  await openGripBox(index);
+  const gripOpen = await state();
+  await offBox();
+  await page.waitForTimeout(150);
+  const gripShut = await state();
+  check(
+    'a click off a grip’s empty box closes it',
+    gripOpen.open && !gripShut.open,
+    { gripOpen, gripShut },
+  );
+
+  await openGripBox(index);
+  await page.keyboard.type('keep these words');
+  await offBox();
+  await page.waitForTimeout(150);
+  const gripKept = await state();
+  await prose();
+  await page.waitForTimeout(150);
+  const gripKeptProse = await state();
+  check(
+    'a grip’s box holding words stays open, words and all, through a click off it and a click in the prose',
+    [gripKept, gripKeptProse].every(
+      (s) => s.open && s.words === 'keep these words' && s.on === index,
+    ),
+    { gripKept, gripKeptProse },
+  );
+  await page.evaluate(() => window.galleyEdit.app.hideComposer());
+
+  await openWordsBox();
+  const wordsOpen = await state();
+  await offBox();
+  await page.waitForTimeout(150);
+  const wordsShut = await state();
+  check(
+    'a click off a selection’s empty box closes it',
+    wordsOpen.open && !wordsShut.open,
+    { wordsOpen, wordsShut },
+  );
+
+  await openWordsBox();
+  await page.keyboard.type('and these');
+  await offBox();
+  await page.waitForTimeout(150);
+  const wordsKept = await state();
+  await prose();
+  await page.waitForTimeout(150);
+  const wordsKeptProse = await state();
+  check(
+    'a selection’s box holding words stays open, words and all, through a click off it and a click in the prose',
+    [wordsKept, wordsKeptProse].every((s) => s.open && s.words === 'and these'),
+    { wordsKept, wordsKeptProse },
+  );
+  await page.evaluate(() => window.galleyEdit.app.hideComposer());
+
+  await openGripBox(index);
+  await page.keyboard.type('moving on');
+  await openGripBox(table ? table.index : -1);
+  const moved = await state();
+  check(
+    'pressing another grip moves the box to that grip',
+    !!table && moved.open && moved.on === table.index && moved.words === '',
+    moved,
+  );
+  await page.evaluate(() => window.galleyEdit.app.hideComposer());
+  await page.evaluate(() => window.scrollTo(0, 0));
 }
 
 await browser.close();

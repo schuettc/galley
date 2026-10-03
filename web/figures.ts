@@ -218,6 +218,17 @@ export const figureMethods = {
     return layer;
   },
 
+  // makeScopeBox builds the scope's one outline (paintScope), once, beside
+  // the grip layer and not in it: the layer's children are the grips, in the
+  // document's order.
+  makeScopeBox(this: AppShell): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'gly-grip-scope';
+    box.hidden = true;
+    (this.editor.view.dom.parentElement || document.body).appendChild(box);
+    return box;
+  },
+
   // paintGrips reconciles one grip per target and puts each beside its block.
   //
   // A BUTTON FOLLOWS ITS BLOCK. It is reused for the same block node first —
@@ -313,6 +324,46 @@ export const figureMethods = {
     grips.forEach((b, i) => {
       b.style.top = `${placed[i]}px`;
     });
+    // Whatever moved the grips moved the blocks the scope is drawn round.
+    this.paintScope();
+  },
+
+  // paintScope draws what an open block instruction is about as ONE outline:
+  // from the first block in scope's top to the last one's bottom, as wide as
+  // the widest of them. A section is one thing, and an outline round each of
+  // its blocks read as that many separate things. It is a box beside the
+  // grips, never inside `.ProseMirror` (see web/scope.ts), measured from the
+  // blocks every time the grips are, so it follows them as they move. No
+  // range, or no grips (nothing can be filed), draws nothing.
+  paintScope(this: AppShell) {
+    const box = this.scopeBox;
+    const host = box.parentElement;
+    const view = this.editor.view;
+    const range = scopeKey.getState(view.state)?.range;
+    const rects: DOMRect[] = [];
+    if (range && host && !this.grips.hidden) {
+      view.state.doc.forEach((node, pos) => {
+        const dom =
+          pos >= range.from && pos + node.nodeSize <= range.to
+            ? view.nodeDOM(pos)
+            : null;
+        if (dom instanceof HTMLElement) {
+          rects.push(dom.getBoundingClientRect());
+        }
+      });
+    }
+    if (!host || !rects.length) {
+      box.hidden = true;
+      return;
+    }
+    const at = host.getBoundingClientRect();
+    const top = Math.min(...rects.map((r) => r.top));
+    const left = Math.min(...rects.map((r) => r.left));
+    box.style.top = `${top - at.top}px`;
+    box.style.left = `${left - at.left}px`;
+    box.style.width = `${Math.max(...rects.map((r) => r.right)) - left}px`;
+    box.style.height = `${Math.max(...rects.map((r) => r.bottom)) - top}px`;
+    box.hidden = false;
   },
 
   // openBlockComposer is the one opener for every block's grip.
@@ -389,6 +440,9 @@ export const figureMethods = {
     c.send.disabled = !ref || !!this.sealed;
 
     view.dispatch(view.state.tr.setMeta(scopeKey, span));
+    this.paintScope();
+    // The head first: it is part of the box placeComposer measures.
+    this.headBlockComposer(target, label);
 
     // BENEATH THE BLOCK, never over it: a composer over the thing the note is
     // about covers it. A heading's is beneath its LINE, which says which
@@ -406,7 +460,6 @@ export const figureMethods = {
         view.coordsAtPos(target.pos + node.nodeSize - 1),
       );
     }
-    this.headBlockComposer(target, label);
     c.input.focus();
   },
 

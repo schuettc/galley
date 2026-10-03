@@ -102,9 +102,10 @@
   /* THE BLOCK GRIP'S SIZES, here and nowhere else. web/figures.ts measures the
      grip it painted and hands that height to web/grips.ts's stacker, so there
      is no second spelling of the size in the script to drift from this one.
-     32px is a target a pointer lands on without aiming; the gutter is the
-     grip and 8px clear of the text. */
-  --gly-grip-size: 32px;
+     24px is a target a pointer lands on and small enough to stay quiet
+     beside every block; the grip sits at the gutter's outer edge, so it
+     stands 16px clear of the text. */
+  --gly-grip-size: 24px;
   --gly-grip-gutter: 40px;
   --gly-grip-gap: 4px;
 
@@ -1421,6 +1422,11 @@ body.gly-collapsed:not(.gly-page) > main {
   height: 0;
   z-index: 4;
 }
+/* FAINT AT REST. A grip beside every block at full strength is a column of
+   buttons louder than the prose; at rest it is half there, and it comes up
+   to full strength when it is reached for (hover, keyboard focus) or has
+   something to say (its count, below). Opacity and nothing else, so the
+   box, its border and its face are one box in every state. */
 .gly-block-grip {
   position: absolute;
   top: 0;
@@ -1430,12 +1436,16 @@ body.gly-collapsed:not(.gly-page) > main {
   margin: 0;
   padding: 0;
   border: 1px solid var(--gly-line);
-  border-radius: 6px;
+  border-radius: 5px;
   background: var(--gly-card);
   color: var(--gly-muted);
-  font: 16px/1 var(--gly-mono);
+  font: 13px/1 var(--gly-mono);
   cursor: pointer;
+  opacity: 0.5;
 }
+.gly-block-grip:hover,
+.gly-block-grip:focus-visible,
+.gly-block-grip.is-commented { opacity: 1; }
 .gly-block-grip:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
 /* A block that already carries instructions: the face is their count, and the
    grip wears the instruction's own violet, edge and ground. PAINT ONLY — the
@@ -1450,11 +1460,18 @@ body.gly-collapsed:not(.gly-page) > main {
 /* Its focus ring is the card's — see `.gly-card:focus-visible`. */
 
 /* What a block instruction will be about, while its composer is up: the
-   section under a heading, or the one block. A NODE DECORATION (web/scope.ts),
-   because a class written onto a rendered block is wiped on the next redraw.
-   An OUTLINE, because an outline takes no space: nothing moves when the scope
-   is drawn. Violet, the instruction's own colour, as the figure's pick mode. */
-.ProseMirror .gly-grip-scope {
+   section under a heading, or the one block. ONE BOX round all of it, beside
+   the grips and never inside `.ProseMirror` (web/figures.ts's paintScope
+   sizes it to the blocks), because a section is one thing and a box round
+   each of its blocks read as several. It takes no part in the flow and no
+   pointer, so nothing moves and nothing under it stops answering. An
+   OUTLINE, offset off the blocks so it does not sit on their text. Violet,
+   the instruction's own colour, as the figure's pick mode. */
+.gly-grip-scope {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 4px;
   outline: 1px dashed var(--gly-hl);
   outline-offset: 3px;
 }

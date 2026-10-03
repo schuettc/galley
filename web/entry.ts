@@ -135,7 +135,7 @@ import { keyMethods } from './keys.ts';
 import { pendingMethods } from './pending.ts';
 import { sheetMethods } from './sheet.ts';
 import { cardMethods } from './cards.ts';
-import { composerMethods } from './composer.ts';
+import { composerMethods, holdsWords } from './composer.ts';
 import { figureMethods } from './figures.ts';
 import { historyMethods } from './history.ts';
 import { barMethods, MODE_ASK } from './bar.ts';
@@ -860,6 +860,7 @@ class App implements AppState {
 
   // --- the block grips (web/figures.ts) ---
   grips: HTMLElement;
+  scopeBox: HTMLElement;
   scheduleGrips: () => void;
   gripSizes?: ResizeObserver;
 
@@ -1038,6 +1039,7 @@ class App implements AppState {
     // observer on the column alone never fires, and every grip stays where
     // the column used to be. `#editor` is what changes size then.
     this.grips = this.makeGripLayer();
+    this.scopeBox = this.makeScopeBox();
     this.scheduleGrips = coalesce(() => this.paintGrips());
     if (typeof window.ResizeObserver === 'function') {
       this.gripSizes = new window.ResizeObserver(() => this.scheduleGrips());
@@ -1270,11 +1272,13 @@ class App implements AppState {
           !transaction.getMeta(PLACE_META),
       );
     });
-    // A CLICK INTO THE PROSE CLOSES A BLOCK GRIP'S COMPOSER, even one that
-    // lands where the caret already was and so changes no selection. A
+    // A CLICK INTO THE PROSE CLOSES A BLOCK GRIP'S EMPTY COMPOSER, even one
+    // that lands where the caret already was and so changes no selection. A
     // selection made by that click places its own composer straight after.
+    // One holding words stays (see holdsWords).
     editor.on('focus', () => {
-      if (this.composer.opener && !this.composer.root.hidden) {
+      const c = this.composer;
+      if (c.opener && !c.root.hidden && !holdsWords(c)) {
         this.hideComposer();
       }
     });
@@ -1295,7 +1299,10 @@ class App implements AppState {
       window.clearTimeout(this.blurDismiss);
       this.blurDismiss = window.setTimeout(() => {
         this.blurDismiss = 0;
-        if (!this.composer.root.contains(document.activeElement)) {
+        if (
+          !this.composer.root.contains(document.activeElement) &&
+          !holdsWords(this.composer)
+        ) {
           this.hideComposer();
         }
       }, 0);
@@ -1384,6 +1391,32 @@ class App implements AppState {
         this.chromeFrame(),
       );
     });
+    // A PRESS OFF AN EMPTY COMPOSER PUTS IT AWAY, a grip's and a selection's
+    // alike: an open box nobody has typed in is not worth a second gesture to
+    // dismiss. One holding words stays, so a stray press never costs them.
+    // Captured, and on `pointerdown`, so the box is gone before whatever was
+    // pressed acts: a press on another grip then opens that grip's box, as it
+    // always has. The primary button only, so a right-click is still the
+    // menu's. Not while a region is being dragged on a figure: that press is
+    // the composer's own gesture.
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        const c = this.composer;
+        const target = event.target;
+        if (
+          event.button !== 0 ||
+          c.root.hidden ||
+          c.picking ||
+          holdsWords(c) ||
+          (target instanceof Node && c.root.contains(target))
+        ) {
+          return;
+        }
+        this.hideComposer();
+      },
+      { capture: true },
+    );
     // Any press outside the menu puts it away. `pointerdown` and not `click`:
     // the menu must be gone before whatever was pressed acts, and a menu still
     // on screen over a selection the press just changed is stale by the time

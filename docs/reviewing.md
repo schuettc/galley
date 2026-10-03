@@ -50,7 +50,9 @@ Select the words you mean. A small composer appears just below the selection wit
 INSTRUCTION · ON "the retry budget is generous"
 ```
 
-Type into the box — placeholder `what about it?` — and press Enter to file it. Shift-Enter breaks a line instead. `cancel` closes the composer, and so does Esc; the composer says `esc cancels` beside the button so you do not have to guess.
+Type into the box — placeholder `what about it?` — and press Enter to file it. Shift-Enter breaks a line instead. `cancel` closes the composer, and so does Esc; the composer says `esc cancels` beside the button so you do not have to guess. A click anywhere else closes it too while nothing is typed in it; once you have typed something it stays open until you file it or cancel.
+
+The box opens directly beneath the words. If there is not room for it there, the page scrolls just far enough to make room; only words near the very bottom of the window, with more room above them, get the box above instead. As you type, the box grows into the room the window has, and then scrolls inside itself.
 
 Some places refuse an anchor. A selection touching a code fence, a table, front matter, or a display-math block replaces the **Add instruction** button with the reason, in the same voice the editor uses when it refuses a keystroke there:
 
@@ -61,7 +63,7 @@ Those blocks render and are selectable and copyable, and none of them is editabl
 
 ## Instructing a whole block
 
-Every heading, code block, table, image, diagram, display-math block and front-matter block has a small square button in the left margin, level with its first line. It is always there; you do not have to hover to find it. Paragraphs, lists and quotations have none — select their words instead.
+Every heading, code block, table, image, diagram, display-math block and front-matter block has a small square button in the left margin, level with its first line. It is always there, drawn faintly until you point at it or tab to it; you do not have to hover to find it. Paragraphs, lists and quotations have none — select their words instead.
 
 The button shows `+`. Press it and the instruction box opens straight away beneath the block, headed with what the instruction is on:
 
@@ -70,7 +72,7 @@ INSTRUCTION · ON the section "Budget"
 INSTRUCTION · ON this table
 ```
 
-A dashed outline shows what the instruction covers: on a heading, the whole section under it, down to the next heading at the same level or above; on anything else, the block itself. Pressing the button does not touch your selection or move the page. Type the instruction and press Enter to file it, as in every other box. Esc, `cancel`, or a click in the text closes the box, and Esc puts the keyboard back on the button you pressed.
+One dashed outline shows what the instruction covers: on a heading, the whole section under it, from the heading down to the next heading at the same level or above; on anything else, the block itself. Pressing the button does not touch your selection. The box opens directly beneath the block, and if there is not room for it there, the page scrolls just far enough to make room. Type the instruction and press Enter to file it, as in every other box. Esc or `cancel` closes the box, and so does a click anywhere else while nothing is typed in it; Esc puts the keyboard back on the button you pressed. Pressing another block's button moves the box to that block.
 
 The instruction anchors to the block, appears as a card in the rail beside it, and travels with the round. The agent rewrites the block in reply; you still cannot type inside a fence, a table, front matter or display math yourself.
 

@@ -5255,10 +5255,11 @@ console.log('\n--- §8b · the three comment boxes are one design ---');
 // --- §8c · the composer, grown to its cap, stays in the window ------------
 //
 // THE COMPOSER IS PLACED ONCE, WHEN IT OPENS, and then grows with what is
-// typed, up to half the window. Placed for the height it opened at, a box that
-// later grows by a third of the window can run off the bottom of it. Measured
-// at a short window, with the passage in the middle (placed below) and near
-// the foot (flipped above), each grown to its cap with sixty lines.
+// typed. It opens directly beneath its words, and its growth is held to the
+// room the window has on that side, so a box that grows never runs off the
+// window. Measured at a short window, with the passage in the middle (placed
+// below) and near the foot (flipped above), each grown to its cap with sixty
+// lines.
 console.log(
   '\n--- §8c · the composer, grown to its cap, stays in the window ---',
 );
@@ -5371,8 +5372,17 @@ console.log(
     beside(foot, 'above'),
     foot.bar,
   );
-  // THE FORM IS WHAT GROWS, so opening it re-places the box for the height it
-  // can grow to — inside the window, and off the words it is about.
+  // THE FORM STAYS WITH ITS WORDS. It used to be placed for the height it
+  // could grow to, and with less than that below the words it was hung from
+  // the window's foot, far from them. It opens straight beneath them now.
+  check(
+    'the opened form sits directly beneath words selected mid-window',
+    middle.opened.top - middle.opened.selBottom >= 0 &&
+      middle.opened.top - middle.opened.selBottom <= 12,
+    middle.opened,
+  );
+  // Opening the form re-places the box for the form, inside the window and
+  // off the words it is about.
   const clear = (o) =>
     o.top >= 0 &&
     o.bottom <= o.window + 0.5 &&

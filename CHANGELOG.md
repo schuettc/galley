@@ -9,6 +9,9 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 - **A figure's region is reached from its button.** Pressing an image's or diagram's button opens an instruction on the whole figure, and **Mark a region** in that box lets you drag a rectangle to narrow it to part of the picture.
 - A block that already carries instructions shows how many on its button (`1`, `2`, up to `9+`).
 - Selecting inside a top-level table, fence, equation or front matter now says you can press the button to its left to instruct the whole block.
+- The button is small and faint until you point at it or tab to it, or until it shows a count. A heading's section is outlined as one region, from the heading to the section's last block.
+- **An instruction box opens directly beneath its block or selection.** If there is not room for it there, the page scrolls just far enough instead of the box being placed somewhere else; it goes above only for words near the bottom of the window. As you type, it grows only into the room the window has.
+- **A click off an empty instruction box closes it.** A box with something typed in it stays open until you send it or cancel.
 - The buttons are hidden, and cannot be pressed, after approval, while the agent holds the document, in History and in a page's HTML view.
 - **Removed:** the `§` button that appeared beside a heading on hover, the `{}` button beside a code block, and the `⊕ comment on a region` button on a figure. The one block button replaces all three.
 
