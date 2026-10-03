@@ -95,9 +95,20 @@ import {
 // coerceLevel moved to web/heading.ts — shared between TolerantHeading
 // (entry.ts) and sectionSpan (figures.ts).
 import { coerceLevel } from './heading.ts';
-// sectionSpan and the nine figures/grip methods moved to web/figures.ts —
+// sectionSpan and the figure and block-grip methods moved to web/figures.ts —
 // see that module's header.
-import { sectionSpan, codeBlockPos } from './figures.ts';
+import { sectionSpan } from './figures.ts';
+// The block grip's rules, which need no browser: which blocks get one, what its
+// face and label say, how many instructions it carries, and how two grips
+// closer than one grip's height are kept apart.
+import {
+  GRIP_KINDS,
+  gripTargets,
+  gripCount,
+  gripFace,
+  gripLabel,
+  stackGrips,
+} from './grips.ts';
 import { composerPlacement } from './composer.ts';
 // The verdict vocabulary moved out of entry.ts — see web/verdict.ts's header.
 import {
@@ -962,7 +973,7 @@ check(
         hit.what === 'frontMatter' &&
         hit.kind === 'inside' &&
         hit.reason === FRONT_MATTER_INSIDE &&
-        hit.hint === FRONT_MATTER_HINT
+        hit.hint.startsWith(FRONT_MATTER_HINT)
       );
     })(),
   );
@@ -1046,7 +1057,7 @@ check(
         hit.what === 'mathBlock' &&
         hit.kind === 'inside' &&
         hit.reason === MATH_INSIDE &&
-        hit.hint === MATH_HINT
+        hit.hint.startsWith(MATH_HINT)
       );
     })(),
   );
@@ -1085,6 +1096,70 @@ check(
       MATH_JOIN !== FENCE_JOIN &&
       MATH_INSIDE !== FRONT_MATTER_INSIDE &&
       MATH_INSIDE !== TABLE_INSIDE,
+  );
+}
+
+// --- the hint names the grip, where there is one ---
+//
+// A top-level fence, table, equation or front matter has a grip beside it, so
+// the refusal's muted second line can say where an instruction on the whole
+// block goes. A NESTED one has no grip, and the clause there would send the
+// reviewer looking for a control that is not on the page: the hint has to be
+// TRUE, so the clause is asked by position and not by kind. And it names the
+// grip by where it is, never by its face: the face is `+` on a block with no
+// instructions and their count on one with some.
+{
+  const grip = (noun) =>
+    ` — or press the button to its left to leave an instruction on ${noun}`;
+  const hintAt = (doc, pos) => {
+    const hit = literalHit(doc, pos, pos + 1);
+    return hit ? hit.hint : null;
+  };
+  const before = 1 + 'before'.length + 1;
+  const mermaid = schema.node('codeBlock', { language: 'mermaid' }, [
+    schema.text('graph TD\n  a --> b'),
+  ]);
+  const top = {
+    table: hintAt(
+      docOf(para('before'), tableNode(), para('after')),
+      before + 3,
+    ),
+    fence: hintAt(docOf(para('before'), fence('alpha bravo')), before + 2),
+    mermaid: hintAt(docOf(para('before'), mermaid), before + 2),
+    math: hintAt(docOf(para('before'), mathNode()), before + 2),
+    frontMatter: hintAt(docOf(frontMatterNode(), para('after')), 2),
+  };
+  check(
+    'a top-level table, fence, diagram, equation and front matter each point at their grip',
+    top.table === TABLE_HINT + grip('the whole table') &&
+      top.fence === FENCE_HINT + grip('the whole code block') &&
+      top.mermaid === FENCE_HINT + grip('the whole diagram') &&
+      top.math === MATH_HINT + grip('the whole equation') &&
+      top.frontMatter === FRONT_MATTER_HINT + grip('the front matter'),
+    top,
+  );
+
+  const quoted = docOf(
+    para('before'),
+    schema.node('blockquote', null, [tableNode()]),
+  );
+  const listed = docOf(
+    para('before'),
+    schema.node('bulletList', null, [
+      schema.node('listItem', null, [para('install'), fence('npm i')]),
+    ]),
+  );
+  // The offsets walk in: blockquote (1), table (1), row (1), cell (1), and a
+  // character into the cell's paragraph; list (1), item (1), the paragraph,
+  // then a character into the fence.
+  const nested = {
+    table: hintAt(quoted, before + 5),
+    fence: hintAt(listed, before + 2 + 'install'.length + 2 + 2),
+  };
+  check(
+    'a table in a quotation and a fence in a list item have no grip, and their hint does not mention one',
+    nested.table === TABLE_HINT && nested.fence === FENCE_HINT,
+    nested,
   );
 }
 
@@ -4415,13 +4490,13 @@ const unplacedEntry = (c) => {
   );
 }
 
-// --- the section grip's span ---
+// --- a heading grip's section span ---
 //
 // A section is a heading plus everything under it up to the NEXT heading of the
 // same level OR SHALLOWER. "Up to the next heading" alone is wrong and wrong in
 // the direction that is hardest to notice: an h3 inside an h2's section would
 // end the h2, so the grip beside a section the reviewer can plainly see is six
-// paragraphs long would select the first one and open a thread about it. The
+// paragraphs long would outline the first one and file a thread about it. The
 // arithmetic is pure, so it is checked here rather than by dragging in a
 // browser.
 
@@ -4476,47 +4551,65 @@ const unplacedEntry = (c) => {
     blocksIn(sectionSpan(doc, posOf(4))).join(',') === '4,5,6',
     blocksIn(sectionSpan(doc, posOf(4))),
   );
-  // The span must land ON block boundaries: a TextSelection built from an
-  // interior position would select from the middle of the heading's text, and
-  // the reviewer would see a selection that starts mid-word.
+  // The span must land ON block boundaries: the scope outline draws a node
+  // decoration over every block wholly inside it, so a span that started
+  // inside the heading would leave the heading itself unoutlined.
   check(
     'a section span starts at its heading and ends on a block boundary',
     sectionSpan(doc, posOf(2)).from === posOf(2) &&
       sectionSpan(doc, posOf(2)).to === posOf(4),
     sectionSpan(doc, posOf(2)),
   );
-  // Not a heading: the grip has nothing to be beside, and must say so rather
-  // than selecting a paragraph and calling it a section.
+  // Not a heading: there is no section, and the answer must say so rather
+  // than outlining a paragraph and calling it a section.
   check(
     'a position that is not a heading has no section span',
     sectionSpan(doc, posOf(1)) === null,
   );
 }
 
-// --- the code-block grip's position ---
+// --- the block grip ---
 //
-// The grip hovers a <pre> and has to name the codeBlock that <pre> renders.
-// posAtDOM is the only bridge, and a <pre> is NOT its node's contentDOM (the
-// <code> inside it is), so codeBlockPos accepts either answer and verifies it
-// against the document rather than trusting the arithmetic. Everything it can
-// get wrong is arithmetic over a document, so it is checked here rather than by
-// hovering in a browser — what a browser has to prove is that the grip appears
-// at all, which is Task 2's gate.
+// Which top-level blocks get a grip, what the grip says, and where two of them
+// go when their blocks are closer than one grip. All of it is arithmetic over a
+// document and a list of threads, so it is checked here; what a browser has to
+// prove (the grip is visible, pressable, in the gutter) is web/grip.mjs's.
+//
+// The document goes through fragmentSchema, the one that carries every node the
+// editor builds — image, note, front matter and display math included — so a
+// kind this file names is a kind the browser actually has.
 
 {
-  const nested = schema.node('bulletList', null, [
-    schema.node('listItem', null, [
-      para('run this'),
-      schema.node('codeBlock', null, [schema.text('nested')]),
+  const f = fragmentSchema;
+  const text = (t) => [f.text(t)];
+  const nestedFence = f.node('bulletList', null, [
+    f.node('listItem', null, [
+      f.node('paragraph', null, text('run this')),
+      f.node('codeBlock', { language: 'bash' }, text('nested')),
     ]),
   ]);
-  const doc = docOf(
-    para('intro'), // 0
-    schema.node('codeBlock', { language: 'bash' }, [
-      schema.text('npm install galley'),
-    ]), // 1
-    nested, // 2
-  );
+  const doc = f.node('doc', null, [
+    f.node('frontMatter', null, text('title: x')), // 0
+    f.node('heading', { level: 1 }, text('Title')), // 1
+    f.node('paragraph', null, text('intro')), // 2
+    f.node('heading', { level: 2 }, text('Design')), // 3
+    f.node('table', null, [
+      f.node('tableRow', null, [
+        f.node('tableHeader', null, [f.node('paragraph', null, text('key'))]),
+        f.node('tableHeader', null, [f.node('paragraph', null, text('value'))]),
+      ]),
+    ]), // 4
+    nestedFence, // 5
+    f.node('blockquote', null, [f.node('paragraph', null, text('quoted'))]), // 6
+    f.node('note', null, []), // 7 — counted in the index, never a target
+    f.node('codeBlock', { language: 'bash' }, text('npm install')), // 8
+    f.node('image', { src: 'flow.svg', alt: 'flow' }), // 9
+    f.node('codeBlock', { language: 'mermaid' }, text('graph TD; a-->b')), // 10
+    f.node('mathBlock', null, text('E = mc^2')), // 11
+    f.node('horizontalRule'), // 12
+    f.node('paragraph', null, text('the end')), // 13
+  ]);
+  const targets = gripTargets(doc);
   const posOf = (i) => {
     let at = 0;
     for (let n = 0; n < i; n += 1) {
@@ -4524,54 +4617,143 @@ const unplacedEntry = (c) => {
     }
     return at;
   };
-  // A stub view is the whole of what codeBlockPos reads: one measurement and
-  // the document. Building a real EditorView here would need a DOM this file
-  // deliberately does not have.
-  const viewSaying = (answer) => ({
-    state: { doc },
-    posAtDOM: () => {
-      if (typeof answer !== 'number') {
-        throw answer;
-      }
-      return answer;
-    },
-  });
-  const fencePos = posOf(1);
 
   check(
-    'a position inside the fence names the fence',
-    codeBlockPos(viewSaying(fencePos + 1), null) === fencePos,
+    'the grip goes on front matter, headings, a table, a fence, an image, a diagram and display math, in document order',
+    targets.map((t) => `${t.kind}@${t.index}`).join(',') ===
+      'frontMatter@0,heading@1,heading@3,table@4,codeBlock@8,image@9,codeBlock@10,mathBlock@11',
+    targets.map((t) => `${t.kind}@${t.index}`),
+  );
+  // The index is the top-level ordinal WITH notes counted, because that is
+  // BlockRef.Index, and the grip finds its block's key by it at click time.
+  check(
+    "each target's position is the top-level child its index names",
+    targets.every((t) => t.pos === posOf(t.index)),
+    targets.map((t) => [t.index, t.pos]),
   );
   check(
-    'and so does the position before it, whichever the browser hands back',
-    codeBlockPos(viewSaying(fencePos), null) === fencePos,
+    'no paragraph, list, blockquote, note or rule gets a grip, and neither does the fence inside the list item',
+    !targets.some((t) =>
+      [
+        'paragraph',
+        'bulletList',
+        'blockquote',
+        'note',
+        'horizontalRule',
+      ].includes(t.kind),
+    ) && !targets.some((t) => t.index === 5),
+    targets,
   );
-  // Not a fence: the grip must say so rather than opening a block composer on
-  // a paragraph and calling it a code block.
   check(
-    'a paragraph is not a code block',
-    codeBlockPos(viewSaying(posOf(0) + 1), null) === null,
+    'only the image and the diagram are figures',
+    targets
+      .filter((t) => t.figure)
+      .map((t) => t.index)
+      .join(',') === '9,10',
+    targets.filter((t) => t.figure),
   );
-  // A fence in a list item is not a top-level block, so suggest.Blocks has no
-  // key for it — the same cut placeGrip makes for a nested heading.
-  let nestedFence = -1;
-  doc.descendants((node, pos) => {
-    if (node.type.name === 'codeBlock' && pos > posOf(1)) {
-      nestedFence = pos;
-    }
-    return true;
-  });
   check(
-    'a fence inside a list item has no addressable position',
-    nestedFence > 0 && codeBlockPos(viewSaying(nestedFence + 1), null) === null,
-    nestedFence,
+    'every kind the grip goes on is a node the editor builds',
+    GRIP_KINDS.length === 6 &&
+      GRIP_KINDS.every((k) =>
+        Object.prototype.hasOwnProperty.call(fragmentSchema.nodes, k),
+      ),
+    GRIP_KINDS,
   );
-  // posAtDOM throws for DOM the view no longer knows about — a <pre> from the
-  // frame before a NodeView rebuild. No grip is the answer; an exception out of
-  // a mouseover is not.
+
   check(
-    'DOM the view cannot place hides the grip rather than throwing',
-    codeBlockPos(viewSaying(new RangeError('gone')), null) === null,
+    'the face is + with no instructions, the count up to nine, and 9+ past it',
+    [0, 1, 9, 10, 31].map(gripFace).join(' ') === '+ 1 9 9+ 9+',
+    [0, 1, 9, 10, 31].map(gripFace),
+  );
+
+  const heading = { kind: 'heading', figure: false };
+  const said = {
+    heading: gripLabel(heading, '## Design', 0),
+    headingTwo: gripLabel(heading, '## Design', 2),
+    headingOne: gripLabel(heading, 'Design', 1),
+    table: gripLabel({ kind: 'table', figure: false }, 'table: key, value', 0),
+    diagram: gripLabel(
+      { kind: 'codeBlock', figure: true },
+      'mermaid: graph TD',
+      0,
+    ),
+    image: gripLabel({ kind: 'image', figure: true }, 'flow (flow.svg)', 0),
+    math: gripLabel({ kind: 'mathBlock', figure: false }, 'E = mc^2', 0),
+    front: gripLabel({ kind: 'frontMatter', figure: false }, '---', 0),
+    code: gripLabel({ kind: 'codeBlock', figure: false }, 'bash: npm', 0),
+  };
+  check(
+    'a heading grip names its section in words, without the markdown hashes',
+    said.heading === 'Add an instruction on the section "Design"' &&
+      said.headingOne ===
+        'Add an instruction on the section "Design" (1 already)',
+    said,
+  );
+  check(
+    'and says how many instructions it already carries',
+    said.headingTwo ===
+      'Add an instruction on the section "Design" (2 already)',
+    said.headingTwo,
+  );
+  check(
+    'every other kind names what it is',
+    said.table === 'Add an instruction on this table' &&
+      said.diagram === 'Add an instruction on this diagram' &&
+      said.image === 'Add an instruction on this figure' &&
+      said.math === 'Add an instruction on this equation' &&
+      said.front === 'Add an instruction on the front matter' &&
+      said.code === 'Add an instruction on this code block',
+    said,
+  );
+  check(
+    'no grip label carries a raw markdown # or |',
+    Object.values(said).every((l) => !/[#|]/.test(l)),
+    said,
+  );
+  const long = gripLabel(heading, `## ${'word '.repeat(40)}`, 0);
+  check(
+    'a long heading is bounded in the label, as it is in a card head',
+    long.length < 'Add an instruction on the section ""'.length + 50 &&
+      long.includes('…'),
+    long,
+  );
+
+  const threads = [
+    { anchor: 'block', anchorKey: 'bk-a' },
+    { anchor: 'block', anchorKey: 'bk-a', region: { x: 0, y: 0, w: 1, h: 1 } },
+    { anchor: 'block', anchorKey: 'bk-b' },
+    { anchor: 'range', anchorKey: '', run: 'r1' },
+    { anchor: 'document', anchorKey: '' },
+  ];
+  check(
+    "a grip counts the block's own instructions, a region comment included",
+    gripCount(threads, 'bk-a') === 2 && gripCount(threads, 'bk-b') === 1,
+    [gripCount(threads, 'bk-a'), gripCount(threads, 'bk-b')],
+  );
+  check(
+    'and never a range or a whole-document instruction',
+    gripCount(threads, '') === 0 && gripCount(threads, 'bk-none') === 0,
+    gripCount(threads, ''),
+  );
+
+  const stacked = stackGrips([0, 10, 100], 32, 4);
+  check(
+    'a grip closer than one grip to the one above is pushed clear of it',
+    stacked.join(',') === '0,36,100',
+    stacked,
+  );
+  const clear = stackGrips([0, 50, 200], 32, 4);
+  check(
+    'grips already clear of each other are not moved',
+    clear.join(',') === '0,50,200',
+    clear,
+  );
+  const crowd = stackGrips([5, 5, 6, 40, 41], 32, 4);
+  check(
+    'a crowd of grips comes out non-decreasing, each clear of the last',
+    crowd.every((t, i) => i === 0 || t - crowd[i - 1] >= 36),
+    crowd,
   );
 }
 
@@ -6685,12 +6867,14 @@ function bindsContentField(src) {
     );
 
     // Region picking, and the card it produces. §11 fixes "on figure region"
-    // verbatim, and it reaches the bundle only through threadLabel.
+    // verbatim, and it reaches the bundle only through threadLabel. The way in
+    // is the figure grip's Mark a region; the ⊕ button on the picture is gone.
     check(
       'the built bundle carries region picking',
       src.includes('gly-region-draft') &&
         src.includes('on figure region') &&
-        src.includes('comment on a region'),
+        src.includes('Mark a region') &&
+        !src.includes('comment on a region'),
     );
 
     // §6/R4. Both halves have to be in the bundle the binary embeds: the figure
@@ -6702,23 +6886,16 @@ function bindsContentField(src) {
       src.includes('gly-figure') && src.includes('/_galley/mermaid.js'),
     );
 
-    // The section grip, and the refusal it reuses. CROSS_BLOCK_STRIKE reaches
-    // the bundle only through the one exported constant, so a grip that grew
-    // its own wording would fail this rather than quietly teaching the reviewer
-    // a second rule.
-    // The grip's strike refusal went with the Strike button (the trail cut) —
-    // the grip itself stays, and the check above pins the sentence's ABSENCE.
+    // The block grip: one button beside every block that takes a whole-block
+    // instruction. A bundle without it is a document where a section, a fence
+    // or a table cannot be instructed at all, and looks exactly like one where
+    // they can. The two hover grips it replaced are gone from the bundle, so
+    // no gutter offers two affordances for one gesture.
     check(
-      'the built bundle carries the section grip',
-      src.includes('gly-grip'),
-    );
-    // AND THE CODE BLOCK'S OWN, which is a different affordance in the same
-    // gutter: a bundle carrying only `gly-grip` is a document where a fence
-    // cannot be instructed at all, and looks exactly like one where it can.
-    check(
-      'the built bundle carries the code-block grip',
-      src.includes('gly-code-grip') &&
-        src.includes('instruct on this whole code block'),
+      'the built bundle carries the block grip, and not the hover grips it replaced',
+      src.includes('gly-block-grip') &&
+        src.includes('Add an instruction on ') &&
+        !src.includes('instruct on this whole code block'),
     );
 
     // R7. The placeholder is §11's verbatim string, and a bundle that lost it

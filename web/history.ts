@@ -205,6 +205,7 @@ export const historyMethods = {
     this.closeSheet();
     this.closeCapture();
     this.paintSurfaces();
+    this.scheduleGrips();
     this.census.count.classList.remove('is-open');
     // The primary becomes the way out and the readout says where you are, and
     // both have to be true BEFORE the first frame of the new surface — a bar
@@ -219,6 +220,7 @@ export const historyMethods = {
     document.body.classList.remove('gly-history-mode');
     this.editor.setEditable(!this.sealed);
     this.paintSurfaces();
+    this.scheduleGrips();
     this.paintVersionsButton();
     this.paintRevise();
     this.paintReadout();

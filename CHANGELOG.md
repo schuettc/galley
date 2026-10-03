@@ -2,6 +2,25 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## 0.12.0
+
+- **One button for every block, always visible.** Every top-level heading, code block, table, image, diagram, display-math block and front-matter block now has one square button in the left margin, level with its first line. A block nested inside a list or a quotation has none. It shows without hovering, and Tab reaches it from the keyboard after the document. Pressing it opens the instruction box on that block straight away, outlines what the instruction covers (a heading's whole section, or the block), and leaves your selection alone.
+- **Tables, display math and front matter can take an instruction.** Before, the page offered no way to instruct a whole table. A table's card is headed with its column names (`on table: key, value`) instead of a line of markdown.
+- **A figure's region is reached from its button.** Pressing an image's or diagram's button opens an instruction on the whole figure, and **Mark a region** in that box lets you drag a rectangle to narrow it to part of the picture.
+- A block that already carries instructions shows how many on its button (`1`, `2`, up to `9+`).
+- Selecting inside a top-level table, fence, equation or front matter now says you can press the button to its left to instruct the whole block.
+- The button is small and faint until you point at it or tab to it, or until it shows a count. A heading's section is outlined as one region, from the heading to the section's last block.
+- **An instruction box opens directly beneath its block or selection.** If there is not room for it there, the page scrolls just far enough instead of the box being placed somewhere else; it goes above only for words near the bottom of the window. As you type, it grows only into the room the window has.
+- **A click off an empty instruction box closes it.** A box with something typed in it stays open until you send it or cancel.
+- The buttons are hidden, and cannot be pressed, after approval, while the agent holds the document, in History and in a page's HTML view.
+- **Removed:** the `§` button that appeared beside a heading on hover, the `{}` button beside a code block, and the `⊕ comment on a region` button on a figure. The one block button replaces all three.
+
+Fixed:
+
+- The **Add instruction** button sits next to the selection again. In 0.11.0 it could land at the foot of the window, far from the words.
+- A new instruction on a block was briefly listed without its place, so for a moment it could show as unplaced.
+- Pressing Enter in a block's box before galley had seen the block filed an instruction on nothing. It now does nothing until the block is known, and the box can be sent, with what you typed kept, as soon as galley sees the block.
+
 ## 0.11.0
 
 Every comment is now stored the same way, whatever it is on: selected text (including a selection across paragraphs), a section, a block, a figure or a rectangle on one, a table cell, a code block, or the whole document.

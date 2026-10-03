@@ -586,7 +586,7 @@ export function elide(said: string, max: number = HEAD_QUOTE_CHARS): string {
  * it is simply false, and it reads as a comment that lost its place when
  * nothing of the kind happened.
  *
- * A section thread gets §, because the grip that opens one selects a whole
+ * A section thread gets §, because the grip that opens one scopes a whole
  * section and the reviewer needs to see that is what the thread is on rather
  * than a line of prose that happens to be a heading. The heading arrives as its
  * markdown label ("## Design"), which is the Go side's blockLabel; the hashes

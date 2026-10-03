@@ -360,6 +360,48 @@ const matched = both.heads.filter((h) => h.pageTop !== null);
   );
 }
 
+// --- §4b the grip sits at the heading's words, not on its spacer ---------
+
+{
+  // A HEADING'S GRIP IS LEVEL WITH ITS TEXT. The spacer is padding INSIDE the
+  // heading's box, so the box's top is the top of the spacer and the words
+  // are a padding's height below it. A grip measured off the box would sit
+  // beside the empty space above the heading it names. The words are read
+  // where the editor says they are: the coordinates of the heading's first
+  // character.
+  const seats = await page.evaluate(() => {
+    const view = window.galleyEdit.editor.view;
+    const doc = view.state.doc;
+    const out = [];
+    for (const g of document.querySelectorAll(
+      '.gly-block-grip[data-kind="heading"]',
+    )) {
+      const index = Number(g.dataset.index);
+      let pos = 0;
+      for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
+      const h = view.nodeDOM(pos);
+      out.push({
+        key: h.textContent.slice(0, 40),
+        pad: parseFloat(getComputedStyle(h).paddingTop) || 0,
+        grip: g.getBoundingClientRect().top,
+        text: view.coordsAtPos(pos + 1).top,
+      });
+    }
+    return out;
+  });
+  const bumped = seats.filter((h) => h.pad > LEVEL_PX);
+  check(
+    'a heading pushed down to meet the page has its grip at its words, not on the spacer above them',
+    bumped.length > 0 && bumped.every((h) => Math.abs(h.grip - h.text) <= 2),
+    bumped.map((h) => [
+      h.key,
+      Math.round(h.pad),
+      Math.round(h.grip),
+      Math.round(h.text),
+    ]),
+  );
+}
+
 // --- §5 the feature only pushes down ------------------------------------
 
 {

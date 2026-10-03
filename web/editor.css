@@ -99,6 +99,16 @@
      read on the control it is already on. */
   --gly-lit-bg: rgba(176, 111, 20, 0.24);
 
+  /* THE BLOCK GRIP'S SIZES, here and nowhere else. web/figures.ts measures the
+     grip it painted and hands that height to web/grips.ts's stacker, so there
+     is no second spelling of the size in the script to drift from this one.
+     24px is a target a pointer lands on and small enough to stay quiet
+     beside every block; the grip sits at the gutter's outer edge, so it
+     stands 16px clear of the text. */
+  --gly-grip-size: 24px;
+  --gly-grip-gutter: 40px;
+  --gly-grip-gap: 4px;
+
   /* ONE ELEVATION, AND IT IS A TOKEN NOW BECAUSE IT WAS CALLED ONE WHILE IT
      WAS NOT. Every surface that floats off the page carries this and nothing
      else carries it, which is what makes "off the page" a thing the reviewer
@@ -466,36 +476,14 @@
 
 /* --- commenting on part of a figure ---
 
-   ⊕ enters pick mode; a drag draws the rectangle; the pins are drawn from the
-   thread list. Everything here is in PERCENTAGES of the figure box, because the
+   Mark a region, in a figure's composer, enters pick mode; a drag draws the
+   rectangle; the pins are drawn from the thread list. Everything here is in PERCENTAGES of the figure box, because the
    rectangle is stored as fractions of it — which means a reflow moves a pin with
    its picture and there is nothing to re-measure, and so nothing that can be
    measured wrong. */
-.ProseMirror .gly-region-button {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--gly-line);
-  border-radius: 999px;
-  background: var(--gly-card);
-  color: var(--gly-muted);
-  font: 11px/1.5 var(--gly-mono);
-  cursor: pointer;
-  user-select: none;
-  /* Quiet until the figure is under the pointer or the button has focus: the
-     verb is discoverable without decorating every picture in the document. */
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.ProseMirror .gly-figure:hover .gly-region-button,
-.ProseMirror .gly-region-button:focus-visible { opacity: 1; }
-.ProseMirror .gly-region-button:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
-
 /* Violet — §8 gives threads and figure pins the sock violet, and a pin IS a
    thread. Crosshair and a dashed violet outline are §6's own words. */
 .ProseMirror .gly-figure.gly-picking { cursor: crosshair; outline: 2px dashed var(--gly-hl); }
-.ProseMirror .gly-figure.gly-picking .gly-region-button { display: none; }
 .ProseMirror .gly-region-draft {
   position: absolute;
   border: 1px dashed var(--gly-hl);
@@ -1011,6 +999,45 @@ body > main {
    viewport width, because there is no rail there to be beside. */
 body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(--gly-gutter); }
 
+/* THE GRIP'S GUTTER, AT EVERY WIDTH. Each block grip hangs off the column's
+   left edge into `--gly-grip-gutter`, so the text must start at least that far
+   from the window's edge. Where `main` is centred with room to spare its own
+   margin already gives it; where the window is too narrow for that, the left
+   padding grows by exactly what the margin no longer gives. `100%` is the
+   containing block's width, the max-width is the one in force, and half the
+   difference is the centring margin — so the inset is the shell's own gutter
+   wherever the margin suffices, and the column never moves at a width where
+   it did not have to. It is capped at the grip gutter, because a window
+   narrower than the max-width has no centring margin at all and the
+   difference goes negative.
+
+   SPELLED ONCE, AS TWO TOKENS, because the review sheet sets its cards on the
+   prose's own measure and has to start them where the prose starts: a custom
+   property keeps its `100%` until the rule that uses it, so each box resolves
+   it against its own container. Page mode is not here: its column is a pane,
+   and the pane keeps the gutter (see `body.gly-page.gly-view-both #editor`). */
+:root {
+  --gly-grip-inset: clamp(
+    var(--gly-gutter),
+    calc(
+      var(--gly-grip-gutter) -
+        (100% - (var(--gly-col) + var(--gly-rail-w) + var(--gly-gutter) * 2)) / 2
+    ),
+    var(--gly-grip-gutter)
+  );
+  --gly-grip-inset-wide: clamp(
+    var(--gly-gutter),
+    calc(var(--gly-grip-gutter) - (100% - var(--gly-col-wide)) / 2),
+    var(--gly-grip-gutter)
+  );
+}
+@media (min-width: 992px) {
+  body:not(.gly-page) > main { padding-left: var(--gly-grip-inset); }
+}
+body.gly-collapsed:not(.gly-page) > main {
+  padding-left: var(--gly-grip-inset-wide);
+}
+
 /* THE RAIL STILL ASKS WHERE THE BAR ENDS — BEING ABSOLUTE IS EXACTLY WHY.
 
    `top` was `var(--gly-bar-h)` under the fixed rail, and before that the
@@ -1308,13 +1335,13 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
 }
 .gly-card:hover { border-color: var(--gly-hl); }
 /* THE KEYBOARD'S RING, ON EVERYTHING THE KEYBOARD LANDS ON. Two weights and no
-   more: 2px on a BOX you arrive at (a card, the section grip) and 1px inside a
+   more: 2px on a BOX you arrive at (a card, a block grip) and 1px inside a
    box you TYPE in (see `.gly-composer-text:focus-visible`) — the heavier ring
    is around something whole, the lighter one inside something already
    outlined. The pin in a figure is the same 2px at 2px of offset, because it
    sits ON a picture and needs the picture's own edge to clear. */
 .gly-card:focus-visible,
-.gly-grip:focus-visible { outline: 2px solid var(--gly-hl); outline-offset: 1px; }
+.gly-block-grip:focus-visible { outline: 2px solid var(--gly-hl); outline-offset: 1px; }
 .gly-card.gly-busy { opacity: 0.5; }
 .gly-card.gly-failed { border-color: var(--gly-del); }
 /* Adrift: the server reports it, the document has not shown it yet. The card
@@ -1374,38 +1401,79 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   text-align: center;
 }
 
-/* --- the section grip ---
+/* --- the block grips ---
 
-   One button in the left gutter, moved to whichever heading the pointer is on.
-   Absolutely positioned in DOCUMENT coordinates, so it rides with its heading
-   through a scroll without any per-frame measuring — §2 forbids per-frame
-   reflow, and a fixed-position grip would need exactly that. */
-.gly-grip {
+   One button beside every block that takes a whole-block instruction, always
+   shown, in one layer that is a SIBLING of `.ProseMirror` inside `#editor` —
+   never inside the document, where it would be content. `#editor` is the
+   layer's containing block, so a grip's top is a fact about the document and
+   a scroll moves it with its block for free.
+
+   The layer has no size and takes no part in the flow; web/figures.ts puts
+   its left edge at the column's text edge, and each grip hangs off that edge
+   into the gutter. UNDER THE BAR, at the rail's level and not above it: a
+   grip scrolled under the sticky bar is occluded exactly as the prose is. */
+#editor { position: relative; }
+.gly-grips {
   position: absolute;
-  z-index: 15;
-  width: 20px;
-  height: 20px;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 4;
+}
+/* FAINT AT REST. A grip beside every block at full strength is a column of
+   buttons louder than the prose; at rest it is half there, and it comes up
+   to full strength when it is reached for (hover, keyboard focus) or has
+   something to say (its count, below). Opacity and nothing else, so the
+   box, its border and its face are one box in every state. */
+.gly-block-grip {
+  position: absolute;
+  top: 0;
+  right: calc(var(--gly-grip-gutter) - var(--gly-grip-size));
+  width: var(--gly-grip-size);
+  height: var(--gly-grip-size);
+  margin: 0;
   padding: 0;
   border: 1px solid var(--gly-line);
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--gly-card);
   color: var(--gly-muted);
-  font: 12px/1 var(--gly-mono);
+  font: 13px/1 var(--gly-mono);
   cursor: pointer;
+  opacity: 0.5;
 }
-.gly-grip:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
+.gly-block-grip:hover,
+.gly-block-grip:focus-visible,
+.gly-block-grip.is-commented { opacity: 1; }
+.gly-block-grip:hover { border-color: var(--gly-hl); color: var(--gly-hl); }
+/* A block that already carries instructions: the face is their count, and the
+   grip wears the instruction's own violet, edge and ground. PAINT ONLY — the
+   box, its border width and its font are the resting grip's, so the face
+   swaps inside one fixed box and nothing beside it moves. Violet and not
+   amber: amber is ARRIVED (see the token list at the top). */
+.gly-block-grip.is-commented {
+  border-color: var(--gly-hl);
+  background-color: var(--gly-hl-bg);
+  color: var(--gly-hl);
+}
 /* Its focus ring is the card's — see `.gly-card:focus-visible`. */
 
-/* --- the code-block grip ---
-
-   The same gutter and the same geometry as the section grip — it is the same
-   element built by the same function — and DELIBERATELY NOT the same face. The
-   two sit inches apart in one document, so `{}` in the fence's own dashed,
-   read-only voice is what says which block this gesture is about; a second §,
-   or the figure's pill-shaped ⊕, would be one affordance meaning two things. */
-.gly-code-grip {
-  border-style: dashed;
-  letter-spacing: -1px;
+/* What a block instruction will be about, while its composer is up: the
+   section under a heading, or the one block. ONE BOX round all of it, beside
+   the grips and never inside `.ProseMirror` (web/figures.ts's paintScope
+   sizes it to the blocks), because a section is one thing and a box round
+   each of its blocks read as several. It takes no part in the flow and no
+   pointer, so nothing moves and nothing under it stops answering. An
+   OUTLINE, offset off the blocks so it does not sit on their text. Violet,
+   the instruction's own colour, as the figure's pick mode. */
+.gly-grip-scope {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 4px;
+  outline: 1px dashed var(--gly-hl);
+  outline-offset: 3px;
 }
 
 /* --- what is inside the whole-document panel (R7) ---
@@ -1761,6 +1829,15 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   color: var(--gly-muted);
   font-size: 12px;
 }
+/* What the reviewer can do instead, under the refusal: the refused
+   keystroke's note says the same line in the same register (.gly-refusal-hint). */
+.gly-composer-deny-hint {
+  max-width: 21rem;
+  padding: 0 0.35rem 0.15rem;
+  color: var(--gly-muted);
+  font-size: 12px;
+  opacity: 0.8;
+}
 
 /* --- a refused fence edit ---
 
@@ -1986,8 +2063,14 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
    FULL VIEWPORT, which is what stops the two centrings drifting apart the way
    they did when the sheet's own inset squeezed the space this is centred
    within — and it is the sheet's own centring, no longer a claim about where
-   `main` happens to sit at the same moment. */
-.gly-sheet-body { max-width: var(--gly-col-wide); margin: 0 auto; padding: 0 var(--gly-gutter); }
+   `main` happens to sit at the same moment. The LEFT padding is `main`'s grip
+   inset, not the bare gutter, so a card starts where the prose does at the
+   widths where the prose gives up room for the grips. */
+.gly-sheet-body {
+  max-width: var(--gly-col-wide);
+  margin: 0 auto;
+  padding: 0 var(--gly-gutter) 0 var(--gly-grip-inset-wide);
+}
 .gly-sheet-card { position: static; margin-bottom: var(--gly-rail-gap); }
 /* NOTHING TO SUPPRESS HERE, and its absence is the claim. A card used to carry
    its own connector leg and arm as children, so every surface the card renders
@@ -3611,9 +3694,9 @@ body.gly-history-mode > main {
 .gly-composer[hidden],
 .gly-composer-bar[hidden],
 .gly-composer-deny[hidden],
+.gly-composer-deny-hint[hidden],
 .gly-composer-form[hidden],
 .gly-capture[hidden],
-.gly-grip[hidden],
 .gly-menu[hidden],
 .gly-overall[hidden],
 .gly-rail[hidden],
@@ -3811,6 +3894,18 @@ body.gly-page.gly-view-content #editor { flex-basis: 100%; }
 body.gly-page #editor .ProseMirror {
   max-width: var(--gly-col);
   margin-inline: auto;
+}
+
+/* THE GRIPS' GUTTER IS THE CONTENT PANE'S OWN. In Both view the pane's left
+   edge is a gutter's width from the live page, so a grip hung off the text
+   would sit over the page; the pane carries the grip gutter inside itself.
+   In Content view the centred column gives it, until the pane is too narrow
+   to centre with that much to spare, and then the column starts the gutter
+   in and gives up the rest on the right. */
+body.gly-page.gly-view-both #editor { padding-left: var(--gly-grip-gutter); }
+body.gly-page.gly-view-content #editor .ProseMirror {
+  margin-left: max(var(--gly-grip-gutter), calc((100% - var(--gly-col)) / 2));
+  margin-right: auto;
 }
 
 /* Both: two equal halves — the base flex-basis stands, both panes shown. */

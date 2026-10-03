@@ -1617,13 +1617,11 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 			text := in.Text
 			region := in.Region
 			return out, func(doc *crdt.Doc, tx review.Tx) {
-				sess := review.Bind(doc, tx)
-				sess.Append(key, heading, author, text, at)
-				sess.SetAnchor(key, string(anchor.Kind), suggest.BlockKindFor(out, anchor))
-				// The rectangle, when there is one.
-				if region != nil {
-					sess.SetRegion(key, region)
-				}
+				// The words, the anchor and the rectangle in ONE transaction:
+				// see review.AppendAbout.
+				review.Bind(doc, tx).AppendAbout(key, heading, author, text, at, review.About{
+					Anchor: string(anchor.Kind), BlockKind: suggest.BlockKindFor(out, anchor), Region: region,
+				})
 			}, nil
 		default:
 			return docmodel.Doc{}, nil, fmt.Errorf(

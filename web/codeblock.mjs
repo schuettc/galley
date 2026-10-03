@@ -1,23 +1,19 @@
 // codeblock.mjs — A CODE BLOCK TAKES A BLOCK-LEVEL INSTRUCTION, AND ONLY FROM
-// ITS OWN GRIP.
+// ITS GRIP.
 //
 // A fence is read-only to TYPING and stays that way: a range comment writes a
 // `highlight` mark and a `code: true` node carries none, so a selection
 // touching a fence gets the deny line and no `Add instruction` button. That
-// refusal is the thing this gate protects while it proves the new capability
+// refusal is the thing this gate protects while it proves the capability
 // beside it — the gutter grip that files a WHOLE-BLOCK note against the fence's
 // own key, which needs no mark anywhere and so was always possible.
 //
-// NO OTHER GATE CAN SEE THIS. probe.mjs drives `codeBlockPos` with a stub view
-// and no browser, so it can say the arithmetic is right and nothing about
-// whether a pointer over a <pre> ever produces a button; the Go side has never
-// heard of a grip. The five claims here are the spec's Acceptance list, in its
-// order:
+// The claims every grip shares (visible at rest, in the gutter, pressable,
+// displacing nothing) are web/grip.mjs's. What is here is the fence's own:
 //
-//   THE GRIP APPEARS AND IT IS ITS OWN — hovering the fence seats a
-//   `.gly-code-grip` in the left gutter beside it, and the section `§` stays
-//   hidden, because one affordance meaning two things is the fault this
-//   codebase files under one-surface-one-language.
+//   THE GRIP IS THERE AT REST — the fence carries the one block grip, in the
+//   left gutter beside it, with no hover issued first. It is the same grip
+//   every other block carries; the fence is not a second affordance.
 //
 //   THE RANGE REFUSAL IS INTACT — a selection INSIDE the fence still shows no
 //   comment button and still shows the deny line, in suggestions.ts's own
@@ -26,8 +22,9 @@
 //
 //   THE GRIP OPENS THE COMPOSER IN BLOCK MODE — the FORM directly, not the
 //   bar: the gesture named its scope by being clicked on one block. The head
-//   says INSTRUCTION and quotes nothing, because a whole-fence note is about
-//   the block and not about the first 28 characters of a shell command.
+//   names the block (`on this code block`) and quotes none of it, because a
+//   whole-fence note is about the block and not about the first 28
+//   characters of a shell command. The reviewer's selection is not touched.
 //
 //   SEND FILES A BLOCK THREAD — exactly one pending instruction, `anchor:
 //   "block"`, `blockKind: "codeBlock"`, `anchorKey` equal to the fence's own
@@ -251,35 +248,43 @@ check(
   (await page.locator('.ProseMirror pre').count()) === 1,
 );
 
-// --- §2 hovering it arms a grip of its own ------------------------------
+// --- §2 the fence's grip is there at rest -------------------------------
+//
+// NO HOVER IS ISSUED before the read. The pointer is parked in the corner: a
+// grip that needs the pointer over the fence to appear is a grip nobody finds.
 
-await page.hover('.ProseMirror pre');
-await page.waitForSelector('.gly-code-grip:not([hidden])', { timeout: 5000 });
+const FENCE_GRIP = `.gly-block-grip[data-index="${ref ? ref.index : -1}"]`;
+await page.mouse.move(0, 0);
 {
-  const seat = await page.evaluate(() => {
-    const grip = document.querySelector('.gly-code-grip');
+  const seat = await page.evaluate((sel) => {
+    const grips = document.querySelectorAll(sel);
+    const grip = grips[0];
     const pre = document.querySelector('.ProseMirror pre');
+    if (!grip || grip.hidden) {
+      return { grips: grips.length };
+    }
     const g = grip.getBoundingClientRect();
     const p = pre.getBoundingClientRect();
-    const section = document.querySelector('.gly-grip:not(.gly-code-grip)');
     return {
-      glyph: grip.textContent,
-      title: grip.title,
-      left: Math.round(g.left - p.left),
+      grips: grips.length,
+      kind: grip.dataset.kind,
+      face: grip.textContent,
+      label: grip.getAttribute('aria-label'),
+      right: Math.round(g.right - p.left),
       top: Math.round(g.top - p.top),
-      sectionShown: !!section && !section.hidden,
+      size: [g.width, g.height],
     };
-  });
+  }, FENCE_GRIP);
   check(
-    'hovering the code block seats its grip in the LEFT gutter beside it',
-    seat.left < 0 && Math.abs(seat.top) < 40,
+    'the fence\u2019s grip is visible WITHOUT hovering, in the LEFT gutter beside it',
+    seat.grips === 1 && seat.right <= 0 && Math.abs(seat.top) <= 2,
     seat,
   );
   check(
-    'and the grip is the code block\u2019s own \u2014 not the section \u00a7',
-    seat.glyph === '{}' &&
-      seat.title === 'instruct on this whole code block' &&
-      seat.sectionShown === false,
+    'and it is the one block grip, named for what it is on',
+    seat.kind === 'codeBlock' &&
+      seat.face === '+' &&
+      seat.label === 'Add an instruction on this code block',
     seat,
   );
 }
@@ -333,19 +338,33 @@ await page.waitForFunction(
   null,
   { timeout: 5000 },
 );
-await page.hover('.ProseMirror pre');
-await page.waitForSelector('.gly-code-grip:not([hidden])', { timeout: 5000 });
-await page.click('.gly-code-grip');
+// THE SELECTION IS THE REVIEWER'S. The refused selection inside the fence is
+// still standing after Esc, and the grip opens beside it without moving it:
+// a grip that selected its block to show the scope left a selection the next
+// keystroke would act on.
+const selected = () =>
+  page.evaluate(() => {
+    const s = window.galleyEdit.editor.state.selection;
+    return [s.from, s.to];
+  });
+const heldBefore = await selected();
+await page.click(FENCE_GRIP, { timeout: 5000 });
 await page.waitForSelector('.gly-composer-form:not([hidden])', {
   timeout: 5000,
 });
+const heldAfter = await selected();
+check(
+  'clicking the grip leaves the reviewer\u2019s selection where it was',
+  heldBefore.join(',') === heldAfter.join(','),
+  { before: heldBefore, after: heldAfter },
+);
 {
   const opened = await page.evaluate(() => {
     const el = (sel) => document.querySelector(sel);
     return {
       bar: !el('.gly-composer-bar').hidden,
       deny: !el('.gly-composer-deny').hidden,
-      head: el('.gly-composer-head').textContent,
+      head: el('.gly-composer-head').innerText,
       send: el('.gly-composer-send').disabled,
       block: window.galleyEdit.app.composer.block,
       below:
@@ -359,8 +378,8 @@ await page.waitForSelector('.gly-composer-form:not([hidden])', {
     opened,
   );
   check(
-    'headed INSTRUCTION with nothing quoted \u2014 a whole-fence note is about the block',
-    opened.head === 'INSTRUCTION',
+    'headed with the block it is on, quoting none of it \u2014 a whole-fence note is about the block',
+    opened.head === 'INSTRUCTION \u00b7 ON THIS CODE BLOCK',
     opened,
   );
   check(
@@ -377,40 +396,27 @@ await page.click('.gly-composer-send');
 await page.waitForSelector('.gly-rail-band .gly-thread', { timeout: 10000 });
 await page.waitForTimeout(600);
 
-// THE GRIP'S SELECTION GOES WITH ITS COMPOSER. The grip selected the whole
-// fence to show what the comment is about; left standing after the send, the
-// reviewer's next keystroke would be aimed at the whole block.
+// NOTHING SELECTS THE WHOLE FENCE AFTER THE SEND. A grip that selected its
+// block to show the scope left that selection standing once the composer
+// was gone, and the reviewer's next keystroke was aimed at the whole block.
+// The grip selects nothing now, so whatever is selected is what the reviewer
+// selected, and never the fence entire.
 {
   const sel = await page.evaluate(() => {
     const state = window.galleyEdit.editor.state;
     const s = state.selection;
-    let fenceEnd = -1;
-    state.doc.descendants((node, pos) => {
-      if (node.type.name === 'codeBlock' && fenceEnd < 0) {
-        fenceEnd = pos + node.nodeSize;
+    let fence = null;
+    state.doc.forEach((node, pos) => {
+      if (!fence && node.type.name === 'codeBlock') {
+        fence = [pos, pos + node.nodeSize];
       }
     });
-    return {
-      empty: s.empty,
-      from: s.from,
-      to: s.to,
-      in: s.$from.parent.type.name,
-      fenceEnd,
-    };
+    return { from: s.from, to: s.to, fence };
   });
   check(
-    'sending the fence\u2019s comment leaves nothing selected',
-    sel.empty,
-    sel,
-  );
-  // AND THE CARET IS OUT OF THE FENCE, past it. Inside, the next keystroke
-  // meets the read-only refusal rather than landing anywhere. Not in the
-  // comment's own note either, which lands right after the fence.
-  check(
-    'and the caret lands after the fence, not inside it',
-    sel.empty &&
-      !['codeBlock', 'note'].includes(sel.in) &&
-      sel.from > sel.fenceEnd,
+    'sending the fence\u2019s instruction leaves no selection over the whole fence',
+    !!sel.fence &&
+      !(sel.from <= sel.fence[0] + 1 && sel.to >= sel.fence[1] - 1),
     sel,
   );
 }

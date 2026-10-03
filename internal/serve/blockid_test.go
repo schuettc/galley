@@ -1,6 +1,9 @@
 package serve
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +13,7 @@ import (
 
 	"github.com/schuettc/galley/internal/review"
 	"github.com/schuettc/galley/internal/unsent"
+	"github.com/schuettc/galley/internal/ydoc"
 )
 
 // BLOCK AND DOCUMENT COMMENTS ARE LINKED TO THEIR PLACE BY ID ALONE. A block
@@ -218,6 +222,97 @@ func TestTheUnsentRoundSurvivesARestartForEveryKind(t *testing.T) {
 	}
 }
 
+// A TABLE TAKES A BLOCK INSTRUCTION LIKE ANY OTHER BLOCK. The browser's grip
+// on a table files comment_block on the table's key, so this pins what that
+// relies on: the mark lands on its own line after the table's last row, not
+// in a cell; a cell's own mark is not moved; the instruction names the table
+// by its header; and all of it survives a restart. The server needed no
+// change for this. What a person reads (the label) did, and that half of
+// this test fails without it.
+func TestATableTakesABlockInstruction(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "d.md")
+	doc := strings.Replace(everyKindDoc, "| a | b |", "| key | value |", 1) + "\nAfter the table.\n"
+	if err := os.WriteFile(md, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	saveUnsentRound(t, md, courtSaid(cellKey, unsent.KindBlock, "this cell is wrong"))
+	s, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tableKey := blockKeyOf(t, s, "table", "")
+	if rec := postRec(t, s, "/_galley/instruct", map[string]any{
+		"op": "comment_block", "target": tableKey, "text": "add a units column",
+	}); rec.Code != 200 {
+		t.Fatalf("comment_block on the table answered %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	var key string
+	for _, c := range loadUnsent(t, s) {
+		if c.Text == "add a units column" {
+			key = c.Key
+		}
+	}
+	if key == "" {
+		t.Fatalf("pending.json does not hold the table's instruction: %+v", loadUnsent(t, s))
+	}
+
+	filed := func(stage string, s *EditServer) {
+		t.Helper()
+		got := readMD(t, s)
+		rows := "| key | value |\n| --- | --- |\n| x | {>>@comment " + cellKey + "<<} |\n"
+		// A blank line, not none: a line straight under a table is its next row.
+		if want := rows + "\n{>>@comment " + key + "<<}\n\nAfter the table.\n"; !strings.HasSuffix(got, want) {
+			t.Errorf("%s: the file ends %q, want the table, its cell mark unmoved, then the table's mark on its own line:\n%q",
+				stage, got[max(0, len(got)-len(want)-20):], want)
+		}
+		view := getPending(t, s)
+		var found bool
+		for _, in := range view.Instructions {
+			if in.Key != key {
+				continue
+			}
+			found = true
+			if in.Anchor != "block" || in.BlockKind != "table" || in.AnchorKey != tableKey || in.Quote != "table: key, value" {
+				t.Errorf("%s: the instruction is %+v, want anchor block, blockKind table, anchorKey %s, quote %q",
+					stage, in, tableKey, "table: key, value")
+			}
+		}
+		if !found {
+			t.Errorf("%s: /_galley/pending does not list %s: %+v", stage, key, view.Instructions)
+		}
+	}
+	filed("after filing", s)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = again.Close() })
+	filed("after a restart", again)
+}
+
+// getPending is /_galley/pending as the browser reads it, over the handler.
+func getPending(t *testing.T, s *EditServer) PendingView {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_galley/pending", nil))
+	if rec.Code != 200 {
+		t.Fatalf("GET /_galley/pending: %d %s", rec.Code, rec.Body.String())
+	}
+	var view PendingView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	return view
+}
+
 // galley stopped between the pending.json write and the .md write: the words
 // are saved and the marks never reached the file. The comments are listed,
 // unplaced, and stay.
@@ -316,4 +411,49 @@ func TestDeletingOnlyABlocksParagraphMovesItsCommentToTheBlockAbove(t *testing.T
 		return
 	}
 	t.Fatalf("the rail lost the block comment: %+v", pendingView(t, s).Instructions)
+}
+
+// A BLOCK INSTRUCTION IS NEVER LISTED HALF-WRITTEN. /_galley/pending takes no
+// lock (see pending), so it can read the review map between any two of a
+// write's transactions. When a block thread's words and its anchor were two
+// transactions, a read between them listed the instruction with no anchor, no
+// anchorKey and no blockKind, and the rail drew it, for that moment, as an
+// instruction on nothing. This reads the pending view after EVERY committed
+// transaction of one comment_block with a rectangle, the way a poller landing
+// at any instant would.
+func TestABlockInstructionIsNeverListedWithoutItsAnchor(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)
+	t.Cleanup(func() { _ = s.Close() })
+	fig := figureKey(t, s)
+	const text = "this box is wrong"
+	var seen []InstructionView
+	stop := s.doc.OnUpdate(func(_ []byte, origin any) {
+		if origin == ydoc.LiveReadOrigin {
+			return
+		}
+		view, err := s.pending()
+		if err != nil {
+			t.Errorf("pending mid-write: %v", err)
+			return
+		}
+		for _, in := range view.Instructions {
+			if in.Text == text {
+				seen = append(seen, in)
+			}
+		}
+	})
+	instructOK(t, s, map[string]any{
+		"op": "comment_block", "target": fig, "text": text,
+		"region": map[string]float64{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+	})
+	stop()
+	if len(seen) == 0 {
+		t.Fatal("no transaction of the write listed the instruction")
+	}
+	for i, in := range seen {
+		if in.Anchor != "block" || in.AnchorKey != fig || in.BlockKind != "image" || in.Region == nil {
+			t.Errorf("read %d of %d listed %+v, want anchor block on %s, blockKind image, with its region",
+				i+1, len(seen), in, fig)
+		}
+	}
 }

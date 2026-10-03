@@ -217,6 +217,34 @@ const LITERAL: Record<
   code: { inside: CODE_INSIDE, hint: CODE_HINT },
 };
 
+// THE GRIP IS THE WAY IN, where there is one. A top-level fence, table,
+// equation or front matter carries a grip beside it that files an
+// instruction on the whole block, so the hint ends by saying so. A NESTED one
+// has no grip — the server addresses top-level blocks only — and the clause
+// there would send the reviewer looking for a control that is not on the
+// page, so literalHit adds it by position, never by kind. The grip is named by
+// where it is and not by its face, which is `+` on a block with no
+// instructions and their count on a block with some.
+const GRIP_CLAUSE =
+  ' — or press the button to its left to leave an instruction on ';
+
+// What the grip's instruction is on, as the clause names it. A mermaid fence
+// is a diagram on the page, and its grip calls it one.
+function wholeBlock(what: NodeLiteralKind, node: PMNode): string {
+  switch (what) {
+    case 'table':
+      return 'the whole table';
+    case 'frontMatter':
+      return 'the front matter';
+    case 'mathBlock':
+      return 'the whole equation';
+    default:
+      return node.attrs.language === 'mermaid'
+        ? 'the whole diagram'
+        : 'the whole code block';
+  }
+}
+
 // isFence reports whether a node's content is literal. `code: true` is the
 // schema's own word for it (codeBlock sets it); the name check is belt and
 // braces for a schema that spells the flag differently.
@@ -427,7 +455,7 @@ export function literalHit(
   doc.nodesBetween(
     Math.max(0, lo - 1),
     Math.min(doc.content.size, hi + 1),
-    (node, pos) => {
+    (node, pos, parent) => {
       if (hit) {
         return false;
       }
@@ -442,6 +470,7 @@ export function literalHit(
         // reaching past either boundary is a join with what is beside it, and
         // the two deserve different sentences.
         const kind = lo >= pos + 1 && hi <= end - 1 ? 'inside' : 'join';
+        const hint = LITERAL[what].hint;
         hit = {
           node,
           pos,
@@ -449,7 +478,8 @@ export function literalHit(
           kind,
           what,
           reason: LITERAL[what][kind],
-          hint: LITERAL[what].hint,
+          hint:
+            parent === doc ? hint + GRIP_CLAUSE + wholeBlock(what, node) : hint,
         };
       }
       // A fence's children hold nothing this asks about, and a table's rows

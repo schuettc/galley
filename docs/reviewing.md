@@ -50,18 +50,43 @@ Select the words you mean. A small composer appears just below the selection wit
 INSTRUCTION · ON "the retry budget is generous"
 ```
 
-Type into the box — placeholder `what about it?` — and press Enter to file it. Shift-Enter breaks a line instead. `cancel` closes the composer, and so does Esc; the composer says `esc cancels` beside the button so you do not have to guess.
+Type into the box — placeholder `what about it?` — and press Enter to file it. Shift-Enter breaks a line instead. `cancel` closes the composer, and so does Esc; the composer says `esc cancels` beside the button so you do not have to guess. A click anywhere else closes it too while nothing is typed in it; once you have typed something it stays open until you file it or cancel.
+
+The box opens directly beneath the words. If there is not room for it there, the page scrolls just far enough to make room; only words near the very bottom of the window, with more room above them, get the box above instead. As you type, the box grows into the room the window has, and then scrolls inside itself.
 
 Some places refuse an anchor. A selection touching a code fence, a table, front matter, or a display-math block replaces the **Add instruction** button with the reason, in the same voice the editor uses when it refuses a keystroke there:
 
 > a code fence is literal text — galley never rewrites one, so it is read-only here
-> select and copy still work — edit fenced code in your own editor
+> select and copy still work — edit fenced code in your own editor — or press the button to its left to leave an instruction on the whole code block
 
-Those blocks render and are selectable and copyable, and none of them is editable by typing. A table, front matter, and a display-math block take no instruction at all. A **code block is the exception**: you cannot hang a *selection* instruction inside it, but you can instruct it as a whole — see below.
+Those blocks render and are selectable and copyable, and none of them is editable by typing. You cannot hang an instruction on a *selection* inside one, but you can instruct it as a whole from the button beside it — see below. A table or fence nested inside a list item or a quotation has no such button, and its refusal does not mention one.
 
-## Instructing a whole code block
+## Instructing a whole block
 
-Hover a code block and a small `{}` grip appears in the left gutter, distinct from the other gutter affordances. Click it and the instruction box opens on the whole block — there is no selection, because a fence is one unit. Type the instruction and file it as you would any other. It anchors to the block, appears as a card in the rail beside it, and travels with the round; the agent rewrites the block's contents in reply. You still cannot type inside the fence or hang an instruction on a selection within it — the grip instructs the block as a whole, which is the one thing a fence can carry.
+Every heading, code block, table, image, diagram, display-math block and front-matter block has a small square button in the left margin, level with its first line. It is always there, drawn faintly until you point at it or tab to it; you do not have to hover to find it. Paragraphs, lists and quotations have none — select their words instead.
+
+The button shows `+`. Press it and the instruction box opens straight away beneath the block, headed with what the instruction is on:
+
+```
+INSTRUCTION · ON the section "Budget"
+INSTRUCTION · ON this table
+```
+
+One dashed outline shows what the instruction covers: on a heading, the whole section under it, from the heading down to the next heading at the same level or above; on anything else, the block itself. Pressing the button does not touch your selection. The box opens directly beneath the block, and if there is not room for it there, the page scrolls just far enough to make room. Type the instruction and press Enter to file it, as in every other box. Esc or `cancel` closes the box, and so does a click anywhere else while nothing is typed in it; Esc puts the keyboard back on the button you pressed. Pressing another block's button moves the box to that block.
+
+The instruction anchors to the block, appears as a card in the rail beside it, and travels with the round. The agent rewrites the block in reply; you still cannot type inside a fence, a table, front matter or display math yourself.
+
+Once a block carries instructions, its button is filled and shows how many (`1`, `2`, up to `9+`) instead of `+`. Press it again to add another.
+
+The buttons are also reachable from the keyboard: Tab past the end of the document and they come next, in document order.
+
+They are not shown while there is nothing you can file: after the review is approved, while the agent holds the document, while you are reading History, and in the HTML view of a page. A block you have just typed has a button straight away, but until galley has seen the block the box says `not in the document yet — it lands on the next sync` and will not send. When galley sees it, a second or so later, the note goes and the box sends, with what you typed still in it.
+
+### Tables and figures
+
+A **table**'s instruction is on the whole table, and its card is headed with the table's column names (`on table: key, value`). There is still no instruction on a selection inside a table.
+
+An **image** or a **diagram** opens the box on the whole figure. The box also offers **Mark a region**. Press it, then drag across the picture to draw a rectangle, and the instruction is on that part of the figure instead (`INSTRUCTION · ON a region of this figure`). Esc while drawing goes back to the whole figure and keeps what you typed. Once filed, the rectangle stays drawn on the figure, pressing it brings its card forward, and the card reads `on figure region`.
 
 ## Leaving an instruction on the whole document
 
@@ -71,7 +96,7 @@ Line breaks and blank lines are kept in every instruction, whichever box you wro
 
 ## Changing your mind before you send
 
-Every instruction becomes a card in the rail, headed `instruction · <what it is about> · <age>` — the anchor is quoted for a span, or reads `whole document`.
+Every instruction becomes a card in the rail, headed `instruction · <what it is about> · <age>` — the anchor is quoted for a span, names the block for a whole-block instruction, or reads `whole document`.
 
 Each card carries two verbs:
 
