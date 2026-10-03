@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
-## Unreleased
+## 0.12.0
 
 - **One button for every block, always visible.** Every top-level heading, code block, table, image, diagram, display-math block and front-matter block now has one square button in the left margin, level with its first line. A block nested inside a list or a quotation has none. It shows without hovering, and Tab reaches it from the keyboard after the document. Pressing it opens the instruction box on that block straight away, outlines what the instruction covers (a heading's whole section, or the block), and leaves your selection alone.
 - **Tables, display math and front matter can take an instruction.** Before, the page offered no way to instruct a whole table. A table's card is headed with its column names (`on table: key, value`) instead of a line of markdown.
