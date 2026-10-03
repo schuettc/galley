@@ -177,7 +177,7 @@ jobs:
           GALLEY: ${{ github.workspace }}/bin/galley
 
       # A CODE BLOCK TAKES A BLOCK-LEVEL INSTRUCTION, AND ONLY FROM ITS OWN
-      # GRIP. Hover a fence and a {} grip appears in the gutter; clicking it
+      # GRIP. A fence's grip sits in the gutter at rest; pressing it
       # opens the composer in BLOCK mode and sending files one block thread on
       # the fence's own key, with a card in the rail beside it — while a
       # SELECTION inside the fence still gets the deny line and no range
@@ -186,6 +186,16 @@ jobs:
       # round trip is through the FILE and nothing else here reads it back.
       - name: Gate — a code block takes an instruction
         run: node web/codeblock.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
+      # ONE GRIP FOR EVERY BLOCK. Every top-level heading, fence, table,
+      # figure, display-math block and front matter carries one grip in the
+      # left gutter, visible without hovering, and pressing it opens the block
+      # composer on that block. The cross-kind claims live here; each kind's
+      # own claims stay in its own gate.
+      - name: Gate — every block has one grip
+        run: node web/grip.mjs
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 

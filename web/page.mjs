@@ -370,6 +370,102 @@ const select = (phrase) =>
   );
 }
 
+// --- §2b the block grips in each view -------------------------------------
+//
+// The grips belong to the content pane. In Content view they sit in the
+// gutter beside its blocks; in Both view the gutter is the content pane's own,
+// so no grip hangs over the live page beside it; in HTML view the content
+// pane is gone and its grips with it. A view switch carries each grip with its
+// block: the gap between them is the same in every view that shows them.
+{
+  const grips = () =>
+    page.evaluate(() => {
+      const view = window.galleyEdit.editor.view;
+      const doc = view.state.doc;
+      const e = document.getElementById('editor').getBoundingClientRect();
+      const pv = document.getElementById('gly-preview');
+      const p = pv && pv.checkVisibility() ? pv.getBoundingClientRect() : null;
+      return [...document.querySelectorAll('.gly-block-grip')].map((g) => {
+        const index = Number(g.dataset.index);
+        let pos = 0;
+        for (let i = 0; i < index; i += 1) pos += doc.child(i).nodeSize;
+        const node = doc.child(index);
+        const r = g.getBoundingClientRect();
+        const b = view.nodeDOM(pos).getBoundingClientRect();
+        const line =
+          node.type.name === 'heading' ? view.coordsAtPos(pos + 1).top : b.top;
+        return {
+          index,
+          shown: g.checkVisibility(),
+          beside: r.right <= b.left && b.left - r.right <= 16,
+          gap: Math.round((b.left - r.right) * 10) / 10,
+          rise: Math.round((r.top - line) * 10) / 10,
+          inEditor: r.left >= e.left && r.right <= e.right,
+          overPage:
+            !!p &&
+            r.left < p.right &&
+            r.right > p.left &&
+            r.top < p.bottom &&
+            r.bottom > p.top,
+        };
+      });
+    });
+  const show = async (v) => {
+    await page.click(`.gly-view-btn[data-view="${v}"]`);
+    await page.waitForTimeout(800);
+    return grips();
+  };
+  const content = await show('content');
+  check(
+    'in Content view every block grip is shown, in the gutter beside its block',
+    content.length > 0 && content.every((g) => g.shown && g.beside),
+    content.filter((g) => !g.shown || !g.beside),
+  );
+  // A WINDOW RESIZE RE-CENTRES THE COLUMN WITHOUT RESIZING IT. The page's
+  // column is a fixed width centred in a wider pane, so a wider window moves
+  // every block sideways and leaves `.ProseMirror`'s own size alone; a grip
+  // that only re-measures when the column changes size stays where the
+  // column used to be.
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.waitForTimeout(400);
+  const wider = await grips();
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  await page.waitForTimeout(400);
+  const back = await grips();
+  check(
+    'a window resize in Content view keeps every grip in the gutter beside its block',
+    wider.length === content.length &&
+      back.length === content.length &&
+      [...wider, ...back].every((g) => g.shown && g.beside),
+    {
+      wider: wider.filter((g) => !g.beside).map((g) => [g.index, g.gap]),
+      back: back.filter((g) => !g.beside).map((g) => [g.index, g.gap]),
+    },
+  );
+  const both = await show('both');
+  check(
+    'in Both view every grip is inside the content pane and none hangs over the live page',
+    both.length > 0 &&
+      both.every((g) => g.shown && g.beside && g.inEditor && !g.overPage),
+    both.filter((g) => !g.shown || !g.beside || !g.inEditor || g.overPage),
+  );
+  check(
+    'and switching between them carries every grip with its block',
+    both.length === content.length &&
+      both.every(
+        (g, i) => g.gap === content[i].gap && g.rise === content[i].rise,
+      ),
+    both.map((g, i) => [g.gap, content[i]?.gap, g.rise, content[i]?.rise]),
+  );
+  const html = await show('html');
+  check(
+    'in HTML view no grip is shown',
+    html.length > 0 && html.every((g) => !g.shown),
+    html.filter((g) => g.shown),
+  );
+  await show('both');
+}
+
 // --- §3 the reviewer instructs the eyebrow, and arms the agent ----------
 
 agent = spawn(

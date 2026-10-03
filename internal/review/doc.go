@@ -272,6 +272,26 @@ var ErrNoThread = errors.New("no thread for that section")
 // Transaction offers root accessors only — there is no in-transaction way to
 // read a nested value.
 func (s *Session) Append(key, heading, author, text string, at time.Time) {
+	s.AppendAbout(key, heading, author, text, at, About{})
+}
+
+// About is what a thread is about when that is not a range of prose: the
+// anchor and block kind SetAnchor records, and the rectangle SetRegion does.
+// The zero value is a range thread.
+type About struct {
+	Anchor    string
+	BlockKind string
+	Region    *Region
+}
+
+// AppendAbout is Append, with what the thread is about written IN THE SAME
+// TRANSACTION as its words.
+//
+// One transaction, not Append then SetAnchor then SetRegion, because a reader
+// can land between any two: the pending view takes no lock, and a block thread
+// read after its words and before its anchor was listed as an instruction on
+// nothing — no anchor, no block, no rectangle — until the next read.
+func (s *Session) AppendAbout(key, heading, author, text string, at time.Time, about About) {
 	root := s.doc.GetMap(threadsRoot)
 	thread, _ := mustGet[*crdt.YMap](root, key)
 	var entries *crdt.YArray
@@ -301,6 +321,19 @@ func (s *Session) Append(key, heading, author, text string, at time.Time) {
 		entry.Set(txn, "text", body)
 		if text != "" {
 			body.Insert(txn, 0, text, nil)
+		}
+
+		if about.Anchor != "" {
+			thread.Set(txn, "anchor", about.Anchor)
+			if about.BlockKind != "" {
+				thread.Set(txn, "blockKind", about.BlockKind)
+			}
+		}
+		if r := about.Region; r != nil {
+			thread.Set(txn, "regionX", r.X)
+			thread.Set(txn, "regionY", r.Y)
+			thread.Set(txn, "regionW", r.W)
+			thread.Set(txn, "regionH", r.H)
 		}
 	})
 }

@@ -78,6 +78,38 @@ func TestBlocks_ListsEveryTopLevelBlockWithALabel(t *testing.T) {
 	}
 }
 
+// A table's label is what a person reads in the card head, so it is the
+// header cells' words, not the header row's markdown (`| key | value |`).
+func TestATableIsLabelledByItsHeader(t *testing.T) {
+	const src = "| key | value |\n| --- | --- |\n| a | b |\n"
+	got := suggest.Blocks(parseDoc(t, src))
+	if len(got) != 1 || got[0].Label != "table: key, value" {
+		t.Errorf("Blocks = %+v, want one table labelled %q", got, "table: key, value")
+	}
+	// The label is for a person; the key is what comments hang on, and it
+	// hashes the table's markdown, so labelling it moves no key.
+	if len(got) == 1 && got[0].Key != "bk-ed962123b1a2727d" {
+		t.Errorf("the table's key = %q, want bk-ed962123b1a2727d as before it had a label", got[0].Key)
+	}
+
+	for _, c := range []struct{ name, src, want string }{
+		{"code and emphasis read as plain text",
+			"| `id` | *name* | **unit** |\n| --- | --- | --- |\n| 1 | a | b |\n", "table: id, name, unit"},
+		{"an empty header cell is skipped",
+			"| key |  | value |\n| --- | --- | --- |\n| a | b | c |\n", "table: key, value"},
+		{"a header with no words is just a table",
+			"|  |  |\n| --- | --- |\n| a | b |\n", "table"},
+		{"a long header is bounded like every label",
+			"| " + strings.Repeat("word ", 10) + "| " + strings.Repeat("more ", 10) + "|\n| --- | --- |\n| a | b |\n",
+			"table: " + strings.TrimSpace(strings.Repeat("word ", 10)) + ", more more mor…"},
+	} {
+		got := suggest.Blocks(parseDoc(t, c.src))
+		if len(got) != 1 || got[0].Label != c.want {
+			t.Errorf("%s: Blocks = %+v, want one table labelled %q", c.name, got, c.want)
+		}
+	}
+}
+
 // The point of a content-derived key: an edit that renumbers everything
 // around a block must not move that block's key.
 func TestBlockKey_SurvivesRenumberingAroundIt(t *testing.T) {

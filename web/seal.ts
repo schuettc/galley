@@ -203,7 +203,7 @@ export function sealLine(
  * read "a painter that re-derives its flag" — which `.gly-comment-button`
  * satisfied on paper and failed in fact. Its writers are all GESTURES:
  * `placeComposerButton` on a `selectionUpdate`, `hideComposer`, and
- * `openSectionComposer`. `applySeal` runs none of them, and cannot sensibly —
+ * `openBlockComposer`. `applySeal` runs none of them, and cannot sensibly —
  * re-placing the composer at an edge would reset a half-typed comment and its
  * note. So a painter counts here only if `applySeal` calls it (`paintCensus`,
  * `paintRail`); anything else belongs in `SEAL_ONLY_VERBS`, where the comment
@@ -256,12 +256,18 @@ export function sealLine(
 // `elementFromPoint`, and `disabled` — the exact combination that reads as a
 // broken control rather than an absent one, which this codebase already rates
 // as the worse of the two.
+//
+// `.gly-block-grip` IS THE BLOCK GRIP, and it is hidden as well as killed:
+// paintGrips sets `hidden` and `disabled` on every grip while sealed, and the
+// seal edge runs it in both directions, so it needs no entry in
+// SEAL_ONLY_VERBS.
 export const SEALED_VERBS =
   '.gly-thread-delete, ' +
   '.gly-thread-edit, .gly-thread-edit-text, .gly-thread-edit-save, ' +
   '.gly-overall-input, .gly-census button:not(.gly-versions-open), ' +
   '.gly-composer button, ' +
-  '.gly-composer-text, .gly-capture button, .gly-capture-open';
+  '.gly-composer-text, .gly-capture button, .gly-capture-open, ' +
+  '.gly-block-grip';
 
 /** SEAL_ONLY_VERBS is the half of SEALED_VERBS the seal itself owns, because
  * NOTHING ELSE DOES — nothing, that is, that the unseal EDGE runs.
@@ -291,7 +297,7 @@ export const SEALED_VERBS =
  *     reviewer makes a gesture, and a gesture is not an edge. Its three writers
  *     are `placeComposerButton` (only on the `place` verdict; a selection that
  *     has not moved is `keep`, which writes no flag), `hideComposer` and
- *     `openSectionComposer`, and the unseal edge runs none of them. So a
+ *     `openBlockComposer`, and the unseal edge runs none of them. So a
  *     composer left placed across a seal came back from Reopen with a dead
  *     comment button, and clicking it could not even fix it: `.gly-composer`
  *     cancels its own mousedown to keep the editor's selection alive, so the
@@ -312,13 +318,16 @@ export const SEALED_VERBS =
  * in `paintSeal`, which runs on every poll.
  *
  * ONE FLAG THIS DOES OVERWRITE, and it is named rather than left to be
- * discovered: `openSectionComposer` disables the comment button while the
- * heading it selected is not in the server's block list yet ("not in the
+ * discovered: `openBlockComposer` disables the send button while the block its
+ * grip was pressed on is not in the server's block list yet ("not in the
  * document yet — it lands on the next sync"). A seal and a reopen crossing that
- * window hand the button back early. It is transient by construction — the next
- * pending refresh brings the key, and the next selection re-derives the flag —
- * and the alternative is the composer keeping a permanent dead button so that a
- * one-poll advisory can never be overruled.
+ * window hand the button back early, and that is safe rather than merely
+ * transient: `sendComment` refuses a grip's composer with no block
+ * (`c.opener && !c.block`) before it reads a word, so the live button, and
+ * Enter, file nothing. The next pending refresh brings the key and
+ * `adoptGripBlock` makes the box sendable on that block. The alternative is the
+ * composer keeping a permanent dead button so that a one-poll advisory can
+ * never be overruled.
  *
  * `.gly-composer-text` joins for its SIBLING'S reason, exactly: it is built once
  * in `makeComposer` and appended to the body, and the unseal edge runs no
@@ -421,6 +430,8 @@ export const sealMethods = {
       } else if (!this.sealed) {
         this.editor.setEditable(!this.handoff);
       }
+      // The block grips leave with the document and come back with it.
+      this.paintGrips();
     }
     this.paintCancel();
     this.paintReadout();
@@ -502,6 +513,9 @@ export const sealMethods = {
   // and the rail's verbs go dead. Coming back is the exact inverse, plus the
   // one thing that only exists on this edge — the agent's reason.
   applySeal(this: AppShell, was: boolean, d: ReviseWatchView) {
+    // The block grips are hidden and disabled while sealed, and paintGrips
+    // is their owner in both directions.
+    this.paintGrips();
     if (this.sealed) {
       this.closeVerdictMenu();
       this.editor.setEditable(false);

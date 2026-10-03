@@ -124,6 +124,7 @@ import type {
   ReviewerChange,
 } from './wire';
 import type { Composer } from './composer.ts';
+import type { GripTarget } from './grips.ts';
 import type { Mode, ModeUI } from './bar.ts';
 import type { OverallCard, CaptureCard } from './cards.ts';
 import type { DocMenu, MenuItem } from './menu.ts';
@@ -387,9 +388,15 @@ export interface AppState {
   // off, `#gly-revise`, may not exist).
   cancelBtn: HTMLButtonElement | null;
 
-  // --- the section grip, and the code block's own (web/figures.ts) ---
-  grip: HTMLButtonElement;
-  codeGrip: HTMLButtonElement;
+  // --- the block grips (web/figures.ts) ---
+  //
+  // `gripSizes` is optional for `barSize`'s reason: it is assigned only
+  // inside a `typeof window.ResizeObserver === 'function'` branch.
+  grips: HTMLElement;
+  // The block instruction's one scope outline, beside the grips (paintScope).
+  scopeBox: HTMLElement;
+  scheduleGrips: () => void;
+  gripSizes?: ResizeObserver;
 
   // --- the right-click menu in the document (web/menu.ts) ---
   //
@@ -447,7 +454,7 @@ export interface AppMethods {
   closeSheet(): void;
   closeVerdictMenu(): void;
   hideComposer(): void;
-  releaseGrip(): void;
+  clearScope(): void;
   openComposerForm(): void;
   menuItems(): MenuItem[];
   hideRefusal(): void;
@@ -556,8 +563,7 @@ export interface AppMethods {
   refreshVersions(): void;
   paintNoteWords(): void;
 
-  // --- figures and the section grip (web/figures.ts) ---
-  armFigure(el: HTMLElement, ref: BlockRef | null): void;
+  // --- figures and the block grips (web/figures.ts) ---
   figurePairs(): Array<{
     node: PMNode;
     pos: number;
@@ -566,20 +572,21 @@ export interface AppMethods {
   }>;
   flashThreadCard(key: string): void;
   paintFigures(): void;
-  openRegionComposer(
-    figureEl: HTMLElement,
-    ref: BlockRef,
-    region: Region,
-  ): void;
-  openSectionComposer(headingPos: number): void;
-  openCodeBlockComposer(pos: number): void;
+  markRegion(): void;
+  openBlockComposer(target: GripTarget, opener: HTMLElement | null): void;
+  adoptGripBlock(): void;
   openSheet(): void;
+  paintGrips(): void;
+  paintScope(): void;
   paintPins(el: HTMLElement, ref: BlockRef | null): void;
-  placeGrip(headingEl: HTMLElement | null): void;
-  placeCodeGrip(preEl: HTMLElement | null): void;
 
   // --- the composer, and the refused-keystroke note (web/composer.ts) ---
   fileBlockComment(c: Composer, text: string, settled: () => void): void;
+  headBlockComposer(
+    target: Pick<GripTarget, 'kind' | 'figure'>,
+    label: string,
+    region?: boolean,
+  ): void;
   headComposer(quote: string): void;
   paintRefusal(hit: LiteralHit): void;
   placeComposer(
@@ -626,7 +633,7 @@ export interface AppMethods {
   makeRefusal(): HTMLElement;
   refuse(hit: LiteralHit): void;
   dismissRefusal(): void;
-  placeComposerButton(): void;
+  placeComposerButton(byReviewer?: boolean): void;
 
   // --- the rail's cards: the placement pass itself and its two builders
   //     (web/cards.ts) ---
@@ -654,8 +661,8 @@ export interface AppMethods {
   };
 
   // --- figures' own builder (web/figures.ts) ---
-  makeGrip(): HTMLButtonElement;
-  makeCodeGrip(): HTMLButtonElement;
+  makeGripLayer(): HTMLElement;
+  makeScopeBox(): HTMLElement;
 
   // --- the seal and the handoff's own builders (web/seal.ts) ---
   makeHandoffCancel(): HTMLButtonElement | null;

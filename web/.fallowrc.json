@@ -10,6 +10,7 @@
     "loop.mjs",
     "page.mjs",
     "codeblock.mjs",
+    "grip.mjs",
     "align.mjs",
     "livestructure.mjs",
     "undo.mjs",

@@ -432,7 +432,7 @@ await instruct({
 // wrong predicate, two symptoms" entry arriving inside a check.
 //
 // THE KEY IS READ BACK from the pending view's own `blocks`, which is where
-// `galley blocks` used to get it and where the browser's section grip gets it:
+// `galley blocks` used to get it and where the browser's block grip gets it:
 // it is a content hash, so a transcribed one would stop resolving the day the
 // caption changes and leave the fixture quietly without a block thread again.
 {
@@ -1669,6 +1669,19 @@ await page.waitForTimeout(300);
 // is gone is the two-colour edge and the old→new body, because a component with
 // no data to build it from cannot be read off a screen.
 
+// takeBack deletes an instruction a section filed for its own check, and waits
+// for the page to have heard, so the sections after it count what they always
+// counted.
+const takeBack = (key) =>
+  page.evaluate(async (k) => {
+    await fetch('/_galley/instruction/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: k }),
+    });
+    await window.galleyEdit.app.refreshPending();
+  }, key);
+
 // --- §1e · a block note's words are a widget, painted by ID -----------------
 //
 // A block comment's note carries only its ID; the amber box gets the words from
@@ -1677,8 +1690,8 @@ await page.waitForTimeout(300);
 // the comment's line breaks and wrap a long token, and only a real browser's
 // computed style can say it does.
 //
-// FILED THROUGH THE COMPOSER, the reviewer's own path: the section grip on the
-// title, its bar's button, the form. The note is then found by its ID — the
+// FILED THROUGH THE COMPOSER, the reviewer's own path: the grip beside the
+// title, then the form it opens. The note is then found by its ID — the
 // pending instruction's key — and by nothing else: no text is matched, and
 // nothing is written into the fragment by this check.
 //
@@ -1694,14 +1707,10 @@ await page.waitForTimeout(300);
   await page.evaluate(() =>
     window.galleyEdit.editor.commands.setTextSelection(1),
   );
-  // The § grip, then its bar's button, then the form: each waited for as a
-  // locator, since each only exists once the one before it was pressed.
-  await page.locator('.ProseMirror h1').hover();
-  for (const step of ['.gly-grip:not(.gly-code-grip)', '.gly-comment-button']) {
-    const control = page.locator(step);
-    await control.waitFor({ state: 'visible', timeout: 5000 });
-    await control.click();
-  }
+  // The title's grip is there at rest and opens the form directly.
+  const grip = page.locator('.gly-block-grip[data-kind="heading"]').first();
+  await grip.waitFor({ state: 'visible', timeout: 5000 });
+  await grip.click();
   await page
     .locator('.gly-composer-form')
     .waitFor({ state: 'visible', timeout: 5000 });
@@ -1830,14 +1839,7 @@ await page.waitForTimeout(300);
       ),
     { ownGrew, moves },
   );
-  await page.evaluate(async (k) => {
-    await fetch('/_galley/instruction/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: k }),
-    });
-    await window.galleyEdit.app.refreshPending();
-  }, key || '');
+  await takeBack(key || '');
   const gone = key ? await measure(key) : null;
   check(
     'and deleting the comment takes its note and its widget with it',
@@ -1849,6 +1851,108 @@ await page.waitForTimeout(300);
     before,
     { timeout: 10000 },
   );
+}
+
+// --- §1f · a grip with instructions is painted as one ---------------------
+//
+// A block that carries instructions has a grip that says so in paint as well
+// as in its count: the instruction's own violet on its edge and its ground.
+// Read as an INEQUALITY between the same grip at rest and commented, in both
+// schemes, rather than as a token match alone: a commented rule that lost the
+// cascade to the resting one paints both the same, and a token check on a
+// token that is itself wrong passes either way. And the resting grip borrows
+// nothing from the two colours that already mean something in the prose —
+// the removed-text red and the light's amber wash.
+//
+// ONE GRIP, READ TWICE: the title's, before and after an instruction is filed
+// on it. Every grip-bearing block in this fixture but the title already
+// carries one, so there is no second grip at rest to compare against.
+{
+  const title = await page.evaluate(
+    () =>
+      (window.galleyEdit.app.blocks || []).find((b) => b.kind === 'heading') ||
+      null,
+  );
+  const grip = `.gly-block-grip[data-index="${title ? title.index : -1}"]`;
+  const PAINT = ['background-color', 'border-top-color', 'color'];
+  const SCHEMES = ['dark', 'light'];
+  const paint = async () => {
+    await page.mouse.move(0, 0);
+    const out = {};
+    for (const scheme of SCHEMES) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.waitForTimeout(300);
+      out[scheme] = {
+        grip: await style(grip, ...PAINT),
+        hl: await rgb('--gly-hl'),
+        hlBg: await rgb('--gly-hl-bg'),
+        taken: [
+          await rgb('--gly-del'),
+          await rgb('--gly-del-bg'),
+          await rgb('--gly-lit-bg'),
+        ],
+      };
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    return out;
+  };
+  const resting = await paint();
+  const filed = await page.evaluate(
+    async (k) => {
+      const r = await fetch('/_galley/instruct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 'comment_block',
+          target: k,
+          text: 'paint check',
+          author: 'court',
+        }),
+      });
+      await window.galleyEdit.app.refreshPending();
+      return r.ok
+        ? ((await r.json()).instructions || []).find(
+            (i) => i.text === 'paint check',
+          )?.key || ''
+        : '';
+    },
+    title ? title.key : '',
+  );
+  await page
+    .waitForSelector(`${grip}.is-commented`, { timeout: 10000 })
+    .catch(() => {});
+  const commented = await paint();
+  for (const scheme of SCHEMES) {
+    const rest = resting[scheme].grip;
+    const lit = commented[scheme].grip;
+    const { hl, hlBg, taken } = commented[scheme];
+    check(
+      `a commented grip differs from a resting one in ground AND edge in ${scheme}`,
+      !!lit &&
+        !!rest &&
+        lit['background-color'] !== rest['background-color'] &&
+        lit['border-top-color'] !== rest['border-top-color'],
+      { scheme, lit, rest },
+    );
+    check(
+      `and its paint is the instruction's violet in ${scheme}`,
+      !!lit &&
+        lit['border-top-color'] === hl &&
+        lit['background-color'] === hlBg &&
+        lit.color === hl,
+      { scheme, lit, hl, hlBg },
+    );
+    check(
+      `a resting grip shares no colour with removed text or the light in ${scheme}`,
+      !!rest && PAINT.every((p) => !taken.includes(rest[p])),
+      { scheme, rest, taken },
+    );
+  }
+  await takeBack(filed);
+  check('the paint check filed its instruction and took it back', !!filed, {
+    title,
+    filed,
+  });
 }
 
 // --- §1 · radius is a caste mark --------------------------------------------
@@ -5151,10 +5255,11 @@ console.log('\n--- §8b · the three comment boxes are one design ---');
 // --- §8c · the composer, grown to its cap, stays in the window ------------
 //
 // THE COMPOSER IS PLACED ONCE, WHEN IT OPENS, and then grows with what is
-// typed, up to half the window. Placed for the height it opened at, a box that
-// later grows by a third of the window can run off the bottom of it. Measured
-// at a short window, with the passage in the middle (placed below) and near
-// the foot (flipped above), each grown to its cap with sixty lines.
+// typed. It opens directly beneath its words, and its growth is held to the
+// room the window has on that side, so a box that grows never runs off the
+// window. Measured at a short window, with the passage in the middle (placed
+// below) and near the foot (flipped above), each grown to its cap with sixty
+// lines.
 console.log(
   '\n--- §8c · the composer, grown to its cap, stays in the window ---',
 );
@@ -5207,8 +5312,27 @@ console.log(
     await page
       .locator('.gly-comment-button')
       .waitFor({ state: 'visible', timeout: 5000 });
+    // The composer's box and the selected words' box, read together.
+    const boxes = () =>
+      page.evaluate(() => {
+        const r = document
+          .querySelector('.gly-composer')
+          .getBoundingClientRect();
+        const { view, state } = window.galleyEdit.editor;
+        const a = view.coordsAtPos(state.selection.from);
+        const b = view.coordsAtPos(state.selection.to);
+        return {
+          top: +r.top.toFixed(1),
+          bottom: +r.bottom.toFixed(1),
+          selTop: +Math.min(a.top, b.top).toFixed(1),
+          selBottom: +Math.max(a.bottom, b.bottom).toFixed(1),
+          window: window.innerHeight,
+        };
+      });
+    const bar = await boxes();
     await page.click('.gly-comment-button');
     await page.waitForTimeout(150);
+    const opened = await boxes();
     await page.fill('.gly-composer-text', sixty);
     await page.waitForTimeout(150);
     const out = await page.evaluate(() => {
@@ -5225,10 +5349,49 @@ console.log(
     });
     await page.keyboard.press('Escape');
     await page.waitForTimeout(150);
-    return out;
+    return { ...out, bar, opened };
   };
   const middle = await grown(300, 3);
   const foot = await grown(540, null);
+  // THE BUTTON NEVER GROWS, so it is placed for its own height: beside the
+  // words, below them where it fits and above them where it does not. Placed
+  // for the grown form's height instead, a selection with less room below
+  // than a full form put the one-button bar at the window's foot, far from
+  // the words it was offered for.
+  const beside = (g, side) =>
+    side === 'below'
+      ? g.bar.top - g.bar.selBottom >= 0 && g.bar.top - g.bar.selBottom <= 16
+      : g.bar.selTop - g.bar.bottom >= 0 && g.bar.selTop - g.bar.bottom <= 16;
+  check(
+    'the Add instruction button sits just below words selected mid-window, not at the window foot',
+    beside(middle, 'below') && middle.bar.bottom < middle.bar.window - 40,
+    middle.bar,
+  );
+  check(
+    'and just above words selected near the foot, where there is no room below',
+    beside(foot, 'above'),
+    foot.bar,
+  );
+  // THE FORM STAYS WITH ITS WORDS. It used to be placed for the height it
+  // could grow to, and with less than that below the words it was hung from
+  // the window's foot, far from them. It opens straight beneath them now.
+  check(
+    'the opened form sits directly beneath words selected mid-window',
+    middle.opened.top - middle.opened.selBottom >= 0 &&
+      middle.opened.top - middle.opened.selBottom <= 12,
+    middle.opened,
+  );
+  // Opening the form re-places the box for the form, inside the window and
+  // off the words it is about.
+  const clear = (o) =>
+    o.top >= 0 &&
+    o.bottom <= o.window + 0.5 &&
+    (o.bottom <= o.selTop + 0.5 || o.top >= o.selBottom - 0.5);
+  check(
+    'the opened form sits inside the window and does not cover the selected words',
+    clear(middle.opened) && clear(foot.opened),
+    { middle: middle.opened, foot: foot.opened },
+  );
   check(
     'the composer grown to its cap stays inside a short window — passage in the middle, and at the foot',
     [middle, foot].every((g) => g.top >= 0 && g.bottom <= g.window + 0.5),
@@ -5940,7 +6103,7 @@ const placeComposer = (nth = 0) =>
   // `.gly-comment-button` is in SEALED_VERBS through `.gly-composer button`, so
   // the seal kills it; what it does NOT have is anything that hands it back on
   // the unseal edge. Its writers are all GESTURES — `placeComposerButton` on a
-  // selectionUpdate, `hideComposer`, `openSectionComposer` — and the edge runs
+  // selectionUpdate, `hideComposer`, `openBlockComposer` — and the edge runs
   // none of them. The gate could not see that because the only drive it made
   // came AFTER the reopen and moved the selection, which yields
   // `composerPlacement`'s `place` and re-enables the button on the way past;
@@ -6041,6 +6204,10 @@ const placeComposer = (nth = 0) =>
           return {
             sel,
             found: true,
+            // A control the seal takes off the page altogether (the block
+            // grips are hidden as well as disabled) has changed as plainly as
+            // one that dims, and its computed paint cannot say so.
+            shown: el.checkVisibility(),
             // PAINT AND NOT `cursor`: a disabled form control is handed `default`
             // by the user agent for free, and the check next door already excludes
             // the reply box from the pointer rule for exactly that reason. A
@@ -6440,7 +6607,10 @@ const placeComposer = (nth = 0) =>
     found: s.found && livePaint[i].found,
     live: livePaint[i].paint,
     sealed: s.paint,
-    changed: s.found && livePaint[i].found && s.paint !== livePaint[i].paint,
+    changed:
+      s.found &&
+      livePaint[i].found &&
+      (s.paint !== livePaint[i].paint || (livePaint[i].shown && !s.shown)),
   }));
   check(
     'every selector the seal kills was on screen both live and sealed, so this can fail',
@@ -6451,6 +6621,22 @@ const placeComposer = (nth = 0) =>
     'and every one of them PAINTS differently once it is dead — including the boxes that invite typing',
     paintPairs.every((p) => p.changed),
     paintPairs.filter((p) => !p.changed),
+  );
+  // THE BLOCK GRIPS DO NOT DIM, THEY GO. A sealed review takes no
+  // instruction, so a grip has nothing left to offer even to read; every one
+  // is hidden as well as disabled, and the layer with them.
+  const sealedGrips = await page.evaluate(() => ({
+    layer: document.querySelector('.gly-grips')?.hidden === true,
+    grips: [...document.querySelectorAll('.gly-block-grip')].map(
+      (g) => g.hidden && g.disabled && !g.checkVisibility(),
+    ),
+  }));
+  check(
+    'and every block grip is gone from a sealed page, hidden and disabled',
+    sealedGrips.layer &&
+      sealedGrips.grips.length > 0 &&
+      sealedGrips.grips.every(Boolean),
+    sealedGrips,
   );
 
   // AND THE REOPEN HALF OF §8 IS DELETED WITH THE BUTTON THAT DROVE IT.

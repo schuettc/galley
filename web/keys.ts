@@ -40,7 +40,14 @@ export const keyMethods = {
       }
       this.hideRefusal();
       this.bubble.hide();
+      // A BLOCK GRIP'S COMPOSER HANDS FOCUS BACK TO THE GRIP. The keyboard
+      // reached the composer through that button, and closing it into nowhere
+      // would leave the reviewer to Tab back from the top of the page.
+      const opener = this.composer.root.hidden ? null : this.composer.opener;
       this.hideComposer();
+      if (opener && opener.isConnected) {
+        opener.focus();
+      }
       // The verdict menu closes on Esc like every other surface here — a
       // disclosure the press opened, put away by the one key that means "put
       // that away". Reopening is a fresh press.

@@ -845,9 +845,8 @@ export const cardMethods = {
       // into a height the stacker computes — machinery for a position it
       // already has.
       notice.appendChild(teachCard());
-      // Figures still carry their ⊕ when nothing is pending — a settled
-      // document is exactly when someone reads it closely enough to point at
-      // part of a picture.
+      // Figures are still painted when nothing is pending: the last thread
+      // resolved has to take its pin with it.
       this.paintFigures();
       return;
     }
