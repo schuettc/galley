@@ -27,7 +27,12 @@ jobs:
           go-version-file: go.mod
       - uses: extractions/setup-just@v4.0.0
       - run: just prepare
+      # -count=1: this job restores a warm GOCACHE, and without it go test
+      # replays cached results instead of running the tests. Build and vet
+      # keep the cache; every test still runs on every push.
       - uses: schuettc/tools-actions/go-ci@v0.10.1
+        env:
+          GOFLAGS: -count=1
         with:
           setup-go: "false"
   extra:
