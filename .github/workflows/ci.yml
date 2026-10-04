@@ -34,9 +34,14 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7.0.1
+      # cache: false because this job builds no Go, yet it finishes first and
+      # shares the gate job's setup-go key (same OS, arch, Go version and
+      # go.mod): its near-empty save won the key and refused gate's full one,
+      # so gate compiled cold on every run.
       - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
       - uses: extractions/setup-just@v4.0.0
       - uses: actions/setup-node@v7.0.0
         with:
