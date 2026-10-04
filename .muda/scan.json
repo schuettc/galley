@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "repo": "schuettc/galley",
+  "ref": "main",
+  "since": "2026-09-29T05:49:53Z",
+  "until": "2026-10-04T03:58:38.148655Z",
+  "files": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/version-guard.yml"
+  ],
+  "signals": [
+    {
+      "id": "floating-ref",
+      "waste": [
+        "W2"
+      ],
+      "severity": "warn",
+      "summary": "action ref is not a SHA or exact vX.Y.Z: actions/cache@v6",
+      "evidence": [
+        {
+          "kind": "file",
+          "url": "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L51",
+          "path": ".github/workflows/ci.yml",
+          "line": 51,
+          "note": "actions/cache@v6"
+        }
+      ]
+    },
+    {
+      "id": "floating-ref",
+      "waste": [
+        "W2"
+      ],
+      "severity": "warn",
+      "summary": "action ref is not a SHA or exact vX.Y.Z: actions/cache@v6",
+      "evidence": [
+        {
+          "kind": "file",
+          "url": "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L102",
+          "path": ".github/workflows/ci.yml",
+          "line": 102,
+          "note": "actions/cache@v6"
+        }
+      ]
+    },
+    {
+      "id": "floating-toolchain",
+      "waste": [
+        "W2"
+      ],
+      "severity": "warn",
+      "summary": "actions/setup-node version not pinned to exact X.Y.Z: 22",
+      "evidence": [
+        {
+          "kind": "file",
+          "url": "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L41",
+          "path": ".github/workflows/ci.yml",
+          "line": 41,
+          "note": "actions/setup-node node-version=22"
+        }
+      ]
+    },
+    {
+      "id": "floating-toolchain",
+      "waste": [
+        "W2"
+      ],
+      "severity": "warn",
+      "summary": "actions/setup-node version not pinned to exact X.Y.Z: 22",
+      "evidence": [
+        {
+          "kind": "file",
+          "url": "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L93",
+          "path": ".github/workflows/ci.yml",
+          "line": 93,
+          "note": "actions/setup-node node-version=22"
+        }
+      ]
+    },
+    {
+      "id": "no-concurrency",
+      "waste": [
+        "W6"
+      ],
+      "severity": "warn",
+      "summary": ".github/workflows/release.yml triggers on push/pull_request but has no concurrency control",
+      "evidence": [
+        {
+          "kind": "file",
+          "url": "https://github.com/schuettc/galley/blob/main/.github/workflows/release.yml#L16",
+          "path": ".github/workflows/release.yml",
+          "line": 16,
+          "note": "push/pull_request trigger without concurrency"
+        }
+      ]
+    },
+    {
+      "id": "no-concurrency",
+      "waste": [
+        "W6"
+      ],
+      "severity": "warn",
+      "summary": ".github/workflows/version-guard.yml triggers on push/pull_request but has no concurrency control",
+      "evidence": [
+        {
+          "kind": "file",
+          "url": "https://github.com/schuettc/galley/blob/main/.github/workflows/version-guard.yml#L4",
+          "path": ".github/workflows/version-guard.yml",
+          "line": 4,
+          "note": "push/pull_request trigger without concurrency"
+        }
+      ]
+    }
+  ]
+}
