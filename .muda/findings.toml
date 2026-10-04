@@ -8,8 +8,8 @@ schema = 1
   basis = "suspected"
   estimate = "Experiment: set cache: false on extra's setup-go and delete the near-empty ubuntu26 setup-go entries on main and dev. Pass criteria: (1) the next gate run on main saves an ubuntu26 setup-go entry >100 MB; (2) later gate runs restore it; (3) go-ci step p50 over >=10 runs is below the 3m25s baseline with the same sub-steps passing and the same required checks. No saving is claimed until measured. Workflow wall clock is bounded by the gates job (p50 3m28s vs gate 3m35s), so the expected gain is mainly runner minutes and gate latency. Effort: one YAML line plus two cache deletions; ci.yml is the family standard, so the producer-first change may belong upstream."
   risk = "Low. Cache storage grows by ~130 MB per ref (5.9 of 10 GB used); eviction could bring back cold restores. Required checks and jobs unchanged."
-  status = "approved"
-  pr = ""
+  status = "in-pr"
+  pr = "https://github.com/schuettc/galley/pull/39"
   exemption-id = ""
 
   [[findings.evidence]]
