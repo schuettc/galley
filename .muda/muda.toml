@@ -11,3 +11,6 @@ muda-version = "0.1.0"
 [window]
   since = "2026-09-29T05:49:53Z"
   until = "2026-10-04T03:58:34.737244Z"
+
+[record-pr]
+  labels = ["no-release"]
