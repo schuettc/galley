@@ -1,0 +1,16 @@
+schema = 1
+stacks = ["github-actions", "go", "node"]
+muda-version = "0.1.0"
+
+[roles]
+  ".github/workflows/ci.yml" = "gate"
+  ".github/workflows/release.yml" = "deploy"
+  ".github/workflows/version-guard.yml" = "gate"
+  "dynamic/dependabot/dependabot-updates" = "other"
+
+[window]
+  since = "2026-09-29T05:49:53Z"
+  until = "2026-10-04T03:58:34.737244Z"
+
+[record-pr]
+  labels = ["no-release"]

@@ -1,0 +1,125 @@
+schema = 1
+
+[[findings]]
+  id = "F-001"
+  waste = "W4"
+  location = "workflow:.github/workflows/ci.yml/job:extra/step:actions%2Fsetup-go@v7.0.0"
+  recipe = "R11"
+  basis = "suspected"
+  estimate = "Experiment: set cache: false on extra's setup-go and delete the near-empty ubuntu26 setup-go entries on main and dev. Pass criteria: (1) the next gate run on main saves an ubuntu26 setup-go entry >100 MB; (2) later gate runs restore it; (3) go-ci step p50 over >=10 runs is below the 3m25s baseline with the same sub-steps passing and the same required checks. No saving is claimed until measured. Workflow wall clock is bounded by the gates job (p50 3m28s vs gate 3m35s), so the expected gain is mainly runner minutes and gate latency. Effort: one YAML line plus two cache deletions; ci.yml is the family standard, so the producer-first change may belong upstream."
+  risk = "Low. Cache storage grows by ~130 MB per ref (5.9 of 10 GB used); eviction could bring back cold restores. Required checks and jobs unchanged."
+  status = "in-pr"
+  pr = "https://github.com/schuettc/galley/pull/39"
+  exemption-id = ""
+
+  [[findings.evidence]]
+    kind = "log"
+    url = "https://github.com/schuettc/galley/actions/runs/36624791458/job/109601767295"
+    run_id = 36624791458
+    job_id = 109601767295
+    note = "extra (runs no Go; 37s) saves the shared key: 'Cache saved with the key: setup-go-Linux-x64-ubuntu26-go-1.26.8-d58fcf40…'"
+
+  [[findings.evidence]]
+    kind = "log"
+    url = "https://github.com/schuettc/galley/actions/runs/36624791458/job/109601834781"
+    run_id = 36624791458
+    job_id = 109601834781
+    note = "gate (go-ci) save refused: 'Failed to save: Unable to reserve cache with key setup-go-Linux-x64-ubuntu26-go-1.26.8-d58fcf40…, another job may be creating this cache.'"
+
+  [[findings.evidence]]
+    kind = "log"
+    url = "https://github.com/schuettc/galley/actions/runs/37092637947/job/111116024090"
+    run_id = 37092637947
+    job_id = 111116024090
+    step = "Run schuettc/tools-actions/go-ci@v0.10.1"
+    note = "gate restores 'Cache Size: ~0 MB (7502 B)', then 18 'go: downloading' lines; go-ci 3m34s = vet 37s, test -race 58s, cross-build 1m36s"
+
+  [[findings.evidence]]
+    kind = "log"
+    url = "https://github.com/schuettc/galley/actions/runs/37092637947/job/111116023964"
+    run_id = 37092637947
+    job_id = 111116023964
+    note = "gates job (ubuntu24, same go.mod hash) restores ~126 MB (132187942 B): the full-size entry for comparison"
+
+  [[findings.evidence]]
+    kind = "file"
+    url = "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L37"
+    path = ".github/workflows/ci.yml"
+    line = 37
+    note = "extra's setup-go with default built-in cache; repo cache list: every setup-go-Linux-x64-ubuntu26 entry on main, dev and PR refs is 7.5-7.7 KB"
+
+  [[findings.evidence]]
+    kind = "step"
+    url = "https://github.com/schuettc/galley/actions/runs/37092637947/job/111116024090"
+    run_id = 37092637947
+    job_id = 111116024090
+    step = "Run schuettc/tools-actions/go-ci@v0.10.1"
+    note = "baseline sink #1: p50 3m25s x 30 runs (high confidence)"
+
+[[findings]]
+  id = "F-002"
+  waste = "W2"
+  location = "workflow:.github/workflows/ci.yml/job:extra/step:actions%2Fsetup-node@v7.0.0"
+  recipe = "R1"
+  basis = "measured"
+  estimate = "No time saving; reproducibility. Effort: low - one exact version source (web/.nvmrc or package.json engines) read by both setup-node steps via node-version-file, plus an owned refresh path (dependabot does not track Node today)."
+  risk = "Low. A pinned patch can go stale without a refresh path; both jobs must read the same source."
+  status = "approved"
+  pr = ""
+  exemption-id = ""
+
+  [[findings.evidence]]
+    kind = "file"
+    url = "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L43"
+    path = ".github/workflows/ci.yml"
+    line = 43
+    note = "extra: node-version: 22 (major-only)"
+
+  [[findings.evidence]]
+    kind = "file"
+    url = "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L96"
+    path = ".github/workflows/ci.yml"
+    line = 96
+    note = "gates: node-version: 22 (major-only, repeated)"
+
+  [[findings.evidence]]
+    kind = "log"
+    url = "https://github.com/schuettc/galley/actions/runs/36624791458/job/109601767295"
+    run_id = 36624791458
+    job_id = 109601767295
+    step = "Run actions/setup-node@v7.0.0"
+    note = "resolved 'Found in cache @ /opt/hostedtoolcache/node/22.23.2/x64' (2026-09-29)"
+
+  [[findings.evidence]]
+    kind = "log"
+    url = "https://github.com/schuettc/galley/actions/runs/37092637947/job/111116024055"
+    run_id = 37092637947
+    job_id = 111116024055
+    step = "Run actions/setup-node@v7.0.0"
+    note = "resolved 'Found in cache @ /opt/hostedtoolcache/node/22.23.3/x64' (2026-10-03): two patches in one window"
+
+[[findings]]
+  id = "F-003"
+  waste = "W2"
+  location = "workflow:.github/workflows/ci.yml/job:extra/step:Cache web%2Fnode_modules"
+  recipe = "R1"
+  basis = "measured"
+  estimate = "No time saving; reproducibility. The floating ref is measured in the file; a behaviour change from it is not shown. Effort: low - pin both to the same exact vX.Y.Z (or SHA); dependabot's github-actions ecosystem already exists as the refresh path."
+  risk = "Low. Both steps must move together; the pin needs dependabot coverage to avoid deferred drift."
+  status = "approved"
+  pr = ""
+  exemption-id = ""
+
+  [[findings.evidence]]
+    kind = "file"
+    url = "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L52"
+    path = ".github/workflows/ci.yml"
+    line = 52
+    note = "extra: uses: actions/cache@v6 (floating major tag; scan floating-ref)"
+
+  [[findings.evidence]]
+    kind = "file"
+    url = "https://github.com/schuettc/galley/blob/main/.github/workflows/ci.yml#L103"
+    path = ".github/workflows/ci.yml"
+    line = 103
+    note = "gates: uses: actions/cache@v6 (floating major tag; scan floating-ref)"
