@@ -414,3 +414,21 @@ func TestOpeningThePageLoadsAnOutsideSave(t *testing.T) {
 		t.Errorf("opening the page did not load the outside save:\n%s", liveText(t, s))
 	}
 }
+
+// AN UNPARSEABLE FILE AT STOP keeps the reviewer's unsaved edits in
+// .galley/recovery/, as a missing one does: the save leaves the file alone, so
+// nothing else holds them.
+func TestAnUnparseableFileAtStopKeepsTheEditsInRecovery(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	bad := "<div>raw html is refused</div>\n"
+	writeFile(t, s.MdPath, bad)
+	reviewerTypes(t, s, "Second para here.", "Second para, from the reviewer.")
+	stop(t, s)
+	if got := string(mustRead(t, s.MdPath)); got != bad {
+		t.Errorf("an unparseable file was written over:\n%s", got)
+	}
+	kept := recovered(t, s)
+	if len(kept) != 1 || !strings.Contains(kept[0], "from the reviewer") {
+		t.Errorf("the unsaved edits are not in .galley/recovery/: %q", kept)
+	}
+}

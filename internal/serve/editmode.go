@@ -208,8 +208,10 @@ type EditServer struct {
 	// untouched document would read as a reviewer edit on every settle.
 	baseBytes []byte
 	canonical []byte
-	// missing is true while the last save found no file at MdPath. Under mu.
-	missing bool
+	// leftAlone is true while the last save wrote nothing because the file
+	// was missing or could not be read: the live document is on disk nowhere,
+	// and Flush keeps it in .galley/recovery/. Under mu.
+	leftAlone bool
 	// testWritePrepared, when set, runs in every save's write once the
 	// replacement is prepared and before the file is checked a last time
 	// (writeIfStill). Tests only; read under mu.
@@ -721,13 +723,14 @@ func (s *EditServer) Flush() error {
 			break
 		}
 	}
-	if err != nil || !s.missing {
+	if err != nil || !s.leftAlone {
 		return err
 	}
-	// THE LAST SAVE OF A DOCUMENT WHOSE FILE IS GONE. Nothing may go to the
-	// path, which would recreate a file somebody moved or deleted (galley#44),
-	// and dropping the reviewer's edits at shutdown would lose them. So they go
-	// where a handoff cancel keeps a draft it cannot import.
+	// THE LAST SAVE OF A DOCUMENT WHOSE FILE IS GONE OR UNREADABLE. Nothing may
+	// go to the path, which would recreate a file somebody moved or deleted, or
+	// write over one somebody else changed (galley#44), and dropping the
+	// reviewer's edits at shutdown would lose them. So they go where a handoff
+	// cancel keeps a draft it cannot import.
 	model, err := s.readLive()
 	if err != nil {
 		return err
@@ -737,10 +740,10 @@ func (s *EditServer) Flush() error {
 	}
 	kept, err := s.rescue(markdown.SerializeOnto(model, s.baseBytes))
 	if err != nil {
-		return fmt.Errorf("%s is missing and its unsaved changes could not be kept: %w", filepath.Base(s.MdPath), err)
+		return fmt.Errorf("%s was not saved and its unsaved changes could not be kept: %w", filepath.Base(s.MdPath), err)
 	}
 	if s.Log != nil {
-		s.Log(fmt.Sprintf("%s is missing; the editor's unsaved changes are in %s", filepath.Base(s.MdPath), kept))
+		s.Log(fmt.Sprintf("%s was not saved; the editor's unsaved changes are in %s", filepath.Base(s.MdPath), kept))
 	}
 	return nil
 }
@@ -884,7 +887,8 @@ const (
 //     edits in .galley/recovery/ at stop.
 //
 // A file that moved and cannot be read or parsed is neither loaded nor written
-// over: nothing is saved until it is fixed.
+// over: nothing is saved until it is fixed, and Flush keeps unsaved edits in
+// .galley/recovery/ at stop, as for a missing file.
 //
 // It returns the live document, the markdown that stands for it, and whether
 // that markdown is what the file now holds.
@@ -928,8 +932,8 @@ func (s *EditServer) saveOnce(overwrite bool) (docmodel.Doc, []byte, bool, error
 		return model, markdown.SerializeOnto(model, raw), true, nil
 	}
 
-	s.missing = errors.Is(readErr, fs.ErrNotExist)
-	if s.missing {
+	s.leftAlone = errors.Is(readErr, fs.ErrNotExist)
+	if s.leftAlone {
 		if err := s.noteAnchors(model); err != nil {
 			return docmodel.Doc{}, nil, false, err
 		}
@@ -947,6 +951,7 @@ func (s *EditServer) saveOnce(overwrite bool) (docmodel.Doc, []byte, bool, error
 			theirs, _, why = markdown.Parse(raw)
 		}
 		if why != nil {
+			s.leftAlone = true
 			if err := s.noteAnchors(model); err != nil {
 				return docmodel.Doc{}, nil, false, err
 			}
