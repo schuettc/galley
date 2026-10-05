@@ -2,6 +2,7 @@ package serve
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -123,6 +124,75 @@ func WriteFileAtomic(path string, raw []byte) error {
 	// what stays here is galley's policy about WHICH path and WHICH mode.
 	return tools.WriteFileAtomic(target, raw, perm)
 }
+
+// preparedWrite is WriteFileAtomic split at the rename: the replacement is
+// written, synced and given its mode next to the file it will replace, and
+// nothing has touched that file yet. commit renames it over; discard removes
+// it. It exists for the save, which checks the file one last time after the
+// slow part (see EditServer.writeIfStill).
+type preparedWrite struct {
+	tmp, target string
+}
+
+// prepareFileAtomic does everything WriteFileAtomic does short of the rename,
+// with the same target and mode (resolveWriteTarget).
+//
+// ONE DIFFERENCE, deliberately: the parent directory is not created. Its
+// caller has just read the file there, so a missing directory means the
+// document was moved away, and recreating the path somebody moved it from is
+// the other half of galley#44.
+func prepareFileAtomic(path string, raw []byte) (*preparedWrite, error) {
+	target, perm, err := resolveWriteTarget(path)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+"-*.tmp")
+	if err != nil {
+		return nil, err
+	}
+	name := tmp.Name()
+	fail := func(err error) (*preparedWrite, error) {
+		_ = tmp.Close()
+		_ = os.Remove(name)
+		return nil, err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(name)
+		return nil, err
+	}
+	if err := os.Chmod(name, perm); err != nil {
+		_ = os.Remove(name)
+		return nil, err
+	}
+	return &preparedWrite{tmp: name, target: target}, nil
+}
+
+// commit renames the replacement over the file. A failed rename KEEPS the
+// temp file and names it in the error, as tools.WriteFileAtomic does, so no
+// content is lost.
+func (w *preparedWrite) commit() error {
+	if err := os.Rename(w.tmp, w.target); err != nil {
+		return fmt.Errorf("rename %s to %s (temp kept): %w", w.tmp, w.target, err)
+	}
+	return nil
+}
+
+// stillTargets reports whether path still resolves to the file this
+// replacement was prepared for. A symlink retargeted since prepare names
+// another file, and the replacement was decided about the old one.
+func (w *preparedWrite) stillTargets(path string) bool {
+	target, _, err := resolveWriteTarget(path)
+	return err == nil && target == w.target
+}
+
+// discard removes a replacement that is not going to be committed.
+func (w *preparedWrite) discard() { _ = os.Remove(w.tmp) }
 
 // defaultFileMode is what a file this package CREATES gets. 0644 before umask
 // — a document, not a secret. An existing file's own mode always wins.

@@ -386,8 +386,10 @@ func TestProjectionIsSuspendedWhileTheWindowIsOpen(t *testing.T) {
 		t.Fatalf("projection overwrote the agent's draft:\n%s", got)
 	}
 
-	// Closing resumes projection: the next Project writes the canonical live
-	// document — the draft was never imported here, so the bold goes away.
+	// Closing returns the file to the save decision, which finds it moved and
+	// the live document not: the draft is LOADED, never written over. (It
+	// used to be: the canonical document went back over a draft nobody had
+	// imported, which is galley#44 at the window's edge.)
 	s.closeHandoff()
 	if _, ok, _ := readLease(s.leasePath()); ok {
 		t.Fatal("close left the lease behind")
@@ -396,8 +398,15 @@ func TestProjectionIsSuspendedWhileTheWindowIsOpen(t *testing.T) {
 		t.Fatalf("project after close: %v", err)
 	}
 	got, _ = os.ReadFile(md)
-	if string(got) == string(draft) {
-		t.Fatal("projection did not resume after close")
+	if string(got) != string(draft) {
+		t.Fatalf("the save after close wrote over the draft:\n%s", got)
+	}
+	model, err := ydoc.ReadLive(s.Doc())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(markdown.Serialize(model)), "**Galley**") {
+		t.Fatal("the save after close did not load the draft")
 	}
 }
 
