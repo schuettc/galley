@@ -41,3 +41,8 @@ web/node_modules/
 
 # Bare `go build ./cmd/galley-mint` drops binary at repo root; ignore it.
 /galley-mint
+
+# Design docs never live in this public repo: specs and plans are in private tools-ops (docs/<repo>/).
+docs/specs/
+docs/plans/
+docs/superpowers/
