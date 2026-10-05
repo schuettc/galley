@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -434,11 +435,22 @@ func (r *pageRenderer) render(md []byte) {
 		r.mu.Unlock()
 		return
 	}
-	werr := os.WriteFile(r.pagePath, out, 0o644)
+	werr := r.writePage(out, func(cur []byte) bool {
+		h := sha256.Sum256(cur)
+		return h == r.lastWritten || h == r.originalHash
+	})
 	if werr == nil {
 		r.lastWritten = sha256.Sum256(out)
 	}
 	r.mu.Unlock()
+	if errors.Is(werr, errPageMoved) {
+		// Changed since the drift check: a drift after all.
+		r.restructured(md, gen)
+		return
+	}
+	if errors.Is(werr, errPageMissing) {
+		return
+	}
 	if werr != nil {
 		_, _ = fmt.Fprintln(pageStderr, werr.Error())
 		return
@@ -535,7 +547,7 @@ func (r *pageRenderer) restructured(projected []byte, gen int) {
 		return
 	}
 	window := r.es.handoffLive.Load()
-	if !r.merge(ex, projected, gen, window) {
+	if !r.merge(src, ex, projected, gen, window) {
 		return
 	}
 	r.mu.Lock()
@@ -584,7 +596,7 @@ func (r *pageRenderer) restructured(projected []byte, gen int) {
 // When both layers moved it is a genuine conflict and the words win, which is
 // the only choice that cannot lose work — but it can pour back prose the agent
 // cut in the HTML, so it says so rather than doing it quietly.
-func (r *pageRenderer) merge(ex *htmlpage.Extraction, projected []byte, gen int, window bool) bool {
+func (r *pageRenderer) merge(src []byte, ex *htmlpage.Extraction, projected []byte, gen int, window bool) bool {
 	r.mu.Lock()
 	converged := r.converged
 	r.mu.Unlock()
@@ -619,10 +631,12 @@ func (r *pageRenderer) merge(ex *htmlpage.Extraction, projected []byte, gen int,
 	passed := r.overtaken(projected, gen)
 	var werr error
 	if !passed {
-		werr = os.WriteFile(r.pagePath, out, 0o644)
+		// Only over the page this merge read; anything newer is the next
+		// projection's drift.
+		werr = r.writePage(out, func(cur []byte) bool { return bytes.Equal(cur, src) })
 	}
 	r.mu.Unlock()
-	if passed {
+	if passed || errors.Is(werr, errPageMoved) || errors.Is(werr, errPageMissing) {
 		return false
 	}
 	if werr != nil {
@@ -952,6 +966,48 @@ func carriesMarks(md []byte) bool {
 	}
 	return !bytes.Equal(markdown.Serialize(m), markdown.Serialize(suggest.ClearInstructions(m)))
 }
+
+// errPageMoved is a page write that found page.html changed since the decision
+// to write it.
+var errPageMoved = errors.New("page.html changed during the write; nothing was written")
+
+// writePage replaces page.html with out if the page is there and still
+// holds bytes known says may be written over, and otherwise writes nothing.
+// Called with r.mu held.
+//
+// A MISSING PAGE IS NEVER WRITTEN (galley#44): it was moved or deleted, and
+// recreating it is the bug. It says so through the disk notice, as a missing
+// .md does. The write is prepared first and the page checked after that, as
+// the .md's is (see EditServer.writeIfStill).
+func (r *pageRenderer) writePage(out []byte, known func(cur []byte) bool) error {
+	name := filepath.Base(r.pagePath)
+	cur, err := os.ReadFile(r.pagePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		r.es.setNotice(noticePageMissing, name+" is no longer at this path. Nothing is being saved.",
+			fmt.Sprintf("%s is no longer in %s; galley is writing nothing there", name, filepath.Dir(r.pagePath)))
+		return errPageMissing
+	}
+	if err != nil {
+		return err
+	}
+	r.es.clearNoticeKind(noticePageMissing)
+	if !known(cur) {
+		return errPageMoved
+	}
+	w, err := prepareFileAtomic(r.pagePath, out)
+	if err != nil {
+		return err
+	}
+	if !w.stillTargets(r.pagePath) || !holds(w.target, cur) {
+		w.discard()
+		return errPageMoved
+	}
+	return w.commit()
+}
+
+// errPageMissing is a page write that found no page.html. The disk notice
+// already says so.
+var errPageMissing = errors.New("page.html is missing; nothing was written")
 
 // drifted reports whether page.html changed on disk since galley last wrote
 // it. That is a fact the pipeline acts on, not a refusal to narrate: under the

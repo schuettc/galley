@@ -460,3 +460,29 @@ func TestACancelDoesNotOverwriteASaveMadeAfterItsRescue(t *testing.T) {
 	t.Errorf("the save made after the rescue was written over and not kept:\nfile: %s\nrecovery: %q",
 		mustRead(t, s.MdPath), recovered(t, s))
 }
+
+// A MISSING PAGE is galley#44 in page mode: the renderer wrote page.html with
+// no look at what was there, so a page moved away came back at the next save.
+func TestAMissingPageIsNotRecreated(t *testing.T) {
+	page := writePage(t, t.TempDir(), "page.html", fixturePage)
+	s, err := NewEditPage(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(page); err != nil {
+		t.Fatal(err)
+	}
+	retext(t, s, "The reviewer highlights a sentence.", "The reviewer highlights a phrase.")
+	if err := s.Flush(); err != nil {
+		t.Fatalf("final flush: %v", err)
+	}
+	if got, want := diskNoticeOf(t, s), "page.html is no longer at this path. Nothing is being saved."; got != want {
+		t.Errorf("notice = %q, want %q", got, want)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(page); !os.IsNotExist(err) {
+		t.Fatalf("a missing page was recreated: %v", err)
+	}
+}

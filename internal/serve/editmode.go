@@ -865,6 +865,9 @@ const (
 	noticeClash      = "clash"
 	noticeMissing    = "missing"
 	noticeUnreadable = "unreadable"
+	// noticePageMissing is page mode's page.html gone. The .md's save does not
+	// clear it; the renderer does, once the page is back (writePage).
+	noticePageMissing = "page-missing"
 )
 
 // saveLocked is THE ONE SAVE DECISION, and every path that writes the document
@@ -1121,7 +1124,7 @@ func holds(path string, raw []byte) bool {
 // setNotice records the disk notice the reviewer's bar shows, and logs line
 // the first time that notice is set, so a state that lasts across saves (a
 // missing file, an unreadable one) is logged once and not once per settle.
-// Callers hold mu.
+// Callers hold mu, or the page renderer's lock (writePage).
 func (s *EditServer) setNotice(kind, text, line string) {
 	s.noticeMu.Lock()
 	changed := s.notice != text
@@ -1138,7 +1141,16 @@ func (s *EditServer) setNotice(kind, text, line string) {
 func (s *EditServer) clearNotice() {
 	s.noticeMu.Lock()
 	defer s.noticeMu.Unlock()
-	if s.noticeKind != noticeClash {
+	if s.noticeKind != noticeClash && s.noticeKind != noticePageMissing {
+		s.notice, s.noticeKind = "", ""
+	}
+}
+
+// clearNoticeKind drops the disk notice if it is of kind.
+func (s *EditServer) clearNoticeKind(kind string) {
+	s.noticeMu.Lock()
+	defer s.noticeMu.Unlock()
+	if s.noticeKind == kind {
 		s.notice, s.noticeKind = "", ""
 	}
 }
