@@ -296,6 +296,12 @@ export const barMethods = {
       // disk and NOT on this page, and silence there reads as a lost save.
       parts.push(HANDOFF_NOTE_HELD);
     }
+    if (this.diskNotice) {
+      // The file itself: changed outside the editor while the reviewer was
+      // editing, gone from its path, or unreadable (galley#44). The server's
+      // own sentence, since only it knows where the other version went.
+      parts.push(this.diskNotice);
+    }
     this.status.textContent = parts.join(' · ');
     // The full sentence, always, because the cell is allowed to lose the end of
     // it. This is the title the untracked cell used to carry, moved with it.

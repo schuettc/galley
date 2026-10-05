@@ -888,6 +888,7 @@ class App implements AppState {
   approved: boolean;
   handoff: boolean;
   draftError: string;
+  diskNotice: string;
   reviseWaiting: boolean;
   mode: Mode;
   modeUI: ModeUI;
@@ -1166,6 +1167,7 @@ class App implements AppState {
     // discipline as readSeal.
     this.handoff = false;
     this.draftError = '';
+    this.diskNotice = '';
     this.cancelBtn = this.makeHandoffCancel();
 
     // THE SEAL. Whether this review has ENDED, and how — read off

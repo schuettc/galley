@@ -439,6 +439,7 @@ export interface AppState {
   approved: boolean;
   handoff: boolean;
   draftError: string;
+  diskNotice: string;
   reviseWaiting: boolean;
   mode: Mode;
   modeUI: ModeUI;

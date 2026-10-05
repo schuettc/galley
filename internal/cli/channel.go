@@ -59,6 +59,7 @@ import (
 const channelInstructions = `You are paired with galley, a browser review surface for documents this session produces.
 Events arrive as <channel source="galley" doc="…" reason="revise|settle|changed|approve|closed">. On "revise" and "settle", the notification carries the rules for answering it — read what arrives with the event, not only this.
 Whenever you write to answer a round, on any event: make targeted, in-place edits to the .md file and never rewrite the whole file — the reviewer may be editing it at the same time, and a whole-file write can silently erase what they just wrote.
+Between rounds, galley loads your edits to an open document. If you and the reviewer change it at the same time, the reviewer's copy is kept and yours is saved in .galley/recovery. Stop the review before moving or deleting the file.
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
 On "approve", the reviewer approved the document as it stands and the review is over. On "changed", re-read the document before acting. On "closed", the editor is gone and nobody is waiting for more review work.
 If you expect a review and hear nothing, call galley_channel_status. It reports which open documents this session is attached to and why any others are not.
