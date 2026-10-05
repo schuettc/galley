@@ -432,3 +432,31 @@ func TestAnUnparseableFileAtStopKeepsTheEditsInRecovery(t *testing.T) {
 		t.Errorf("the unsaved edits are not in .galley/recovery/: %q", kept)
 	}
 }
+
+// A CANCEL'S LICENCE TO OVERWRITE COVERS THE DRAFT IT RESCUED, AND NOTHING
+// ELSE: a save that lands between the rescue and the projection is the newer
+// file, and goes through the ordinary decision.
+func TestACancelDoesNotOverwriteASaveMadeAfterItsRescue(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "doc.md", "# T\n\nProse.\n")
+	defer func() { _ = s.Close() }()
+	s.openResponseWindow(1, "fp", false)
+	writeFile(t, s.MdPath, "<div>unfinished</div>\n")
+	later := "# T\n\nThe agent's second save.\n"
+	s.Log = func(line string) {
+		// The cancel logs the rescue before it projects.
+		if strings.Contains(line, "preserved at") {
+			writeFile(t, s.MdPath, later)
+		}
+	}
+	cancelHandoff(t, s)
+	if got := string(mustRead(t, s.MdPath)); got == later {
+		return
+	}
+	for _, kept := range recovered(t, s) {
+		if kept == later {
+			return
+		}
+	}
+	t.Errorf("the save made after the rescue was written over and not kept:\nfile: %s\nrecovery: %q",
+		mustRead(t, s.MdPath), recovered(t, s))
+}

@@ -167,12 +167,14 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	}
 	// RESCUED IS THE ONE LICENCE TO WRITE OVER A FILE GALLEY DID NOT MAKE: the
 	// draft is kept in .galley/recovery/, so the projection below may restore
-	// the canonical document over it. A draft that could not be kept is left
-	// on disk, as any unreadable file is.
-	rescued := false
+	// the canonical document over it, and over those bytes only (their
+	// digest): a save that lands after the rescue is not kept anywhere yet, so
+	// it goes through the ordinary decision. A draft that could not be kept is
+	// left on disk, as any unreadable file is.
+	rescued := ""
 	if _, err := s.importDraft(); err != nil {
-		if saved, serr := s.rescueDraft(); serr == nil {
-			rescued = true
+		if saved, digest, serr := s.rescueDraft(); serr == nil {
+			rescued = digest
 			if s.Log != nil {
 				s.Log("the draft could not be imported; preserved at " + saved)
 			}
@@ -200,12 +202,15 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *EditServer) rescueDraft() (string, error) {
+// rescueDraft keeps the file as it is now and returns where, and the digest
+// of what it kept.
+func (s *EditServer) rescueDraft() (string, string, error) {
 	raw, err := os.ReadFile(s.MdPath)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return s.rescue(raw)
+	saved, err := s.rescue(raw)
+	return saved, fileDigest(raw), err
 }
 
 // rescue keeps raw under .galley/recovery/ beside the document and returns

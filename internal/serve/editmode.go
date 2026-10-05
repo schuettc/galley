@@ -776,18 +776,18 @@ func (s *EditServer) liveMoved(live docmodel.Doc) bool {
 
 // project is Project's body, with mu already held: the save decision, then
 // the round's other steps over whatever it left standing.
-func (s *EditServer) project() error { return s.projectAs(false) }
+func (s *EditServer) project() error { return s.projectAs("") }
 
-// projectAs is project with one door for the handoff cancel: overwrite writes
-// the live document over a file that moved, which only handleHandoffCancel
-// asks for, and only once that file is kept in .galley/recovery/. Callers
-// hold mu.
+// projectAs is project with one door for the handoff cancel: overwrite is the
+// digest of a file kept in .galley/recovery/, and the live document is
+// written over the file while it still holds exactly those bytes. Only
+// handleHandoffCancel asks for it. Callers hold mu.
 //
 // WRITING NOTHING IS NOT DOING NOTHING. Everything after the save decision
 // runs whether or not a byte reached disk: an instruction-only send carries
 // unchanged bytes and is still a round, and page mode forces a projection to
 // re-render a page that moved while the document did not (pageBoundary).
-func (s *EditServer) projectAs(overwrite bool) error {
+func (s *EditServer) projectAs(overwrite string) error {
 	model, out, onDisk, err := s.saveLocked(overwrite)
 	if err != nil {
 		return err
@@ -892,7 +892,7 @@ const (
 //
 // It returns the live document, the markdown that stands for it, and whether
 // that markdown is what the file now holds.
-func (s *EditServer) saveLocked(overwrite bool) (docmodel.Doc, []byte, bool, error) {
+func (s *EditServer) saveLocked(overwrite string) (docmodel.Doc, []byte, bool, error) {
 	for attempt := 0; attempt < saveAttempts; attempt++ {
 		model, out, onDisk, err := s.saveOnce(overwrite)
 		if !errors.Is(err, errFileMovedAgain) {
@@ -902,7 +902,7 @@ func (s *EditServer) saveLocked(overwrite bool) (docmodel.Doc, []byte, bool, err
 	return docmodel.Doc{}, nil, false, errFileMovedAgain
 }
 
-func (s *EditServer) saveOnce(overwrite bool) (docmodel.Doc, []byte, bool, error) {
+func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, error) {
 	// ReadLive, not Read: this document is live and served, so a debounce
 	// -timer-driven Project can run concurrently with an ordinary reviewer
 	// edit landing through Apply. Read's plain fragment walk races that (see
@@ -942,8 +942,9 @@ func (s *EditServer) saveOnce(overwrite bool) (docmodel.Doc, []byte, bool, error
 		return model, markdown.SerializeOnto(model, s.baseBytes), false, nil
 	}
 
-	fileMoved := readErr != nil || (!overwrite && !bytes.Equal(raw, s.baseBytes))
-	liveMoved := overwrite || s.liveMoved(model)
+	licensed := readErr == nil && overwrite != "" && fileDigest(raw) == overwrite
+	fileMoved := readErr != nil || (!licensed && !bytes.Equal(raw, s.baseBytes))
+	liveMoved := licensed || s.liveMoved(model)
 	var theirs docmodel.Doc
 	if fileMoved {
 		why := readErr
