@@ -1339,6 +1339,10 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 		s.serveSibling(w, r)
 		return
 	}
+	// THE PAGE LOAD LOOKS AT THE FILE, so a save made outside the editor since
+	// the last one is loaded before the reviewer reads the document (see
+	// saveLocked). Its error is the next save's to report.
+	_ = s.Project()
 	var buf bytes.Buffer
 	previewURL := ""
 	if s.pageMode {

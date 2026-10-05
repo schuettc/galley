@@ -397,3 +397,20 @@ func TestARevMovesOnASaveThatWritesNothing(t *testing.T) {
 		t.Errorf("/_galley/rev with the file missing answered %d", rec.Code)
 	}
 }
+
+// THE PAGE LOAD LOOKS AT THE FILE. With no watcher, an agent's save between
+// rounds would otherwise wait for the next save to be loaded, and a reviewer
+// opening the page would read the document as it was.
+func TestOpeningThePageLoadsAnOutsideSave(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	defer func() { _ = s.Close() }()
+	writeFile(t, s.MdPath, "# T\n\nthe quick red fox jumps.\n\nSecond para here.\n")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / answered %d", rec.Code)
+	}
+	if !strings.Contains(liveText(t, s), "red fox") {
+		t.Errorf("opening the page did not load the outside save:\n%s", liveText(t, s))
+	}
+}
