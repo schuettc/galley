@@ -135,3 +135,72 @@ func TestParse_TheDialectTestsAreExact(t *testing.T) {
 		})
 	}
 }
+
+// TestParse_DisplayMathAfterAPartlyConsumedTab is the crash galley 0.12.0
+// shipped with: `galley edit` on the seven bytes "1. >\t$$" panicked with a
+// slice out of range, and a running editor parses every outside save, so a
+// crash there is a dead editor and the reviewer's unsaved work with it.
+//
+// THE CAUSE IS A TAB, NOT A NEWLINE. A blockquote's ">" takes one column of
+// the tab after it and leaves the rest as the line's PADDING, and the line
+// PeekLine hands a block parser starts with that padding as spaces. An index
+// into that line is therefore Padding bytes ahead of the source, and the math
+// parser used it as a source offset. With no newline to absorb the overshoot
+// the start passed the end; with one, the block held the wrong bytes — the
+// "$$" delimiters went missing from the file, and the closing line's leftover
+// opened blocks of its own.
+func TestParse_DisplayMathAfterAPartlyConsumedTab(t *testing.T) {
+	t.Run("the crashing inputs parse", func(t *testing.T) {
+		for _, src := range []string{"1. >\t$$", "a\n1. >\t$$", ">\t$$"} {
+			doc, _, err := markdown.Parse([]byte(src))
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", src, err)
+			}
+			if got := string(markdown.Serialize(doc)); !strings.Contains(got, "$$") {
+				t.Errorf("Parse(%q) lost the author's \"$$\": Serialize = %q", src, got)
+			}
+		}
+	})
+	cases := []struct{ name, src, want string }{
+		{"in a quote", ">\t$$\n>\tx\n>\t$$\n", "$$\n  x\n$$\n"},
+		{"in a quote in a list", "1. >\t$$\n   >\tx\n   >\t$$\n", "$$\n   x\n$$\n"},
+		{"two in a row", ">\t$$\n>\tx\n>\t$$\n>\t$$\n>\ty\n>\t$$\n", "$$\n  x\n$$\n|$$\n  y\n$$\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, _, err := markdown.Parse([]byte(c.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			var maths []string
+			others := 0
+			docmodel.Walk(doc, func(_ []int, b *docmodel.Block) {
+				switch b.Kind {
+				case docmodel.MathBlock:
+					maths = append(maths, b.Text)
+				case docmodel.Paragraph:
+					// A list item's leading empty paragraph is the schema's
+					// (listItem is `paragraph block*`), not the math's.
+					if len(b.Inlines) > 0 {
+						others++
+					}
+				}
+			})
+			if got := strings.Join(maths, "|"); got != c.want {
+				t.Errorf("math text = %q, want %q", got, c.want)
+			}
+			if others != 0 {
+				t.Errorf("%d stray paragraph(s) beside the math: %#v", others, doc.Blocks)
+			}
+		})
+	}
+	t.Run("a lone opener under a tab is a paragraph that keeps its dollars", func(t *testing.T) {
+		doc, _, err := markdown.Parse([]byte("1. >\t$$\nx\n$$\n"))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := strings.Count(string(markdown.Serialize(doc)), "$$"); got != 2 {
+			t.Errorf("Serialize = %q, want both \"$$\" lines kept", markdown.Serialize(doc))
+		}
+	})
+}
