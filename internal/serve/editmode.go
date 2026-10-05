@@ -1371,13 +1371,19 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 // cannot see anything — and comparing this field against the room it booted
 // with is how it learns to reload.
 func (s *EditServer) handleEditRev(w http.ResponseWriter, r *http.Request) {
-	st, err := os.Stat(s.MdPath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// THE PAGE'S CUE TO RE-READ THE PENDING LIST. It was the file's mtime
+	// alone, which moved on every projection while every projection wrote. A
+	// save that writes nothing (galley#44) must move it too, so the last
+	// projection counts; and a missing file is a rev, not an error.
+	var rev int64
+	if st, err := os.Stat(s.MdPath); err == nil {
+		rev = st.ModTime().UnixNano()
+	}
+	if at := s.LastExport(); !at.IsZero() && at.UnixNano() > rev {
+		rev = at.UnixNano()
 	}
 	writeJSON(w, map[string]any{
-		"rev":  st.ModTime().UnixNano(),
+		"rev":  rev,
 		"room": s.Room,
 	})
 }

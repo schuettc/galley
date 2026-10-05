@@ -360,3 +360,40 @@ func TestAnOutsideSaveDuringTheWriteSurvives(t *testing.T) {
 		t.Errorf("a discarded replacement was left behind: %v", tmps)
 	}
 }
+
+// THE PAGE'S CUE STILL MOVES WHEN NOTHING IS WRITTEN. The browser re-reads
+// the pending list when /_galley/rev moves, and rev was the file's mtime: a
+// whole-document instruction moves no markdown, so a save that writes nothing
+// left the new card off the rail.
+func TestARevMovesOnASaveThatWritesNothing(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
+	defer func() { _ = s.Close() }()
+	rev := func() float64 {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_galley/rev", nil))
+		var view map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+			t.Fatalf("rev: %v: %s", err, rec.Body.String())
+		}
+		n, _ := view["rev"].(float64)
+		return n
+	}
+	before := rev()
+	time.Sleep(10 * time.Millisecond)
+	instructOK(t, s, map[string]any{"op": "comment_document", "text": "open with the decision"})
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if after := rev(); after == before {
+		t.Error("/_galley/rev did not move after a save, so the page never re-reads the pending list")
+	}
+	// And a missing file is a rev, not an error.
+	if err := os.Remove(s.MdPath); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/_galley/rev", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("/_galley/rev with the file missing answered %d", rec.Code)
+	}
+}
