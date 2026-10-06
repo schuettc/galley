@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
-## Unreleased
+## 0.12.1
 
 - **An open review no longer writes over a change made to the file outside the editor.** Before, galley wrote its own copy over the file whenever it saved, so an agent's edit to the open document was lost without a word, and a document moved away was written back at its old path. Now galley checks the file before every save. If only the file changed, the review loads it. If you and someone else changed it at the same moment, your copy is kept and the other version is saved in `.galley/recovery/`. A document that is no longer at its path is never written; the review says so, and anything you type meanwhile is saved in `.galley/recovery/` when the editor stops. (#44)
 - A notice under the bar says when a document was moved away, changed at the same moment as your edits, or changed into something galley can't read.
