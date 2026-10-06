@@ -2150,6 +2150,43 @@ body.gly-collapsed:not(.gly-page) > main {
   flex: 100 1 0;
   max-width: max-content;
 }
+/* THE DISK NOTICE IS A WARNING, NOT A STATUS (galley#44), AND IT COVERS, IT
+   DOES NOT DISPLACE. It arrives without the reviewer asking — a save found the
+   file gone — so it may move nothing: as a row of the wrapping bar it grew the
+   bar by its own height and slid the document and the rail down under the
+   reader. So it hangs off the bar's bottom edge the way the verdict menu does,
+   out of flow, and `--gly-bar-h` (measured) never sees it. Where it hangs is
+   the arrival strip's rule: NOT over the text column. Above the breakpoint
+   that is the rail's column, inset to the cards' own edges; below it there is
+   no rail and it spans the bar.
+
+   It WRAPS, overriding the shell's `.gly-bar > * { white-space: nowrap }`,
+   because the sentence is the whole point and its end ("Nothing is being
+   saved.") is the part that matters most. The red is the delete's, the
+   product's one warning colour (see `.gly-thread-delete.gly-armed`), laid on
+   the page ground so what it covers does not show through. */
+.gly-bar .gly-disk-notice {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: var(--gly-gutter);
+  right: var(--gly-gutter);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 6px 10px;
+  border-left: 3px solid var(--gly-del);
+  border-radius: 6px;
+  background: linear-gradient(var(--gly-del-bg), var(--gly-del-bg)), var(--gly-bg);
+  box-shadow: var(--gly-lift);
+  color: var(--gly-del);
+}
+@media (min-width: 992px) {
+  .gly-bar .gly-disk-notice {
+    left: auto;
+    right: var(--gly-rail-pad);
+    width: calc(var(--gly-rail-w) - var(--gly-rail-gutter) - var(--gly-rail-pad));
+  }
+}
+.gly-bar .gly-disk-notice[hidden] { display: none; }
 
 /* --- the bar's controls, and who owns their chrome ---
 

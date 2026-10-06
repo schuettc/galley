@@ -112,15 +112,24 @@ func (s *EditServer) noteAnchored(model docmodel.Doc) {
 }
 
 // retractedIn is every text comment this server saw placed that has no mark in
-// model. Callers hold mu: it reads the review map, so not inside a Transact.
+// model, and every one withdrawn across an outside load whatever model says.
+// Callers hold mu: it reads the review map, so not inside a Transact.
 func (s *EditServer) retractedIn(model docmodel.Doc) map[string]bool {
 	pending := suggest.List(model)
 	out := map[string]bool{}
 	s.anchorMu.Lock()
 	seen := maps.Clone(s.seenAnchored)
+	withdrawn := maps.Clone(s.withdrawn)
 	s.anchorMu.Unlock()
 	for _, th := range review.Read(s.doc) {
-		if th.Anchor != "" || !seen[th.Key] {
+		if th.Anchor != "" {
+			continue
+		}
+		if withdrawn[th.Key] {
+			out[th.Key] = true
+			continue
+		}
+		if !seen[th.Key] {
 			continue
 		}
 		if _, ok := suggest.PairFor(pending, th); !ok {
@@ -154,26 +163,31 @@ func (s *EditServer) noteRetracted(model docmodel.Doc) error {
 }
 
 // isRetracted is the pending view's filter: a text comment this server saw
-// placed, with no mark in the model being read. It is computed per read and
-// not taken from the last projection's set, so a reader between a write and
-// the next projection (SeedNotify after an agent's write, handleWait) sees what
-// that projection will see. Readers need not hold mu; `pending` does not.
+// placed, with no mark in the model being read, or one withdrawn across an
+// outside load. It is computed per read and not taken from the last
+// projection's set, so a reader between a write and the next projection
+// (SeedNotify after an agent's write, handleWait) sees what that projection
+// will see. Readers need not hold mu; `pending` does not.
 func (s *EditServer) isRetracted(v InstructionView) bool {
-	if v.Anchor != "" || v.Run != "" {
+	if v.Anchor != "" {
 		return false
 	}
 	s.anchorMu.Lock()
 	defer s.anchorMu.Unlock()
-	return s.seenAnchored[v.Key]
+	if s.withdrawn[v.Key] {
+		return true
+	}
+	return v.Run == "" && s.seenAnchored[v.Key]
 }
 
-// forgetRetractedLocked drops keys the send just deleted from both sets.
+// forgetRetractedLocked drops keys the send just deleted from every set.
 // Callers hold mu.
 func (s *EditServer) forgetRetractedLocked(keys map[string]bool) {
 	s.anchorMu.Lock()
 	defer s.anchorMu.Unlock()
 	for key := range keys {
 		delete(s.seenAnchored, key)
+		delete(s.withdrawn, key)
 		delete(s.retracted, key)
 	}
 }
@@ -193,6 +207,82 @@ func (s *EditServer) forgetPlacedLocked(sent []string) {
 			delete(s.seenAnchored, key)
 		}
 	}
+}
+
+// keepCommentsAcrossLocked is the save's half of the same rule page mode's
+// reload keeps: A DOCUMENT THAT ARRIVED FROM OUTSIDE IS NOT THE REVIEWER
+// MOVING THEIR WORDS, in either direction. Before live is replaced by
+// incoming (a load), it settles two things, so the accounting after the load
+// reads the reviewer's comments as the reviewer left them:
+//
+//   - A COMMENT THE OUTSIDE SIDE DROPPED STAYS, UNPLACED. Any text comment
+//     placed in live whose mark incoming lacks is forgotten as ever placed, so
+//     it reads as unplaced rather than retracted: it stays unsent, on the rail
+//     with its quote and in pending.json. A marker that comes back later is
+//     tracked again by the next noteAnchored.
+//   - A COMMENT THE REVIEWER TOOK BACK STAYS TAKEN BACK. Every comment
+//     retracted in live is withdrawn: retracted from now on whatever marks the
+//     document carries. Without this, an outside writer restoring a file saved
+//     with the marker (an editor's buffer, a git checkout) handed the comment
+//     back to pending.json and the agent.
+//
+// It returns the sets as they were before, for restoreAnchors if the load
+// fails, or nil when it changed nothing. Callers hold mu.
+func (s *EditServer) keepCommentsAcrossLocked(live, incoming docmodel.Doc) *anchorSnapshot {
+	threads := review.Read(s.doc)
+	if len(threads) == 0 {
+		return nil
+	}
+	taken := s.retractedIn(live)
+	now, next := suggest.List(live), suggest.List(incoming)
+	var orphaned []string
+	for _, th := range threads {
+		if th.Anchor != "" || taken[th.Key] {
+			continue
+		}
+		if _, ok := suggest.PairFor(now, th); !ok {
+			continue
+		}
+		if _, ok := suggest.PairFor(next, th); !ok {
+			orphaned = append(orphaned, th.Key)
+		}
+	}
+	s.anchorMu.Lock()
+	defer s.anchorMu.Unlock()
+	pin := false
+	for key := range taken {
+		if !s.withdrawn[key] {
+			pin = true
+		}
+	}
+	if len(orphaned) == 0 && !pin {
+		return nil
+	}
+	before := &anchorSnapshot{placed: maps.Clone(s.seenAnchored), withdrawn: maps.Clone(s.withdrawn)}
+	for _, key := range orphaned {
+		delete(s.seenAnchored, key)
+	}
+	if s.withdrawn == nil {
+		s.withdrawn = map[string]bool{}
+	}
+	maps.Copy(s.withdrawn, taken)
+	return before
+}
+
+// anchorSnapshot is what keepCommentsAcrossLocked changed, as it was before.
+type anchorSnapshot struct {
+	placed, withdrawn map[string]bool
+}
+
+// restoreAnchors puts back what keepCommentsAcrossLocked changed. nil changes
+// nothing.
+func (s *EditServer) restoreAnchors(before *anchorSnapshot) {
+	if before == nil {
+		return
+	}
+	s.anchorMu.Lock()
+	defer s.anchorMu.Unlock()
+	s.seenAnchored, s.withdrawn = before.placed, before.withdrawn
 }
 
 // placedSnapshot is a copy of which text comments this server has seen placed,

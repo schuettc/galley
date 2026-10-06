@@ -632,6 +632,31 @@ var handSeeds = []string{
 	"- | a |\n  | --- |\n  | b |\n",
 	"|  |  |\n| --- | --- |\n",
 	"☕😀|a\n-|-\n",
+	// DISPLAY MATH UNDER A PARTLY CONSUMED TAB, which crashed galley 0.12.0:
+	// a container that takes one column of a tab leaves the rest as padding,
+	// and the math parser read an index into the padded line as a source
+	// offset. The first two panicked; the rest lost the "$$" from the file.
+	// See TestParse_DisplayMathAfterAPartlyConsumedTab. Seeded with the tab,
+	// container and delimiter shapes around them, so the fuzzer mutates
+	// outward from the cliff.
+	"1. >\t$$",
+	"a\n1. >\t$$",
+	"1. >\t$$\n",
+	">\t$$",
+	"> $$",
+	"1. > $$",
+	"1. >\t$$\nx\n$$\n",
+	">\t$$\n>\tx\n>\t$$\n",
+	"1. >\t$$\n   >\tx\n   >\t$$\n",
+	">\t$$\n>\tx\n>\t$$\n>\t$$\n>\ty\n>\t$$\n",
+	"-\t$$\n\tx\n\t$$\n",
+	"- >\t- >\t$$\n\t\tx\n",
+	">\t>\t$$\n>\t>\tE = mc^2\n>\t>\t$$\n",
+	"1.\t$$\n\t\\alpha\n\t$$\n",
+	"> 1. >\t$$\n",
+	">\t```\n>\t$$\n>\t```\n",
+	">\t#\t$$\n",
+	"$$\n\tx\n$$",
 }
 
 // TestRoundBudget_IsCapped is fix round 1's Important 3. The convergence

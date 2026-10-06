@@ -57,6 +57,32 @@ export function roundPhrase(rounds: number, phase: string): string {
   return `${where} · ${phase}`;
 }
 
+/** THE FILE ITSELF GETS ITS OWN LINE, under the bar's row and full width.
+ *
+ * Changed outside the editor, gone from its path, or unreadable (galley#44):
+ * the server's own sentence, since only it knows where the other version went.
+ * It was a clause of the readout, which is grey, ellipsizes at its end and puts
+ * this last — so `Nothing is being saved.` was the part a reviewer never saw.
+ * It is a child of the sticky bar rather than a sibling, so it scrolls with the
+ * bar; it hangs below the bar out of flow (see `.gly-disk-notice`), because it
+ * arrives unasked and must move nothing. Absent when empty. */
+function paintDiskNotice(text: string) {
+  let el = document.getElementById('gly-disk-notice');
+  if (!el) {
+    const bar = document.querySelector('.gly-bar');
+    if (!bar || !text) {
+      return;
+    }
+    el = document.createElement('div');
+    el.id = 'gly-disk-notice';
+    el.className = 'gly-disk-notice';
+    el.setAttribute('role', 'alert');
+    bar.appendChild(el);
+  }
+  el.hidden = !text;
+  el.textContent = text;
+}
+
 /** The handoff's three strings, exported for the same reason every other
  * user-facing sentence here is: the checks read the reviewer-visible copy,
  * not an internal flag. HELD is the parse-failure form — the agent's save is
@@ -232,6 +258,7 @@ export const barMethods = {
    * A SEALED REVIEW PRINTS ONLY WHAT THE SEAL SAID. The terminal bar is the
    * record; this line is where a reopen's reason lands and nothing else. */
   paintReadout(this: AppShell) {
+    paintDiskNotice(this.diskNotice);
     // HISTORY SAYS WHERE YOU ARE AND THAT THE DRAFT IS SAFE, and it says both
     // in one clause so the mode can never be mistaken for the draft. The whole
     // fixed grammar below — the phase, the connection, the save age — is about

@@ -424,6 +424,7 @@ export const sealMethods = {
     const now = !!d.handoff;
     this.handoff = now;
     this.draftError = d.draftError || '';
+    this.diskNotice = d.diskNotice || '';
     if (now !== was) {
       if (now) {
         this.editor.setEditable(false);
