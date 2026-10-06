@@ -2150,6 +2150,25 @@ body.gly-collapsed:not(.gly-page) > main {
   flex: 100 1 0;
   max-width: max-content;
 }
+/* THE DISK NOTICE IS A WARNING, NOT A STATUS (galley#44). Its own row under
+   the bar's controls — `flex-basis: 100%` in the wrapping bar — and it WRAPS,
+   overriding the shell's `.gly-bar > * { white-space: nowrap }`, because the
+   sentence is the whole point and its end ("Nothing is being saved.") is the
+   part that matters most. The red is the delete's, the product's one warning
+   colour (see `.gly-thread-delete.gly-armed`); nothing new is invented here. */
+.gly-bar .gly-disk-notice {
+  flex: 1 1 100%;
+  /* Last row whatever is appended to the bar after it. */
+  order: 99;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 6px 10px;
+  border-left: 3px solid var(--gly-del);
+  background: var(--gly-del-bg);
+  color: var(--gly-del);
+}
+.gly-bar .gly-disk-notice[hidden] { display: none; }
 
 /* --- the bar's controls, and who owns their chrome ---
 

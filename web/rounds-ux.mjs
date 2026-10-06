@@ -3651,6 +3651,105 @@ try {
     );
   }
 
+  // §6b — THE DISK NOTICE IS READABLE (galley#44). It was a clause of the grey
+  // readout, last, in a cell that ellipsizes at its end — so the sentence the
+  // reviewer most needed ("Nothing is being saved.") was the part cut off.
+  // Remove the file under the running editor, type so a save is attempted,
+  // and read the notice the way a reviewer would: shown, whole, unclipped, and
+  // on its own line BELOW the bar's controls rather than inside the status.
+  // The file goes back afterwards, byte for byte, because §7 needs a review
+  // that is still saving.
+  {
+    const kept = readFileSync(doc, 'utf8');
+    rmSync(doc);
+    await page.locator('.ProseMirror p').first().click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' Gone.');
+    const shown = await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('.gly-disk-notice');
+          return (
+            !!el &&
+            !el.hidden &&
+            /no longer at this path/.test(el.textContent || '')
+          );
+        },
+        null,
+        { timeout: 10000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+    const notice = await page.evaluate(() => {
+      const el = document.querySelector('.gly-disk-notice');
+      const status = document.querySelector('#gly-status');
+      const revise = document.querySelector('#gly-revise');
+      const bar = document.querySelector('.gly-bar');
+      if (!el || !status || !revise || !bar) {
+        return null;
+      }
+      const r = el.getBoundingClientRect();
+      const row = Math.max(
+        status.getBoundingClientRect().bottom,
+        revise.getBoundingClientRect().bottom,
+      );
+      const b = bar.getBoundingClientRect();
+      return {
+        text: el.textContent,
+        visible: getComputedStyle(el).display !== 'none' && r.height > 0,
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        top: r.top,
+        row,
+        width: r.width,
+        barWidth: b.width,
+        statusText: status.textContent,
+      };
+    });
+    if (process.env.GALLEY_NOTICE_SHOT) {
+      await page.screenshot({ path: process.env.GALLEY_NOTICE_SHOT });
+    }
+    check(
+      'a removed file puts the disk notice on screen',
+      shown && !!notice && notice.visible,
+      JSON.stringify(notice),
+    );
+    check(
+      'and its whole sentence, not an ellipsis of it',
+      !!notice &&
+        notice.text ===
+          'history-ux.md is no longer at this path. Nothing is being saved.' &&
+        notice.scrollWidth <= notice.clientWidth,
+      JSON.stringify(notice),
+    );
+    check(
+      'and it is its own line below the bar’s controls, not a status clause',
+      !!notice &&
+        notice.top >= notice.row &&
+        notice.width >= notice.barWidth / 2 &&
+        !/no longer at this path/.test(notice.statusText || ''),
+      JSON.stringify(notice),
+    );
+    writeFileSync(doc, kept);
+    await page.keyboard.type(' Back.');
+    const gone = await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector('.gly-disk-notice');
+          return !el || el.hidden;
+        },
+        null,
+        { timeout: 10000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+    check('and it goes once the file is back and saving', gone);
+  }
+
   // §7 — HISTORY SURVIVES THE SEAL. LAST, because approving ends the review and
   // every check above it needs a live one.
   //
