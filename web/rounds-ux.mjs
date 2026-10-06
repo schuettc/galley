@@ -3659,11 +3659,54 @@ try {
   // on its own line BELOW the bar's controls rather than inside the status.
   // The file goes back afterwards, byte for byte, because §7 needs a review
   // that is still saving.
+  //
+  // AND ITS ARRIVAL MOVES NOTHING. It appears without the reviewer asking, so
+  // it is held to the rule `web/motion.mjs` held while it existed: the
+  // document, the rail and the bar's controls are where they were when it
+  // appears and when it goes. Shown red first on 725d7c8, where the notice was
+  // a row in the wrapping bar and pushed the whole page down by its height.
   {
+    // Where what a reviewer is looking at sits, rounded so subpixel noise is
+    // not called motion. Positions, not sizes, for the document and the
+    // readout: the typing that triggers the save grows the one and rewrites
+    // the other, and neither is the notice's doing. The page's are in PAGE
+    // coordinates, because the typing also scrolls the caret into view
+    // (measured: 14px, settled ~600ms before the notice paints) — a bar that
+    // grows still shifts them there; the sticky bar's own are in the window's.
+    const landmarks = () =>
+      page.evaluate(() => {
+        const at = (sel, onPage) => {
+          const el = document.querySelector(sel);
+          if (!el) {
+            return null;
+          }
+          const r = el.getBoundingClientRect();
+          const top = r.top + (onPage ? window.scrollY : 0);
+          return [r.left, top].map((n) => +n.toFixed(1));
+        };
+        return {
+          doc: at('.ProseMirror', true),
+          firstLine: at('.ProseMirror > *', true),
+          rail: at('.gly-rail', true),
+          railHead: at('.gly-rail-head', true),
+          status: at('#gly-status'),
+          mode: at('.gly-bar .gly-mode'),
+          revise: at('#gly-revise'),
+          barH: +document
+            .querySelector('.gly-bar')
+            .getBoundingClientRect()
+            .height.toFixed(1),
+        };
+      });
+    const moved = (a, b) =>
+      Object.keys(a).filter(
+        (k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]),
+      );
     const kept = readFileSync(doc, 'utf8');
     rmSync(doc);
     await page.locator('.ProseMirror p').first().click();
     await page.keyboard.press('End');
+    const before = await landmarks();
     await page.keyboard.type(' Gone.');
     const shown = await page
       .waitForFunction(
@@ -3696,8 +3739,11 @@ try {
         revise.getBoundingClientRect().bottom,
       );
       const b = bar.getBoundingClientRect();
+      const prose = document.querySelector('.ProseMirror');
       return {
         text: el.textContent,
+        left: r.left,
+        proseRight: prose ? prose.getBoundingClientRect().right : null,
         visible: getComputedStyle(el).display !== 'none' && r.height > 0,
         scrollWidth: el.scrollWidth,
         clientWidth: el.clientWidth,
@@ -3728,9 +3774,21 @@ try {
       'and it is its own line below the bar’s controls, not a status clause',
       !!notice &&
         notice.top >= notice.row &&
-        notice.width >= notice.barWidth / 2 &&
         !/no longer at this path/.test(notice.statusText || ''),
       JSON.stringify(notice),
+    );
+    check(
+      'and it does not cover the document’s text column',
+      !!notice &&
+        notice.proseRight !== null &&
+        notice.left >= notice.proseRight,
+      JSON.stringify(notice),
+    );
+    const shownAt = await landmarks();
+    check(
+      'and its appearing moves nothing: document, rail and bar controls stay put',
+      moved(before, shownAt).length === 0,
+      JSON.stringify({ moved: moved(before, shownAt), before, shownAt }),
     );
     writeFileSync(doc, kept);
     await page.keyboard.type(' Back.');
@@ -3748,6 +3806,12 @@ try {
         () => false,
       );
     check('and it goes once the file is back and saving', gone);
+    const goneAt = await landmarks();
+    check(
+      'and its going moves nothing either',
+      moved(shownAt, goneAt).length === 0,
+      JSON.stringify({ moved: moved(shownAt, goneAt), shownAt, goneAt }),
+    );
   }
 
   // §7 — HISTORY SURVIVES THE SEAL. LAST, because approving ends the review and

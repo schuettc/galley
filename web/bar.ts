@@ -64,7 +64,8 @@ export function roundPhrase(rounds: number, phase: string): string {
  * It was a clause of the readout, which is grey, ellipsizes at its end and puts
  * this last — so `Nothing is being saved.` was the part a reviewer never saw.
  * It is a child of the sticky bar rather than a sibling, so it scrolls with the
- * bar and `--gly-bar-h` (measured) grows to include it. Absent when empty. */
+ * bar; it hangs below the bar out of flow (see `.gly-disk-notice`), because it
+ * arrives unasked and must move nothing. Absent when empty. */
 function paintDiskNotice(text: string) {
   let el = document.getElementById('gly-disk-notice');
   if (!el) {
