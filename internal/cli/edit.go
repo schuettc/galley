@@ -109,9 +109,12 @@ func runEdit(args []string, out, errw io.Writer) error {
 	logLine := func(line string) {
 		fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), line)
 	}
+	// THE LOG IS ALWAYS WIRED, not only with --on-revise: it is where a file
+	// changed outside the editor is reported (loaded, kept aside, missing,
+	// unreadable), and galley#44 left no trace because nothing was listening.
+	srv.Log = logLine
 	if *onRevise != "" {
 		srv.OnRevise = *onRevise
-		srv.Log = logLine
 	}
 	// Wiring the notifier does NOT turn it on. Phase 1 refused to wire it at
 	// all, because capture mode's ratified contract was "nothing fires on its

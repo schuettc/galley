@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"io/fs"
 	"maps"
 	"net/http"
 	"os"
@@ -194,12 +195,36 @@ type EditServer struct {
 	// rev counts server-side mutations, stamped into meta on each one. Guarded
 	// by mu.
 	rev int
-	// projected is the digest of the markdown this server last wrote to
-	// MdPath, so the next projection can tell a file nobody has touched from
-	// one that changed underneath it. Guarded by mu, like rev: it is written
-	// inside project and read nowhere else. Empty until the first projection —
-	// see project for why that silence is the honest one.
-	projected string
+	// baseBytes and canonical are the BASELINE every save measures against:
+	// the file's bytes as this server last wrote or loaded them, and the live
+	// document projected onto those bytes at that same moment. Both are set
+	// together, by setBaseline, and nowhere else. Guarded by mu, like rev.
+	//
+	// TWO HALVES, BECAUSE THE TWO SIDES ARE COMPARED LIKE WITH LIKE. The file
+	// moved when its bytes differ from baseBytes. The live document moved when
+	// its projection onto baseBytes differs from canonical — NOT from
+	// baseBytes, because SerializeOnto does not reproduce every file exactly
+	// (a table's `|---|---|` row comes back respelled, galley#52), so an
+	// untouched document would read as a reviewer edit on every settle.
+	baseBytes []byte
+	canonical []byte
+	// leftAlone is true while the last save wrote nothing because the file
+	// was missing or could not be read: the live document is on disk nowhere,
+	// and Flush keeps it in .galley/recovery/. Under mu.
+	leftAlone bool
+	// testWritePrepared, when set, runs in every save's write once the
+	// replacement is prepared and before the file is checked a last time
+	// (writeIfStill). Tests only; read under mu.
+	testWritePrepared func()
+
+	// noticeMu guards the disk notice: the one sentence the reviewer's bar
+	// shows about the file (a clash, a missing file, an unreadable one). Its
+	// own mutex so GET /_galley/revise never queues behind a save holding mu.
+	// noticeKind is which of the three it is, so a later save clears only the
+	// states it resolves. Nothing takes another lock while holding this one.
+	noticeMu   sync.Mutex
+	notice     string
+	noticeKind string
 
 	// mode is "ask" or "live" — whether the agent is woken when the document
 	// settles, or only when the reviewer asks. The zero value reads as "ask",
@@ -272,7 +297,13 @@ type EditServer struct {
 	// set tells them apart. Written under mu by the projection; anchorMu
 	// guards it because `pending` reads it without mu.
 	seenAnchored map[string]bool
-	anchorMu     sync.Mutex
+	// withdrawn is the text comments the reviewer had already retracted when
+	// a document was loaded from outside: retracted from then on whatever
+	// marks the document carries, because a marker that came in from outside
+	// is not the reviewer putting their words back. See
+	// keepCommentsAcrossLocked. Under anchorMu, like seenAnchored.
+	withdrawn map[string]bool
+	anchorMu  sync.Mutex
 	// retracted is the seen text comments the last projection found with no
 	// mark: the keys pending.json leaves out. Under mu. See noteRetracted.
 	retracted map[string]bool
@@ -483,15 +514,6 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// on the process ending (the 2026-08-15 trail spec — review-long,
 		// verdict-cleared). The epoch starts at 1 so the zero value — an
 		// epochless save — is stale by construction.
-		// THE BASELINE IS THE FILE AS OPENED, not the first thing this server
-		// writes. Those bytes are exactly what the live document was built
-		// from, so they are what "nobody has touched this since" means — and
-		// establishing it here rather than at the first projection is what
-		// makes the commonest case reportable at all: a hand edit in the
-		// minutes after `galley edit` starts, before any mutation has caused a
-		// projection. Measured with the first-projection baseline: the edit
-		// was reverted in silence, which is the very defect. See project.
-		projected: fileDigest(src),
 		// ALWAYS a notifier, even with no command to run. It is not only the
 		// thing that runs --on-settle any more: it holds the one "has the
 		// document moved since the agent last saw it" decision, and a blocked
@@ -504,6 +526,19 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	// The review map is pending.json's live state. Where each comment sits is
 	// not replayed: the one builder reads it off the ID marks every time.
 	replayUnsent(s.doc, unsent.ToThreads(pendingComments))
+
+	// THE BASELINE IS THE FILE AS OPENED, not the first thing this server
+	// writes. Those bytes are exactly what the live document was built from,
+	// so they are what "nobody has touched this since" means — and a hand edit
+	// in the minutes after `galley edit` starts, before any mutation has
+	// caused a projection, is the commonest case. Read back off the live
+	// document rather than taken from `model`, so the canonical half is what
+	// every later comparison reads too.
+	if live, err := s.readLive(); err == nil {
+		s.setBaseline(live, src)
+	} else {
+		s.setBaseline(model, src)
+	}
 
 	s.doc.OnUpdate(func(_ []byte, origin any) {
 		// ReadLive's own mutual-exclusion Transact fires this like any other
@@ -643,16 +678,17 @@ func (s *EditServer) SeedNotify() {
 // LastExport is when the projection last reached disk.
 func (s *EditServer) LastExport() time.Time { return s.exported.get() }
 
-// Project writes the live document back to disk: the fragment, read into the
-// document model, becomes canonical markdown at MdPath (atomically). The
-// unsent comments' words are not written here: they are in pending.json,
+// Project saves the live document through the one save decision (see
+// saveLocked): when only the live document moved, the fragment, read into the
+// document model, becomes canonical markdown at MdPath (atomically); when the
+// file moved, it is loaded or kept aside instead. The unsent comments' words are not written here: they are in pending.json,
 // which every instruction mutation writes before any projection runs.
 //
 // Code-block text is the one exception CriticMarkup cannot honestly render:
 // a fence's content is literal code, so it is left untouched by Serialize —
 // never rewritten into {++…++}/{--…--}/{==…==} — and any marker-shaped text
 // already inside one is passed through as-is. See the CODE FENCE comment on
-// project below for why nothing here can safely tell an author's fenced
+// saveOnce below for why nothing here can safely tell an author's fenced
 // suggestion from literal text.
 //
 // If ydoc.ReadLive cannot get a consistent snapshot after its own retries
@@ -684,125 +720,87 @@ func (s *EditServer) Flush() error {
 	var err error
 	for attempt := 0; attempt < mutationReadAttempts; attempt++ {
 		if err = s.project(); !errors.Is(err, ydoc.ErrConcurrentWrite) {
-			return err
+			break
 		}
 	}
-	return err
+	if err != nil || !s.leftAlone {
+		return err
+	}
+	// THE LAST SAVE OF A DOCUMENT WHOSE FILE IS GONE OR UNREADABLE. Nothing may
+	// go to the path, which would recreate a file somebody moved or deleted, or
+	// write over one somebody else changed (galley#44), and dropping the
+	// reviewer's edits at shutdown would lose them. So they go where a handoff
+	// cancel keeps a draft it cannot import.
+	model, err := s.readLive()
+	if err != nil {
+		return err
+	}
+	if !s.liveMoved(model) {
+		return nil
+	}
+	kept, err := s.rescue(markdown.SerializeOnto(model, s.baseBytes))
+	if err != nil {
+		return fmt.Errorf("%s was not saved and its unsaved changes could not be kept: %w", filepath.Base(s.MdPath), err)
+	}
+	if s.Log != nil {
+		s.Log(fmt.Sprintf("%s was not saved; the editor's unsaved changes are in %s", filepath.Base(s.MdPath), kept))
+	}
+	return nil
 }
 
-// fileDigest is what the projection remembers about the bytes it wrote, so the
-// next one can tell "nobody has touched this" from "somebody has". A digest and
-// not the content: the document is the reviewer's prose and can be large, and
-// this is only ever compared for equality.
+// fileDigest is a digest of a file's bytes, for the places that remember a
+// file rather than hold it: the handoff lease's baseline and import mark, and
+// a version's identity. A digest and not the content: the document is the
+// reviewer's prose and can be large, and this is only ever compared for
+// equality.
 func fileDigest(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
 
-// project is Project's body, with mu already held.
-func (s *EditServer) project() error {
-	// ReadLive, not Read: this document is live and served, so a debounce
-	// -timer-driven Project can run concurrently with an ordinary reviewer
-	// edit landing through Apply. Read's plain fragment walk races that (see
-	// ydoc.ReadLive's comment; reproduced under -race by
-	// TestProjectDoesNotRaceConcurrentLoad).
-	model, err := ydoc.ReadLive(s.doc)
+// setBaseline records what the file and the live document agree on right now:
+// file is the bytes galley just wrote or loaded, and live is the document they
+// stand for. Callers hold mu. See baseBytes.
+func (s *EditServer) setBaseline(live docmodel.Doc, file []byte) {
+	s.baseBytes = bytes.Clone(file)
+	s.canonical = markdown.SerializeOnto(live, file)
+}
+
+// liveMoved reports whether the live document says something the baseline
+// does not: a reviewer's keystroke, an endpoint's mutation. An update that
+// moves no content (a meta.rev bump) is not a move, because only the
+// projection is compared. Callers hold mu.
+func (s *EditServer) liveMoved(live docmodel.Doc) bool {
+	return !bytes.Equal(markdown.SerializeOnto(live, s.baseBytes), s.canonical)
+}
+
+// project is Project's body, with mu already held: the save decision, then
+// the round's other steps over whatever it left standing.
+func (s *EditServer) project() error { return s.projectAs("") }
+
+// projectAs is project with one door for the handoff cancel: overwrite is the
+// digest of a file kept in .galley/recovery/, and the live document is
+// written over the file while it still holds exactly those bytes. Only
+// handleHandoffCancel asks for it. Callers hold mu.
+//
+// WRITING NOTHING IS NOT DOING NOTHING. Everything after the save decision
+// runs whether or not a byte reached disk: an instruction-only send carries
+// unchanged bytes and is still a round, and page mode forces a projection to
+// re-render a page that moved while the document did not (pageBoundary).
+func (s *EditServer) projectAs(overwrite string) error {
+	model, out, onDisk, err := s.saveLocked(overwrite)
 	if err != nil {
 		return err
 	}
-
-	// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM. This is
-	// the one place the server learns the reviewer moved — typing has no HTTP
-	// hook. It records which text comments are placed and, when the set whose
-	// place has gone moves, rewrites pending.json without them, before the .md
-	// is written below, so the unsent round still reaches disk first. It
-	// writes nothing to the review map: see lostanchor.go for why. A failed
-	// save fails the projection, for the same ordering; see noteRetracted.
-	s.noteAnchored(model)
-	if err := s.noteRetracted(model); err != nil {
-		return err
+	// "Saved" is the reviewer's assurance that their words are durable, so it
+	// is only said when the file holds them.
+	if onDisk {
+		s.exported.mark()
 	}
-
-	// A CODE FENCE IS NEVER REWRITTEN. Its text is literal by definition, so
-	// {--…--} inside one is characters, not a suggestion — a shell script that
-	// rewrites the string, a document about CriticMarkup, a template using
-	// brace delimiters. An earlier build stripped every marker-shaped thing out
-	// of every code block on every projection and dropped the inner text of a
-	// {--…--} outright: opening a document and stopping the server was enough
-	// to destroy it, with nothing recorded anywhere.
-	//
-	// There is no honest way to tell an author's fenced suggestion from
-	// literal text, and nothing needs one: ProseMirror cannot put a mark inside
-	// a code block, and suggest.List only ever looks at Block.Inlines, so this
-	// pipeline never legitimately creates a fenced marker in the first place.
-	// Per-line code suggestions are a phase-3 mechanism with its own syntax.
-	// PROJECTED ONTO THE FILE THAT IS THERE, so a block nobody changed keeps
-	// the author's own bytes. Serialize renders the MODEL, and the model does
-	// not carry spelling — a setext heading, a hard-wrapped paragraph, a "*"
-	// bullet and "__bold__" all come back the serializer's way — so an
-	// unconditional projection rewrote things nobody edited. Measured
-	// 2026-08-22: opening a document and quitting, with no browser attached and
-	// no key pressed, changed six separate things. See markdown.SerializeOnto,
-	// which states the rule and why it is self-verifying.
-	//
-	// THE PREVIOUS BYTES ARE THIS SERVER'S OWN LAST OUTPUT after the first
-	// projection, which is what makes the preservation hold for the life of the
-	// session rather than only once: last time's output already carried the
-	// author's spelling, so this time's does too. A read that FAILS falls back
-	// to the plain rendering — never to a refusal, for the ledger's reason one
-	// layer over: a file galley cannot read must not turn a save into an error.
-	prev, prevErr := os.ReadFile(s.MdPath)
-	if prevErr != nil {
-		prev = nil
-	}
-	out := markdown.SerializeOnto(model, prev)
-	// A RUNNING GALLEY OWNS THE FILE, AND THE OVERWRITE USED TO BE SILENT.
-	// Every projection writes the CRDT over the document, so an edit made to
-	// the .md by hand while `galley edit` is serving is gone at the next
-	// settle. That is the design and not a defect — the document a browser
-	// and an agent are both bound to is the live one, and merging a
-	// foreign write back into a CRDT that cannot recognise a document it did
-	// not build is a different piece of work (see CLAUDE.md on why a fresh
-	// parse cannot be merged with the served doc). What WAS a defect is that
-	// nothing said so: an appended section on disk, `galley reopen` answering
-	// 204, the section gone, no error and no log line — and a whole class of
-	// "my edit vanished" with nowhere to look. It is now reported, once per
-	// divergence, on the surface the operator is already watching.
-	//
-	// COMPARED AGAINST WHAT THIS SERVER LAST SAW THERE, not against what it is
-	// about to write: the projection legitimately changes the file on every
-	// settle, so "the bytes differ from my output" is true constantly and says
-	// nothing. The baseline starts as the file NewEdit read (see there — a hand
-	// edit before the first projection is the commonest case and was the silent
-	// one), and moves to each projection's own output.
-	// WHILE A HANDOFF WINDOW IS OPEN THE FILE BELONGS TO THE AGENT and this
-	// function does not write it: the browser is read-only, so every change in
-	// the live document during the window came IN through an import of that
-	// same file, and writing our canonical spelling back out would race the
-	// agent's next save. Ownership returns — and this write resumes — the
-	// moment the window closes, which is why every close path cuts (and so
-	// projects) AFTER closing. See handoff.go.
-	if !s.handoffLive.Load() {
-		if s.projected != "" {
-			if prevErr == nil && fileDigest(prev) != s.projected {
-				if s.Log != nil {
-					s.Log(fmt.Sprintf("%s changed on disk since galley last saw it — the live document is "+
-						"authoritative and has just been written over it. Make the change in the editor, or stop "+
-						"galley first", filepath.Base(s.MdPath)))
-				}
-			}
-		}
-		if err := writeFileAtomic(s.MdPath, out); err != nil {
-			return err
-		}
-		s.projected = fileDigest(out)
-	}
-
-	s.exported.mark()
 
 	fp := s.editFingerprint(model)
 	// AND THIS IS WHERE A VERSION IS CUT, with mu held and with the very bytes
-	// that just reached the author's file. Nowhere else in the server reads the
+	// that now stand on the author's file. Nowhere else in the server reads the
 	// document to make a version: doing so would be a second answer to "what
 	// does this document say right now", and the CRDT is live while a round is
 	// open. See versions.go.
@@ -839,7 +837,7 @@ func (s *EditServer) project() error {
 	// before the projection lands would read the previous revision.
 	s.notifyFingerprint(fp)
 	// THE PAGE-MODE SEAM, and the one place a projection reaches outside itself.
-	// It runs AFTER the successful .md write and the version cut, and with mu
+	// It runs AFTER the save decision and the version cut, and with mu
 	// released — page mode's render routes refusals through recordCannot, which
 	// takes mu and reviseMu, so holding either here would deadlock. The caller's
 	// deferred Unlock still balances: we relock before returning.
@@ -850,6 +848,318 @@ func (s *EditServer) project() error {
 		s.mu.Lock()
 	}
 	return nil
+}
+
+// saveAttempts bounds how many times a save starts over when the file moves
+// between its read and its rename. Each retry means somebody saved again
+// inside a few milliseconds; past a handful, the save gives up and
+// writes nothing, and the next settle looks again.
+const saveAttempts = 3
+
+// errFileMovedAgain is a save that found the file changed under it before the
+// rename: its decision was about bytes that are no longer there.
+var errFileMovedAgain = errors.New("the file kept changing during the save; nothing was written")
+
+// The kinds of disk notice. See setNotice.
+const (
+	noticeClash      = "clash"
+	noticeMissing    = "missing"
+	noticeUnreadable = "unreadable"
+	// noticePageMissing is page mode's page.html gone. The .md's save does not
+	// clear it; the renderer does, once the page is back (writePage).
+	noticePageMissing = "page-missing"
+)
+
+// saveLocked is THE ONE SAVE DECISION, and every path that writes the document
+// goes through it: the debounced Project, Flush at stop, and the projection a
+// closing handoff window runs. It holds mu for the whole of it (callers hold
+// mu), so nothing it reads can go stale under a write of the server's own.
+//
+// GALLEY NEVER OVERWRITES A CHANGE IT DID NOT MAKE (galley#44). It used to:
+// every projection wrote the live document over the file, so an agent's save
+// made while `galley edit` was serving was gone at the next settle, and a file
+// moved away was written back at its old path. Now the file and the live
+// document are each measured against the baseline (see baseBytes):
+//
+//   - neither moved: write nothing;
+//   - only the live document moved: write it, as every projection did;
+//   - only the file moved: load it into the live document;
+//   - both moved: keep the file as found in .galley/recovery/, then write the
+//     reviewer's copy, and say so;
+//   - the file is missing: write nothing, and say so. Flush keeps unsaved
+//     edits in .galley/recovery/ at stop.
+//
+// A file that moved and cannot be read or parsed is neither loaded nor written
+// over: nothing is saved until it is fixed, and Flush keeps unsaved edits in
+// .galley/recovery/ at stop, as for a missing file.
+//
+// It returns the live document, the markdown that stands for it, and whether
+// that markdown is what the file now holds.
+func (s *EditServer) saveLocked(overwrite string) (docmodel.Doc, []byte, bool, error) {
+	for attempt := 0; attempt < saveAttempts; attempt++ {
+		model, out, onDisk, err := s.saveOnce(overwrite)
+		if !errors.Is(err, errFileMovedAgain) {
+			return model, out, onDisk, err
+		}
+	}
+	return docmodel.Doc{}, nil, false, errFileMovedAgain
+}
+
+func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, error) {
+	// ReadLive, not Read: this document is live and served, so a debounce
+	// -timer-driven Project can run concurrently with an ordinary reviewer
+	// edit landing through Apply. Read's plain fragment walk races that (see
+	// ydoc.ReadLive's comment; reproduced under -race by
+	// TestProjectDoesNotRaceConcurrentLoad).
+	model, err := ydoc.ReadLive(s.doc)
+	if err != nil {
+		return docmodel.Doc{}, nil, false, err
+	}
+	raw, readErr := os.ReadFile(s.MdPath)
+	name := filepath.Base(s.MdPath)
+
+	// WHILE A HANDOFF WINDOW IS OPEN THE FILE BELONGS TO THE AGENT and this
+	// function does not write it: the browser is read-only, so every change in
+	// the live document during the window came IN through an import of that
+	// same file (which moves the baseline with it), and writing our canonical
+	// spelling back out would race the agent's next save. Ownership returns the
+	// moment the window closes, which is why every close path cuts (and so
+	// projects) AFTER closing. See handoff.go.
+	if s.handoffLive.Load() {
+		if err := s.noteAnchors(model); err != nil {
+			return docmodel.Doc{}, nil, false, err
+		}
+		if readErr != nil {
+			raw = nil
+		}
+		return model, markdown.SerializeOnto(model, raw), true, nil
+	}
+
+	s.leftAlone = errors.Is(readErr, fs.ErrNotExist)
+	if s.leftAlone {
+		if err := s.noteAnchors(model); err != nil {
+			return docmodel.Doc{}, nil, false, err
+		}
+		s.setNotice(noticeMissing, name+" is no longer at this path. Nothing is being saved.",
+			fmt.Sprintf("%s is no longer in %s; galley is writing nothing there", name, filepath.Dir(s.MdPath)))
+		return model, markdown.SerializeOnto(model, s.baseBytes), false, nil
+	}
+
+	licensed := readErr == nil && overwrite != "" && fileDigest(raw) == overwrite
+	fileMoved := readErr != nil || (!licensed && !bytes.Equal(raw, s.baseBytes))
+	liveMoved := licensed || s.liveMoved(model)
+	var theirs docmodel.Doc
+	if fileMoved {
+		why := readErr
+		if why == nil {
+			theirs, _, why = markdown.Parse(raw)
+		}
+		if why != nil {
+			s.leftAlone = true
+			if err := s.noteAnchors(model); err != nil {
+				return docmodel.Doc{}, nil, false, err
+			}
+			s.setNotice(noticeUnreadable,
+				name+" was changed outside the editor in a form galley can't read. Nothing is being saved until it's fixed.",
+				fmt.Sprintf("%s changed outside the editor and cannot be read (%v); galley is writing nothing until it can",
+					name, why))
+			return model, markdown.SerializeOnto(model, s.baseBytes), false, nil
+		}
+	}
+
+	if !fileMoved && !liveMoved {
+		if err := s.noteAnchors(model); err != nil {
+			return docmodel.Doc{}, nil, false, err
+		}
+		s.clearNotice()
+		return model, raw, true, nil
+	}
+
+	if !liveMoved {
+		// THE FILE MOVED AND THE REVIEWER DID NOT: the file is the newer
+		// document, so it is loaded, as an agent's save inside a handoff
+		// window is. Nothing is written; the file already says it. A comment
+		// whose marker the file lacks stays, unplaced, and one the reviewer
+		// took back stays taken back (keepCommentsAcrossLocked).
+		before := s.keepCommentsAcrossLocked(model, theirs)
+		live, err := s.loadLocked(theirs)
+		if err != nil {
+			s.restoreAnchors(before)
+			return docmodel.Doc{}, nil, false, err
+		}
+		// The load has landed, so it is the baseline before anything after it
+		// can fail: a baseline left behind would read this load as the
+		// reviewer's edit on the next save.
+		s.setBaseline(live, raw)
+		if err := s.noteAnchors(live); err != nil {
+			return docmodel.Doc{}, nil, false, err
+		}
+		s.clearNotice()
+		if s.Log != nil {
+			s.Log(fmt.Sprintf("%s changed outside the editor and was loaded into the review", name))
+		}
+		return live, raw, true, nil
+	}
+
+	// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM, before
+	// the .md is written; see noteAnchors.
+	if err := s.noteAnchors(model); err != nil {
+		return docmodel.Doc{}, nil, false, err
+	}
+	// A CODE FENCE IS NEVER REWRITTEN. Its text is literal by definition, so
+	// {--…--} inside one is characters, not a suggestion — a shell script that
+	// rewrites the string, a document about CriticMarkup, a template using
+	// brace delimiters. An earlier build stripped every marker-shaped thing out
+	// of every code block on every projection and dropped the inner text of a
+	// {--…--} outright: opening a document and stopping the server was enough
+	// to destroy it, with nothing recorded anywhere.
+	//
+	// There is no honest way to tell an author's fenced suggestion from
+	// literal text, and nothing needs one: ProseMirror cannot put a mark inside
+	// a code block, and suggest.List only ever looks at Block.Inlines, so this
+	// pipeline never legitimately creates a fenced marker in the first place.
+	// Per-line code suggestions are a phase-3 mechanism with its own syntax.
+	// PROJECTED ONTO THE BASELINE, so a block nobody changed keeps the author's
+	// own bytes. Serialize renders the MODEL, and the model does not carry
+	// spelling — a setext heading, a hard-wrapped paragraph, a "*" bullet and
+	// "__bold__" all come back the serializer's way — so an unconditional
+	// projection rewrote things nobody edited. See markdown.SerializeOnto,
+	// which states the rule and why it is self-verifying. The baseline is this
+	// server's own last output or the file as it last loaded it, which is what
+	// makes the preservation hold for the life of the session.
+	out := markdown.SerializeOnto(model, s.baseBytes)
+	// BOTH MOVED: the reviewer's copy is written, but the file as found is
+	// kept first. A file that cannot be kept is not written over.
+	var kept string
+	if fileMoved {
+		if kept, err = s.rescue(raw); err != nil {
+			return docmodel.Doc{}, nil, false, fmt.Errorf("keep %s before writing over it: %w", name, err)
+		}
+	}
+	if err := s.writeIfStill(raw, out); err != nil {
+		// Not written over, so not to be kept: the retry reads the file anew.
+		if kept != "" {
+			_ = os.Remove(kept)
+		}
+		return docmodel.Doc{}, nil, false, err
+	}
+	s.setBaseline(model, out)
+	if fileMoved {
+		s.setNotice(noticeClash,
+			fmt.Sprintf("%s was changed outside the editor while you were editing. Your copy was kept; "+
+				"the other version is in .galley/recovery/%s.", name, filepath.Base(kept)),
+			fmt.Sprintf("%s changed outside the editor while the reviewer was editing; the reviewer's copy was "+
+				"written and the file as found is kept at %s", name, kept))
+	} else {
+		s.clearNotice()
+	}
+	return model, out, true, nil
+}
+
+// loadLocked makes model the live document, as one agent-attributed mutation,
+// and reads back what the live document now says. Callers hold mu.
+func (s *EditServer) loadLocked(model docmodel.Doc) (docmodel.Doc, error) {
+	if _, err := s.mutateLocked(byAgent, func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+		return model, nil, nil
+	}); err != nil {
+		return docmodel.Doc{}, err
+	}
+	return s.readLive()
+}
+
+// noteAnchors is the save's account of the reviewer's comments, taken on the
+// document about to stand for the file. Callers hold mu.
+//
+// AN INSTRUCTION WHOSE WORDS THE REVIEWER DELETED GOES WITH THEM. This is the
+// one place the server learns the reviewer moved — typing has no HTTP hook. It
+// records which text comments are placed and, when the set whose place has
+// gone moves, rewrites pending.json without them, BEFORE any .md is written,
+// so the unsent round still reaches disk first. It writes nothing to the
+// review map: see lostanchor.go for why. A failed save fails the projection,
+// for the same ordering; see noteRetracted.
+func (s *EditServer) noteAnchors(model docmodel.Doc) error {
+	s.noteAnchored(model)
+	return s.noteRetracted(model)
+}
+
+// writeIfStill replaces the file with out if it still holds raw, the bytes
+// the save decided about, and otherwise writes nothing and returns
+// errFileMovedAgain, which starts the decision over from the newer file.
+// Callers hold mu.
+//
+// THE CHECK COMES AFTER THE SLOW PART. The replacement is written and synced
+// first (prepareFileAtomic) and the file checked after that, so the only
+// window an outside save can still be lost in is the rename itself. Closing
+// the rename too would take a lock outside editors do not honour.
+func (s *EditServer) writeIfStill(raw, out []byte) error {
+	w, err := prepareFileAtomic(s.MdPath, out)
+	if err != nil {
+		// A file that moved (or went, directory and all) since the read is the
+		// newer decision, not a write failure.
+		if !holds(s.MdPath, raw) {
+			return errFileMovedAgain
+		}
+		return err
+	}
+	if s.testWritePrepared != nil {
+		s.testWritePrepared()
+	}
+	// THE CHECK READS WHAT THE RENAME WILL REPLACE. Through a symlink, the
+	// target was resolved and frozen at prepare; read through the link instead,
+	// a link retargeted since then to a file holding raw passes the check, and
+	// the rename overwrites a save in the old target unread.
+	if !w.stillTargets(s.MdPath) || !holds(w.target, raw) {
+		w.discard()
+		return errFileMovedAgain
+	}
+	return w.commit()
+}
+
+// holds reports whether the file at path reads exactly raw.
+func holds(path string, raw []byte) bool {
+	now, err := os.ReadFile(path)
+	return err == nil && bytes.Equal(now, raw)
+}
+
+// setNotice records the disk notice the reviewer's bar shows, and logs line
+// the first time that notice is set, so a state that lasts across saves (a
+// missing file, an unreadable one) is logged once and not once per settle.
+// Callers hold mu, or the page renderer's lock (writePage).
+func (s *EditServer) setNotice(kind, text, line string) {
+	s.noticeMu.Lock()
+	changed := s.notice != text
+	s.notice, s.noticeKind = text, kind
+	s.noticeMu.Unlock()
+	if changed && s.Log != nil {
+		s.Log(line)
+	}
+}
+
+// clearNotice drops a missing or unreadable notice, which a save that found a
+// readable file has resolved. A clash notice stays: it names where the other
+// version went, and that is still true. Callers hold mu.
+func (s *EditServer) clearNotice() {
+	s.noticeMu.Lock()
+	defer s.noticeMu.Unlock()
+	if s.noticeKind != noticeClash && s.noticeKind != noticePageMissing {
+		s.notice, s.noticeKind = "", ""
+	}
+}
+
+// clearNoticeKind drops the disk notice if it is of kind.
+func (s *EditServer) clearNoticeKind(kind string) {
+	s.noticeMu.Lock()
+	defer s.noticeMu.Unlock()
+	if s.noticeKind == kind {
+		s.notice, s.noticeKind = "", ""
+	}
+}
+
+// diskNotice is the sentence for GET /_galley/revise.
+func (s *EditServer) diskNotice() string {
+	s.noticeMu.Lock()
+	defer s.noticeMu.Unlock()
+	return s.notice
 }
 
 // notifyFingerprint hands the just-projected fingerprint to the notifier, if
@@ -1047,6 +1357,10 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 		s.serveSibling(w, r)
 		return
 	}
+	// THE PAGE LOAD LOOKS AT THE FILE, so a save made outside the editor since
+	// the last one is loaded before the reviewer reads the document (see
+	// saveLocked). Its error is the next save's to report.
+	_ = s.Project()
 	var buf bytes.Buffer
 	previewURL := ""
 	if s.pageMode {
@@ -1079,13 +1393,19 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 // cannot see anything — and comparing this field against the room it booted
 // with is how it learns to reload.
 func (s *EditServer) handleEditRev(w http.ResponseWriter, r *http.Request) {
-	st, err := os.Stat(s.MdPath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// THE PAGE'S CUE TO RE-READ THE PENDING LIST. It was the file's mtime
+	// alone, which moved on every projection while every projection wrote. A
+	// save that writes nothing (galley#44) must move it too, so the last
+	// projection counts; and a missing file is a rev, not an error.
+	var rev int64
+	if st, err := os.Stat(s.MdPath); err == nil {
+		rev = st.ModTime().UnixNano()
+	}
+	if at := s.LastExport(); !at.IsZero() && at.UnixNano() > rev {
+		rev = at.UnixNano()
 	}
 	writeJSON(w, map[string]any{
-		"rev":  st.ModTime().UnixNano(),
+		"rev":  rev,
 		"room": s.Room,
 	})
 }
@@ -2220,6 +2540,7 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 		// draftError is the one sentence about a save that will not import.
 		Handoff:    s.handoffOpenNow(),
 		DraftError: s.draftError(),
+		DiskNotice: s.diskNotice(),
 		Sealed:     st.Sealed,
 		Verdict:    st.Verdict,
 		VerdictAt:  verdictAt,
@@ -2267,6 +2588,10 @@ type ReviseStateView struct {
 	// DraftError is the one sentence about a save that will not import.
 	Handoff    bool   `json:"handoff"`
 	DraftError string `json:"draftError"`
+	// DiskNotice is the one sentence about the file itself: changed outside
+	// the editor while the reviewer was editing, gone from its path, or not
+	// readable. See saveLocked.
+	DiskNotice string `json:"diskNotice"`
 	// Sealed, Verdict and VerdictAt are the review's ending. The pending view
 	// is the WORK; the seal is whether there is any left to do.
 	Sealed    bool   `json:"sealed"`

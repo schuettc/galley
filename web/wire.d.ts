@@ -57,6 +57,7 @@ export interface ReviseStateView {
   cannotAgoMs: number;
   handoff: boolean;
   draftError: string;
+  diskNotice: string;
   sealed: boolean;
   verdict: string;
   verdictAt: number;

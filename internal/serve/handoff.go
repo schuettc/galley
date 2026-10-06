@@ -1,8 +1,8 @@
 // handoff.go is the ownership window: while a lease exists, the .md file
 // belongs to the AGENT — the browser is read-only, projection does not write
 // the file, and a watcher imports the agent's saves into the live document.
-// Outside a window nothing here runs and the server behaves exactly as before:
-// the CRDT owns the file and project() overwrites external edits.
+// Outside a window nothing here runs: the save decision (saveLocked) loads an
+// outside change or keeps it aside, and never writes over it in silence.
 package serve
 
 import (
@@ -16,11 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
 	"github.com/schuettc/galley/internal/markdown"
 	"github.com/schuettc/galley/internal/ondisk"
-	"github.com/schuettc/galley/internal/review"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.
@@ -168,9 +165,19 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "no handoff is open", http.StatusConflict)
 		return
 	}
+	// RESCUED IS THE ONE LICENCE TO WRITE OVER A FILE GALLEY DID NOT MAKE: the
+	// draft is kept in .galley/recovery/, so the projection below may restore
+	// the canonical document over it, and over those bytes only (their
+	// digest): a save that lands after the rescue is not kept anywhere yet, so
+	// it goes through the ordinary decision. A draft that could not be kept is
+	// left on disk, as any unreadable file is.
+	rescued := ""
 	if _, err := s.importDraft(); err != nil {
-		if saved, serr := s.rescueDraft(); serr == nil && s.Log != nil {
-			s.Log("the draft could not be imported; preserved at " + saved)
+		if saved, digest, serr := s.rescueDraft(); serr == nil {
+			rescued = digest
+			if s.Log != nil {
+				s.Log("the draft could not be imported; preserved at " + saved)
+			}
 		}
 	}
 	s.reviseMu.Lock()
@@ -183,7 +190,10 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	// imported cuts nothing (cutApplied no-ops on a nil accumulator), so the
 	// explicit projection below is what restores the canonical document.
 	s.cutApplied()
-	if err := s.Project(); err != nil && s.Log != nil {
+	s.mu.Lock()
+	err := s.projectAs(rescued)
+	s.mu.Unlock()
+	if err != nil && s.Log != nil {
 		s.Log("could not restore the canonical document after the cancel: " + err.Error())
 	}
 	if s.Log != nil {
@@ -192,19 +202,48 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *EditServer) rescueDraft() (string, error) {
+// rescueDraft keeps the file as it is now and returns where, and the digest
+// of what it kept.
+func (s *EditServer) rescueDraft() (string, string, error) {
 	raw, err := os.ReadFile(s.MdPath)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	saved, err := s.rescue(raw)
+	return saved, fileDigest(raw), err
+}
+
+// rescue keeps raw under .galley/recovery/ beside the document and returns
+// where. The handoff cancel keeps an unimportable draft there; the save keeps
+// a file it is about to write over (a clash) and the unsaved edits of a file
+// that went missing. Never over an earlier rescue: two in one second get a
+// suffix.
+func (s *EditServer) rescue(raw []byte) (string, error) {
 	dir := filepath.Join(filepath.Dir(s.MdPath), ".galley", "recovery")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	name := fmt.Sprintf("%s-%s.md", strings.TrimSuffix(filepath.Base(s.MdPath), ".md"),
+	stem := fmt.Sprintf("%s-%s", strings.TrimSuffix(filepath.Base(s.MdPath), ".md"),
 		time.Now().UTC().Format("20060102T150405Z"))
-	path := filepath.Join(dir, name)
-	return path, os.WriteFile(path, raw, 0o644)
+	for n := 1; ; n++ {
+		name := stem + ".md"
+		if n > 1 {
+			name = fmt.Sprintf("%s-%d.md", stem, n)
+		}
+		path := filepath.Join(dir, name)
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		if _, err := f.Write(raw); err != nil {
+			_ = f.Close()
+			return "", err
+		}
+		return path, f.Close()
+	}
 }
 
 // appliedOpen is whether the agent's round accumulator holds anything —
@@ -218,7 +257,7 @@ func (s *EditServer) appliedOpen() bool {
 func (s *EditServer) projectedDigest() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.projected
+	return fileDigest(s.baseBytes)
 }
 
 // importPoll is how often the watcher looks at the file while a window is
@@ -297,33 +336,13 @@ func (s *EditServer) importDraft() (bool, error) {
 	if !open {
 		return false, nil
 	}
-	raw, err := os.ReadFile(s.MdPath)
+	digest, fresh, err := s.loadDraft(l)
 	if err != nil {
 		s.setDraftError(err.Error())
 		return false, err
 	}
-	digest := fileDigest(raw)
-	if digest == l.Baseline || digest == l.LastImported {
+	if !fresh {
 		return false, nil
-	}
-	// THE DRAFT REPLACES THE MODEL, AND NOTHING ELSE. Comments the agent types
-	// into the file are not imported, by design: an inline {>>…<<} the parse
-	// lifts is discarded and leaves the .md at the next projection, a
-	// standalone one stays in the draft as the note it reads as, and no
-	// thread is opened for either. The reviewer's own
-	// comments are untouched: their words are in pending.json, and the ID
-	// marks the agent kept place them.
-	model, _, err := markdown.Parse(raw)
-	if err != nil {
-		s.setDraftError(err.Error())
-		return false, err
-	}
-	_, err = s.mutate(byAgent, func(docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
-		return model, nil, nil
-	})
-	if err != nil {
-		s.setDraftError(err.Error())
-		return false, err
 	}
 	s.setDraftError("")
 	// Every import extends ONE uncommitted agent round — the same accumulator
@@ -354,6 +373,42 @@ func (s *EditServer) importDraft() (bool, error) {
 		s.Log("imported the agent's save")
 	}
 	return true, nil
+}
+
+// loadDraft reads the agent's file and, when it is new, loads it into the
+// live document and makes it the baseline: the draft is now what the file and
+// the live document agree on, so the save after the window closes finds
+// nothing moved and writes nothing over the agent's spelling. It answers the
+// file's digest and whether it was new. UNDER mu FROM THE READ TO THE
+// BASELINE, so a save cannot land between them.
+func (s *EditServer) loadDraft(l handoffLease) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	raw, err := os.ReadFile(s.MdPath)
+	if err != nil {
+		return "", false, err
+	}
+	digest := fileDigest(raw)
+	if digest == l.Baseline || digest == l.LastImported {
+		return digest, false, nil
+	}
+	// THE DRAFT REPLACES THE MODEL, AND NOTHING ELSE. Comments the agent types
+	// into the file are not imported, by design: an inline {>>…<<} the parse
+	// lifts is discarded and leaves the .md at the next projection, a
+	// standalone one stays in the draft as the note it reads as, and no
+	// thread is opened for either. The reviewer's own
+	// comments are untouched: their words are in pending.json, and the ID
+	// marks the agent kept place them.
+	model, _, err := markdown.Parse(raw)
+	if err != nil {
+		return "", false, err
+	}
+	live, err := s.loadLocked(model)
+	if err != nil {
+		return "", false, err
+	}
+	s.setBaseline(live, raw)
+	return digest, true, nil
 }
 
 // setDraftError and draftError carry the one sentence the readout needs when

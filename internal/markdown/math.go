@@ -89,7 +89,7 @@ func (mathBlockParser) Open(_ ast.Node, reader text.Reader, pc parser.Context) (
 		return nil, parser.NoChildren
 	}
 	node := &mathBlockNode{}
-	node.Lines().Append(seg.WithStart(seg.Start + pos))
+	node.Lines().Append(delimiterSegment(seg, pos))
 	return node, parser.NoChildren
 }
 
@@ -97,12 +97,28 @@ func (mathBlockParser) Continue(node ast.Node, reader text.Reader, _ parser.Cont
 	line, seg := reader.PeekLine()
 	w, pos := util.IndentWidth(line, reader.LineOffset())
 	if w < 4 && mathFence(line[pos:]) {
-		node.Lines().Append(seg.WithStart(seg.Start + pos))
-		reader.Advance(seg.Stop - seg.Start - 1 - seg.Padding)
+		node.Lines().Append(delimiterSegment(seg, pos))
+		reader.AdvanceToEOL()
 		return parser.Close
 	}
 	node.Lines().Append(seg)
 	return parser.Continue | parser.NoChildren
+}
+
+// delimiterSegment is the source segment of a delimiter line, from its first
+// "$" to the end of the line.
+//
+// pos indexes the line PeekLine returned, and that line is NOT the source: when
+// a container has taken part of a tab (">\t$$" — the ">" consumes one column
+// of the tab's three), the rest comes back as seg.Padding spaces in front of
+// the bytes. So the source offset is pos less the padding, which is goldmark's
+// own arithmetic (atx_heading.go, fcode_block.go), and the padding itself is
+// dropped: it sits before the "$", and a delimiter is the "$$" and what follows.
+// Using pos as a source offset put the start Padding bytes late — past the end
+// of an unterminated last line, which panicked, and into the wrong bytes
+// everywhere else, which lost the "$$" from the file.
+func delimiterSegment(seg text.Segment, pos int) text.Segment {
+	return text.NewSegment(seg.Start+pos-seg.Padding, seg.Stop)
 }
 
 // Close is where an UNTERMINATED block gives itself back.

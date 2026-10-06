@@ -2,6 +2,16 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## 0.12.1
+
+- **An open review no longer writes over a change made to the file outside the editor.** Before, galley wrote its own copy over the file whenever it saved, so an agent's edit to the open document was lost without a word, and a document moved away was written back at its old path. Now galley checks the file before every save. If only the file changed, the review loads it. If you and someone else changed it at the same moment, your copy is kept and the other version is saved in `.galley/recovery/`. A document that is no longer at its path is never written; the review says so, and anything you type meanwhile is saved in `.galley/recovery/` when the editor stops. (#44)
+- A notice under the bar says when a document was moved away, changed at the same moment as your edits, or changed into something galley can't read.
+- Opening and closing a document you didn't edit leaves the file exactly as it was.
+
+Fixed:
+
+- `galley edit` no longer crashes on a `$$` math block after a tab inside a list and a quotation. (#54)
+
 ## 0.12.0
 
 - **One button for every block, always visible.** Every top-level heading, code block, table, image, diagram, display-math block and front-matter block now has one square button in the left margin, level with its first line. A block nested inside a list or a quotation has none. It shows without hovering, and Tab reaches it from the keyboard after the document. Pressing it opens the instruction box on that block straight away, outlines what the instruction covers (a heading's whole section, or the block), and leaves your selection alone.
