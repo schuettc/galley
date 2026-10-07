@@ -420,6 +420,65 @@ func TestChannelStatusTellsTheThreeSilencesApart(t *testing.T) {
 	})
 }
 
+// OWNERSHIP DECIDES FIRST; THE SCOPE ONLY GOVERNS EDITORS NOBODY OWNS (#68).
+// An editor this session owns attaches wherever its file is. Everything else
+// outside the scope is left alone exactly as before: an unowned one is neither
+// attached nor claimed, another live session's stays theirs, and a channel
+// with no session id owns nothing.
+func TestChannelAttachesItsOwnEditorOutsideItsScope(t *testing.T) {
+	t.Run("owned by this session", func(t *testing.T) {
+		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+		doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n\nHello.\n")
+		srv, ts, _ := liveEditor(t, doc, registry.Entry{Owner: "me"})
+		r := newRig(t, t.TempDir(), "me", 25*time.Millisecond)
+		until(t, "the attach outside the scope", func() bool { return srv.Waiting() > 0 })
+		s := r.status()
+		if !strings.Contains(s, "attached (1)") || !strings.Contains(s, doc) {
+			t.Errorf("status does not list the owned editor as attached:\n%s", s)
+		}
+		press(t, ts)
+		if got := r.note("the press")["reason"]; got != "revise" {
+			t.Fatalf("wake reason = %v, want revise", got)
+		}
+	})
+
+	for _, tc := range []struct{ name, self, owner string }{
+		{"unowned", "me", ""},
+		{"owned by another live session", "me", "other-session"},
+		{"no session id", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+			if tc.owner != "" {
+				if err := registry.AnnounceSession(tc.owner); err != nil {
+					t.Fatal(err)
+				}
+			}
+			doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n\nHello.\n")
+			srv, _, e := liveEditor(t, doc, registry.Entry{Owner: tc.owner})
+			scope := t.TempDir()
+			r := newRig(t, scope, tc.self, 25*time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
+			if n := srv.Waiting(); n != 0 {
+				t.Fatalf("Waiting() = %d — attached outside the scope", n)
+			}
+			s := r.status()
+			if !strings.Contains(s, "outside this channel's scope") || !strings.Contains(s, scope) {
+				t.Errorf("status does not report the scope mismatch (scope %s):\n%s", scope, s)
+			}
+			entries, _, err := registry.Inspect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range entries {
+				if got.Room == e.Room && got.Owner != tc.owner {
+					t.Fatalf("owner = %q, want %q — the advert was claimed", got.Owner, tc.owner)
+				}
+			}
+		})
+	}
+}
+
 // THE EDITOR HALF OF OPTION A. An editor is launched detached, so nothing but
 // this takes it down when the session that opened it ends — and an editor that
 // outlives its session is exactly the orphan the channel now refuses to adopt.

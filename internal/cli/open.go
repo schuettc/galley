@@ -50,8 +50,10 @@ func samePage(a, b string) bool {
 	return resolveSymlinks(a) == resolveSymlinks(b)
 }
 
-// open is the tool body. Resolution order, and it is the order the spec fixes:
-// in scope; already open by this session (return it); open and unowned
+// open is the tool body. The channel's scope does not apply: the path is this
+// session's explicit ask, and the editor it starts is this session's, which
+// the scan attaches wherever its file is (#68). Resolution order, and it is
+// the order the spec fixes: already open by this session (return it); open and unowned
 // (claim it — the human-terminal editor being adopted, the same adoption the
 // scan performs); open by another LIVE session (theirs, refuse); open by a
 // session that has stopped (its editor is going down on its own — see
@@ -63,9 +65,6 @@ func (c *channel) open(doc string) (string, error) {
 	abs, err := filepath.Abs(doc)
 	if err != nil {
 		return "", err
-	}
-	if !c.inScope(abs) {
-		return "", fmt.Errorf("%s is outside this channel's scope %s", abs, c.scope)
 	}
 	// WHAT THE EDITOR ADVERTISES IS NOT WHAT IT IS STARTED WITH. `galley edit
 	// page.html` opens the markdown editor on the prose it extracts, so its

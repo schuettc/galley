@@ -168,7 +168,7 @@ const channelPoll = 5 * time.Minute
 // channel holds the scan loop's state: which rooms are already attached, so a
 // rescan is idempotent.
 type channel struct {
-	scope string // absolute root; only documents under it are considered
+	scope string // absolute root; limits only the editors this session does not own
 	// scopeReal is the scope with every symlink resolved, kept BESIDE the
 	// spelling the caller gave rather than replacing it. On macOS /tmp is a
 	// symlink to /private/tmp, so one directory has two names and a channel
@@ -495,7 +495,10 @@ func (c *channel) scanOnce(ctx context.Context) {
 				"the advert is still up and has not been withdrawn", e.Page)
 			continue
 		}
-		if !c.inScope(e.Page) {
+		// OWNERSHIP DECIDES FIRST (#68): an editor this session owns attaches
+		// wherever its file is. The scope governs only the rest.
+		mine := c.self != "" && e.Owner == c.self
+		if !mine && !c.inScope(e.Page) {
 			unattached[e.Room] = fmt.Sprintf("%s is open, but outside this channel's scope (%s)", e.Page, c.scope)
 			quiet[e.Room] = true
 			continue
@@ -937,7 +940,7 @@ type channelFlags struct {
 func newChannelFlags() (*flag.FlagSet, *channelFlags) {
 	fs := flag.NewFlagSet("channel", flag.ContinueOnError)
 	v := &channelFlags{
-		scope: fs.String("scope", ".", "root directory; only documents under it are attached"),
+		scope: fs.String("scope", ".", "root directory; editors no session owns are attached only under it"),
 	}
 	return fs, v
 }
