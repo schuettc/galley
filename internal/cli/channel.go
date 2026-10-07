@@ -63,7 +63,7 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
 On "approve", the reviewer approved the document as it stands and the review is over. On "changed", re-read the document before acting. On "closed", the editor is gone and nobody is waiting for more review work.
 If you expect a review and hear nothing, call galley_channel_status. It reports which open documents this session is attached to and why any others are not.
-To put a document under review, call galley_open with its path: it starts the editor for this session and returns the URL — give that to the reviewer, and their rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
+To review a file, call galley_open with its path: it starts this session's editor, opens it in the reviewer's browser and returns the URL in case they close it; rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
 
 // reviseGuidance is the rule set that governs answering a "revise" or
 // "settle" event — see reasonGuidance below.
@@ -262,8 +262,9 @@ func newChannel(scope, self string) *channel {
 			InputSchema: statusSchema,
 		}, {
 			Name: "galley_open",
-			Description: "Put a document under review: start its editor for THIS session and return the URL to give the reviewer. " +
-				"Idempotent — a document this session already has open returns the same URL. " +
+			Description: "Put a document under review: start its editor for THIS session and open the page in the reviewer's browser. " +
+				"Returns the URL too, to give the reviewer if they closed the tab. " +
+				"Idempotent — a document this session already has open returns the same URL and opens nothing. " +
 				"This is the only way to open a document; do not run `galley edit` from a shell.",
 			InputSchema: openSchema,
 		}},

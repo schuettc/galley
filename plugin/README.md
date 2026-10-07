@@ -54,7 +54,7 @@ The floor is the one that catches people. **v0.4.0 is the first build with the v
 
 ## Opening a document
 
-The channel opens documents for its own session through the `galley_open` tool. It starts `galley edit <doc> --no-open --owner <session>` detached, waits for the editor's advert, and returns the URL for the reviewer. The editor is bound to the session's channel presence and stops itself a few seconds after the session ends. An agent must not run `galley edit` from a shell while the channel is present: an editor opened that way carries no owner, and the first channel whose scope covers it claims it. `galley edit` without `--owner` is the human's command. The skill says so, and so do the channel instructions.
+The channel opens documents for its own session through the `galley_open` tool. It starts `galley edit <doc> --owner <session>` detached, which opens the page in the reviewer's browser, waits for the editor's advert, and returns the URL. A document the session already has open returns the same URL and opens nothing. The editor is bound to the session's channel presence and stops itself a few seconds after the session ends. An agent must not run `galley edit` from a shell while the channel is present: an editor opened that way carries no owner, and the first channel whose scope covers it claims it. `galley edit` without `--owner` is the human's command. The skill says so, and so do the channel instructions.
 
 ## Where the channel is not available
 

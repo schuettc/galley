@@ -128,8 +128,9 @@ func (c *channel) findOpen(adv string) (openResult, bool, error) {
 	return openResult{}, false, nil
 }
 
-// spawnEditor starts `galley edit <abs> --no-open --owner <self>` and waits
-// for its advert.
+// spawnEditor starts `galley edit <abs> --owner <self>` and waits for its
+// advert. The editor opens the page in the reviewer's browser itself, as
+// `galley edit` does from a terminal; the reuse path in open opens nothing.
 //
 // DETACHED, AND ON PURPOSE IN EVERY PARTICULAR. Setsid puts the editor in its
 // own session and process group, so a channel that restarts (the MCP server
@@ -157,7 +158,7 @@ func (c *channel) spawnEditor(abs, adv string) (openResult, error) {
 	if err != nil {
 		return openResult{}, fmt.Errorf("cannot open the editor log %s: %w", logPath, err)
 	}
-	args := []string{"edit", abs, "--no-open"}
+	args := []string{"edit", abs}
 	if c.self != "" {
 		args = append(args, "--owner", c.self)
 	}

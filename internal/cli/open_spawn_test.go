@@ -38,6 +38,20 @@ func script(t *testing.T, body string) string {
 	return p
 }
 
+// noBrowser puts a do-nothing `open` and `xdg-open` first on PATH, which the
+// spawned editor inherits: galley_open's editor opens the browser itself, and
+// a test that runs the real binary must not open tabs on the machine running it.
+func noBrowser(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{"open", "xdg-open"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func killEditor(t *testing.T, room string) {
 	t.Helper()
 	entries, _ := registry.List()
@@ -66,6 +80,7 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	}
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
+	noBrowser(t)
 	c.openPoll = 20 * time.Millisecond
 
 	r, err := openDoc(t, c, doc)
@@ -101,6 +116,27 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	logDir, _ := registry.LogDir()
 	if _, err := os.Stat(filepath.Join(logDir, registry.Token(doc)+".log")); err != nil {
 		t.Fatalf("no editor log written: %v", err)
+	}
+}
+
+// THE EDITOR galley_open STARTS OPENS THE PAGE ITSELF: it is started without
+// --no-open, so `galley edit` opens the browser as it does from a terminal.
+func TestOpenStartsTheEditorWithoutNoOpen(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	argsFile := filepath.Join(t.TempDir(), "args")
+	c := newChannel(dir, "session-me")
+	c.exe = script(t, "echo \"$@\" > '"+argsFile+"'\nexit 1\n")
+	c.openPoll = 10 * time.Millisecond
+
+	_, _ = openDoc(t, c, doc)
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("the editor was not started: %v", err)
+	}
+	if want := "edit " + doc + " --owner session-me\n"; string(got) != want {
+		t.Fatalf("editor args = %q, want %q", got, want)
 	}
 }
 
@@ -188,6 +224,7 @@ func TestOpenAnHTMLPageResolvesTheAdvertisedContentFile(t *testing.T) {
 	}
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
+	noBrowser(t)
 	c.openPoll = 20 * time.Millisecond
 
 	r, err := openDoc(t, c, page)
