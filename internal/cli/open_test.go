@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/schuettc/galley/internal/registry"
@@ -118,19 +117,24 @@ func TestOpenReportsADocumentADeadSessionStillHolds(t *testing.T) {
 	}
 }
 
-func TestOpenRefusesADocumentOutsideItsScope(t *testing.T) {
+// THE SCOPE DOES NOT LIMIT galley_open (#68). The path is this session's
+// explicit ask for this document, so a file outside the folder the session
+// started in is opened like any other — here, one this session already has
+// open, which is returned rather than refused.
+func TestOpenAcceptsADocumentOutsideItsScope(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	scope := t.TempDir()
 	elsewhere := t.TempDir()
 	doc := writeDoc(t, elsewhere, "doc.md", "# T\n")
+	e := plantAdvert(t, doc, "session-me")
 
 	c := newChannel(scope, "session-me")
-	_, err := openDoc(t, c, doc)
-	if err == nil {
-		t.Fatal("opened a document outside the channel's scope")
+	r, err := openDoc(t, c, doc)
+	if err != nil {
+		t.Fatalf("refused a document outside the channel's scope: %v", err)
 	}
-	if !strings.Contains(err.Error(), doc) || !strings.Contains(err.Error(), scope) {
-		t.Fatalf("error names neither the document nor the scope: %q", err)
+	if r.Room != e.Room {
+		t.Fatalf("room = %q, want %q", r.Room, e.Room)
 	}
 }
 
