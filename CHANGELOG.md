@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## Unreleased
+
+- An agent can review a document outside the folder its session started in. Before, galley refused it, so agents reviewed a copy instead. (#68)
+
 ## 0.12.2
 
 - Starting a review from an agent session opens the page in your browser. Before, you had to copy the address from the agent. (#63)
