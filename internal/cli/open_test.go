@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/schuettc/galley/internal/registry"
+	"github.com/schuettc/galley/internal/serve"
 )
 
 // galley_open IS HOW A SESSION PUTS A DOCUMENT UNDER REVIEW. The channel is
@@ -59,6 +61,40 @@ func TestOpenReturnsTheEditorThisSessionAlreadyOwns(t *testing.T) {
 	}
 	if r.URL != e.URL || r.Room != e.Room || r.Page != doc {
 		t.Fatalf("got %+v, want the existing advert %+v", r, e)
+	}
+}
+
+// THE PREVIEW ADDRESS RIDES BESIDE THE REVIEW ADDRESS for a markdown review,
+// so the agent can hand the reviewer the branded page; a page under review has
+// no preview route, so its result carries none.
+func TestOpenReturnsThePreviewForAMarkdownReview(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	e := plantAdvert(t, doc, "session-me")
+
+	r, err := openDoc(t, newChannel(dir, "session-me"), doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := e.URL + "/_galley/render"; r.Preview != want {
+		t.Fatalf("preview = %q, want %q", r.Preview, want)
+	}
+}
+
+func TestOpenReturnsNoPreviewForAPageReview(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	page := writeDoc(t, dir, "index.html", "<html><body><p>Hi</p></body></html>\n")
+	plantAdvert(t, serve.AdvertisedPath(page), "session-me")
+
+	text, err := newChannel(dir, "session-me").callTool("galley_open",
+		json.RawMessage(`{"doc":`+strconvQuote(page)+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, `"preview"`) {
+		t.Fatalf("a page review's open result carries a preview: %s", text)
 	}
 }
 

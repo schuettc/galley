@@ -87,6 +87,59 @@ A comment is discharged **by the revision itself**. Do not reply to instructions
 - **`closed`** — the editor is gone; nobody is waiting.
 - **Silence when you expect a round** — call `galley_channel_status`. It lists which open documents this session is attached to, and why any others are not.
 
+## Sharing an approved document
+
+After approval, the slot Revise leaves holds a filled `Share ▾` button. Its menu:
+
+- **`Save HTML`** renders the document in the project's theme and writes `<name>.html` beside `<name>.md`, replacing an earlier save. The file is self-contained: fonts, logos and Mermaid diagrams are inlined, and it opens offline. The path is copied, and the status line says `saved <name>.html · path copied`.
+- **`Copy path`** copies the `.md` file's full path. The Markdown is already on disk, so there is nothing to export.
+- **`Copy link · later`** is disabled. Links are not available yet.
+
+An HTML page under review offers only `Copy path`, for the page itself.
+
+**The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `Preview ↗` link at the top of the rail opens it too. A page review has no preview address.
+
+## Making a theme
+
+A theme changes only the look of the saved HTML and the preview: colours, fonts, logo, label and an optional extra stylesheet. Every theme uses galley's one layout. Themes live in the human's config, not in a repository, so one theme serves every repository of a brand:
+
+```
+~/.config/galley/themes/<name>/
+  theme.json
+  logo-light.svg     logo on a light background
+  logo-dark.svg      logo on a dark background
+  extra.css          optional, loaded after galley's styles
+  <font files>       any that theme.json names
+```
+
+(`$XDG_CONFIG_HOME/galley/themes/` when that is set.) Every field of `theme.json` is optional. Anything left out comes from galley's base theme, and so does a missing logo:
+
+```json
+{
+  "label": "Acme",
+  "light": { "bg": "#ffffff", "fg": "#1a1a2e", "muted": "#5c5c70", "line": "#e4e4ec", "accent": "#6b4eff" },
+  "dark":  { "bg": "#121218", "fg": "#ececf4", "muted": "#9a9ab0", "line": "#2c2c3a", "accent": "#a594ff" },
+  "fonts": [
+    { "family": "Aeonik", "file": "Aeonik-Regular.woff2", "weight": "400" },
+    { "family": "Aeonik", "file": "Aeonik-Bold.woff2", "weight": "700", "style": "normal" }
+  ]
+}
+```
+
+- `label` is the text beside the logo in the page header.
+- `light` and `dark` are the palettes for each system colour scheme. `bg` is the page, `fg` the text, `muted` the secondary text and the sidebar, `line` the rules, table borders and code background, and `accent` the links and highlights. Mermaid diagrams are coloured from the same five.
+- `fonts` lists font files in the theme folder to embed. Each needs a `family` and a `file`; `weight` and `style` default to `normal`. The families become the body font, ahead of the system stack. A listed file that is missing is an error naming it.
+
+A project chooses its theme in `.galley/config.json`, found by searching up from the document's folder:
+
+```json
+{ "theme": "acme" }
+```
+
+With no config file, the base theme is used. A theme name that does not exist, or a `theme.json` that does not parse, makes the preview and `Save HTML` show the error instead of a page.
+
+**Check a theme by opening the preview** (the `preview` address `galley_open` returned) on a document in the project. Look at it in light and dark mode, and include a Mermaid diagram if the brand's documents use them.
+
 ## Without the channel
 
 The channel is a research preview: it needs Anthropic authentication and is **unavailable on Bedrock, Vertex and Foundry**, and it only exists in a session launched with the channel flag. Every other agent — a different harness, a script, CI — uses the pull form instead:
