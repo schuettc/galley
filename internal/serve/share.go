@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/schuettc/galley/internal/render"
-	tools "github.com/schuettc/tools-common"
 )
 
 // The branded page Share writes and the preview tab shows. One renderer makes
@@ -90,11 +89,7 @@ func (s *EditServer) handleShareHTML(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dest := strings.TrimSuffix(abs, filepath.Ext(abs)) + ".html"
-	// NOT the document writer: that one follows a symlink on purpose (see
-	// WriteFileAtomic). The export is galley's own output, so temp + rename
-	// replaces whatever entry is at <name>.html, a link included, and never
-	// writes into a file somewhere else.
-	if err := tools.WriteFileAtomic(dest, out, 0o644); err != nil {
+	if err := writeFileAtomic(dest, out); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
