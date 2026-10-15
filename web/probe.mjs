@@ -81,12 +81,12 @@ import {
 import { sealLine, reopenLine, sealMethods } from './seal.ts';
 import {
   SHARE_LABEL,
-  SHARE_SAVE_HTML,
-  SHARE_COPY_PATH,
-  SHARE_COPY_LINK,
-  SHARE_LINK_LATER,
+  SHARE_DOWNLOAD_HTML,
+  SHARE_DOWNLOAD_MD,
+  SHARE_SHARE_HTML,
+  SHARE_SHARE_MD,
   PREVIEW_LABEL,
-  savedLine,
+  sharedLine,
   shareItems,
 } from './share.ts';
 import {
@@ -7857,41 +7857,48 @@ function bindsContentField(src) {
   );
 }
 
-// SHARE'S VOCABULARY IS THE SPEC'S, VERBATIM (web/share.ts). The menu a page
-// review offers is Copy path alone; a markdown review's is all three, with the
-// link held disabled. The built bundle carries every label, because the
-// binary embeds it and a label only in the source is a label nobody sees.
+// SHARE'S VOCABULARY IS THE SPEC'S, VERBATIM (web/share.ts). The downloads
+// come first and are always there; the Shares follow only where the server can
+// put a file on the clipboard. A page review has no Markdown items. The built
+// bundle carries every label, because the binary embeds it and a label only in
+// the source is a label nobody sees.
 {
   check(
     'the Share labels are verbatim',
     SHARE_LABEL === 'Share ▾' &&
-      SHARE_SAVE_HTML === 'Save HTML' &&
-      SHARE_COPY_PATH === 'Copy path' &&
-      SHARE_COPY_LINK === 'Copy link · later' &&
-      SHARE_LINK_LATER === 'links are not available yet' &&
+      SHARE_DOWNLOAD_HTML === 'Download HTML' &&
+      SHARE_DOWNLOAD_MD === 'Download Markdown' &&
+      SHARE_SHARE_HTML === 'Share HTML' &&
+      SHARE_SHARE_MD === 'Share Markdown' &&
       PREVIEW_LABEL === 'HTML preview ↗',
   );
-  const md = shareItems(false);
+  const labels = (pageMode, canShare) =>
+    shareItems(pageMode, canShare)
+      .map((i) => i.label)
+      .join('|');
   check(
-    'a markdown review offers Save HTML, Copy path and a disabled link',
-    md.map((i) => i.label).join('|') ===
-      [SHARE_SAVE_HTML, SHARE_COPY_PATH, SHARE_COPY_LINK].join('|') &&
-      md[2].disabled === true &&
-      md[2].title === SHARE_LINK_LATER &&
-      !md[0].disabled &&
-      !md[1].disabled,
-    md,
+    'a markdown review offers both downloads, then both Shares where it can',
+    labels(false, true) ===
+      [
+        SHARE_DOWNLOAD_HTML,
+        SHARE_DOWNLOAD_MD,
+        SHARE_SHARE_HTML,
+        SHARE_SHARE_MD,
+      ].join('|') &&
+      labels(false, false) ===
+        [SHARE_DOWNLOAD_HTML, SHARE_DOWNLOAD_MD].join('|'),
+    [labels(false, true), labels(false, false)],
   );
-  const page = shareItems(true);
   check(
-    'a page review offers only Copy path',
-    page.length === 1 && page[0].label === SHARE_COPY_PATH,
-    page,
+    'a page review offers Download HTML, and Share HTML where it can',
+    labels(true, true) === [SHARE_DOWNLOAD_HTML, SHARE_SHARE_HTML].join('|') &&
+      labels(true, false) === SHARE_DOWNLOAD_HTML,
+    [labels(true, true), labels(true, false)],
   );
   check(
-    'the save line names the file and the copy',
-    savedLine('/a/b/doc.html', true) === 'saved doc.html · path copied',
-    savedLine('/a/b/doc.html', true),
+    'the share line names the file and the paste',
+    sharedLine('/a/b/doc.html') === 'doc.html copied · paste to attach',
+    sharedLine('/a/b/doc.html'),
   );
   let bundle = '';
   try {
@@ -7906,10 +7913,10 @@ function bindsContentField(src) {
     'the built bundle carries the Share labels',
     [
       SHARE_LABEL,
-      SHARE_SAVE_HTML,
-      SHARE_COPY_PATH,
-      SHARE_COPY_LINK,
-      SHARE_LINK_LATER,
+      SHARE_DOWNLOAD_HTML,
+      SHARE_DOWNLOAD_MD,
+      SHARE_SHARE_HTML,
+      SHARE_SHARE_MD,
       PREVIEW_LABEL,
     ].every((l) => bundle.includes(l)),
   );

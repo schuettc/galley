@@ -2,10 +2,10 @@
 //
 // After approval the reviewer hands the document to a reader. The bar's
 // primary slot, which Revise leaves when the review seals, shows `Share ▾`
-// instead; its menu saves the branded HTML beside the document (and copies
-// that path), copies the document's own path, and holds a disabled place for
-// a link. The right-hand panel carries a `Preview ↗` link to the same
-// rendered page while the review is live.
+// instead; its menu downloads the branded HTML or the Markdown, and on macOS
+// puts either file on the clipboard to paste as an attachment. The bar's
+// `HTML preview ↗` button opens the same rendered page while the review is
+// live.
 //
 // What only a browser can see, and so what this gate measures:
 //
@@ -13,12 +13,16 @@
 //     on screen after the seal is where it was before it.
 //   · History, HTML preview, the verdict and Share are one width, and every
 //     visible bar button is one height.
-//   · The menu's three items, verbatim, and the link item disabled.
-//   · Save HTML writes <doc>.html beside <doc>.md, says so on the status line,
-//     and puts that path on the clipboard.
+//   · The menu's items, verbatim and in order: the two downloads everywhere,
+//     the two Shares on macOS only.
+//   · Download HTML and Download Markdown are downloads named doc.html and
+//     doc.md.
+//   · Share HTML writes <doc>.html beside <doc>.md and says so on the status
+//     line; Share Markdown says so too. On macOS this really sets the
+//     clipboard, to the file; nothing here reads it back.
 //   · The preview link answers.
-//   · A page under review (page mode) offers only Copy path, for the page, and
-//     has no preview link.
+//   · A page under review (page mode) offers Download HTML and Share HTML, for
+//     the page itself, and has no preview link.
 //
 // Running it:
 //
@@ -40,12 +44,16 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   SHARE_LABEL,
-  SHARE_SAVE_HTML,
-  SHARE_COPY_PATH,
-  SHARE_COPY_LINK,
-  SHARE_LINK_LATER,
+  SHARE_DOWNLOAD_HTML,
+  SHARE_DOWNLOAD_MD,
+  SHARE_SHARE_HTML,
+  SHARE_SHARE_MD,
   PREVIEW_LABEL,
+  sharedLine,
 } from './share.ts';
+
+// The server offers the Shares only where it can put a file on the clipboard.
+const MAC = process.platform === 'darwin';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 const PORT = Number(process.env.PORT || 8274);
@@ -179,9 +187,6 @@ async function open(url) {
   const context = await browser.newContext({
     viewport: { width: 1400, height: 1000 },
   });
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
-    origin: url,
-  });
   const page = await context.newPage();
   page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
   await page.goto(`${url}/`, { waitUntil: 'networkidle' });
@@ -252,12 +257,35 @@ const menuItems = (page) =>
   page.evaluate(() =>
     [...document.querySelectorAll('.gly-share-menu button')]
       .filter((b) => b.getBoundingClientRect().height > 0)
-      .map((b) => ({
-        label: b.textContent,
-        disabled: b.disabled,
-        title: b.title,
-      })),
+      .map((b) => b.textContent),
   );
+const pick = (page, label) =>
+  page
+    .click(`.gly-share-menu button:has-text("${label}")`, { timeout: 5000 })
+    .catch(() => {});
+// The suggested filename of the download one press of label starts.
+async function downloadName(page, label) {
+  await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10000 }).catch(() => null),
+    pick(page, label),
+  ]);
+  return download ? download.suggestedFilename() : null;
+}
+// The status line, once it says want or after ten seconds.
+async function statusSays(page, want) {
+  await page
+    .waitForFunction(
+      (w) =>
+        (document.getElementById('gly-status')?.textContent || '').includes(w),
+      want,
+      { timeout: 10000 },
+    )
+    .catch(() => {});
+  return page.evaluate(
+    () => document.getElementById('gly-status')?.textContent || '',
+  );
+}
 
 // --- a markdown review -------------------------------------------------------
 
@@ -392,60 +420,53 @@ const menuItems = (page) =>
 
   await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
   const items = await menuItems(page);
+  const want = MAC
+    ? [SHARE_DOWNLOAD_HTML, SHARE_DOWNLOAD_MD, SHARE_SHARE_HTML, SHARE_SHARE_MD]
+    : [SHARE_DOWNLOAD_HTML, SHARE_DOWNLOAD_MD];
   check(
-    'the menu holds the three items, verbatim',
-    JSON.stringify(items.map((i) => i.label)) ===
-      JSON.stringify([SHARE_SAVE_HTML, SHARE_COPY_PATH, SHARE_COPY_LINK]),
+    `the menu holds ${MAC ? 'the downloads then the Shares' : 'the downloads and no Share (not macOS)'}, verbatim`,
+    JSON.stringify(items) === JSON.stringify(want),
     items,
   );
-  const link = items.find((i) => i.label === SHARE_COPY_LINK);
+  await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
+
   check(
-    'the link item is disabled and says why',
-    !!link && link.disabled && link.title === SHARE_LINK_LATER,
-    link,
+    'Download HTML downloads doc.html',
+    (await downloadName(page, SHARE_DOWNLOAD_HTML)) === 'doc.html',
+  );
+  check(
+    'Download Markdown downloads doc.md',
+    (await downloadName(page, SHARE_DOWNLOAD_MD)) === 'doc.md',
   );
 
-  await page
-    .click(`.gly-share-menu button:has-text("${SHARE_SAVE_HTML}")`, {
-      timeout: 5000,
-    })
-    .catch(() => {});
-  const line = 'saved doc.html · path copied';
-  await page
-    .waitForFunction(
-      (want) =>
-        (document.getElementById('gly-status')?.textContent || '').includes(
-          want,
-        ),
-      line,
-      { timeout: 10000 },
-    )
-    .catch(() => {});
-  const status = await page.evaluate(
-    () => document.getElementById('gly-status')?.textContent || '',
-  );
-  check('the status line says what was saved', status.includes(line), status);
-  check('doc.html is beside doc.md', existsSync(SAVED), SAVED);
-  if (existsSync(SAVED)) {
-    const html = readFileSync(SAVED, 'utf8');
+  if (MAC) {
+    await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
+    await pick(page, SHARE_SHARE_HTML);
+    const line = sharedLine(SAVED);
+    const status = await statusSays(page, line);
     check(
-      'the saved page is the document, without the preview refresh',
-      html.includes('A paragraph for the reader.') &&
-        !html.includes('/_galley/saved'),
+      'Share HTML says the file is ready to paste',
+      line === 'doc.html copied · paste to attach' && status.includes(line),
+      status,
+    );
+    check('doc.html is beside doc.md', existsSync(SAVED), SAVED);
+    if (existsSync(SAVED)) {
+      const html = readFileSync(SAVED, 'utf8');
+      check(
+        'the saved page is the document, without the preview refresh',
+        html.includes('A paragraph for the reader.') &&
+          !html.includes('/_galley/saved'),
+      );
+    }
+    await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
+    await pick(page, SHARE_SHARE_MD);
+    const mdStatus = await statusSays(page, sharedLine(DOC));
+    check(
+      'Share Markdown says the .md is ready to paste',
+      mdStatus.includes('doc.md copied · paste to attach'),
+      mdStatus,
     );
   }
-  const clip = await page.evaluate(() => navigator.clipboard.readText());
-  check('the saved path is on the clipboard', clip === SAVED, clip);
-
-  await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
-  await page
-    .click(`.gly-share-menu button:has-text("${SHARE_COPY_PATH}")`, {
-      timeout: 5000,
-    })
-    .catch(() => {});
-  await page.waitForTimeout(300);
-  const mdClip = await page.evaluate(() => navigator.clipboard.readText());
-  check('Copy path copies the .md path', mdClip === DOC, mdClip);
 }
 
 // --- a page under review ------------------------------------------------------
@@ -462,20 +483,37 @@ const menuItems = (page) =>
   check('the page review shows Share after approval', await shareVisible(page));
   await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
   const items = await menuItems(page);
+  const want = MAC
+    ? [SHARE_DOWNLOAD_HTML, SHARE_SHARE_HTML]
+    : [SHARE_DOWNLOAD_HTML];
   check(
-    'a page review offers only Copy path',
-    JSON.stringify(items.map((i) => i.label)) ===
-      JSON.stringify([SHARE_COPY_PATH]),
+    `a page review offers ${MAC ? 'Download HTML and Share HTML' : 'only Download HTML (not macOS)'}`,
+    JSON.stringify(items) === JSON.stringify(want),
     items,
   );
-  await page
-    .click(`.gly-share-menu button:has-text("${SHARE_COPY_PATH}")`, {
-      timeout: 5000,
-    })
-    .catch(() => {});
-  await page.waitForTimeout(300);
-  const clip = await page.evaluate(() => navigator.clipboard.readText());
-  check("Copy path copies the page's path", clip === PAGE, clip);
+  await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
+  check(
+    'Download HTML downloads the page itself',
+    (await downloadName(page, SHARE_DOWNLOAD_HTML)) === 'index.html',
+  );
+  if (MAC) {
+    const before = readFileSync(PAGE, 'utf8');
+    await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
+    await pick(page, SHARE_SHARE_HTML);
+    const status = await statusSays(
+      page,
+      'index.html copied · paste to attach',
+    );
+    check(
+      'Share HTML puts the page on the clipboard and says so',
+      status.includes('index.html copied · paste to attach'),
+      status,
+    );
+    check(
+      'Share HTML leaves the page as it was',
+      readFileSync(PAGE, 'utf8') === before,
+    );
+  }
 }
 
 console.log(

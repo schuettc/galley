@@ -66,7 +66,7 @@ func TestEditShellTemplateDirectly(t *testing.T) {
 		Room       string
 		PageMode   bool
 		PreviewURL string
-		Path       string
+		CanShare   bool
 	}
 
 	t.Run("page mode fields in template", func(t *testing.T) {

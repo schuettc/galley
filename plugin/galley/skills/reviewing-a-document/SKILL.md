@@ -89,13 +89,16 @@ A comment is discharged **by the revision itself**. Do not reply to instructions
 
 ## Sharing an approved document
 
-After approval, the slot Revise leaves holds a filled `Share ▾` button. Its menu:
+After approval, the slot Revise leaves holds a filled `Share ▾` button. Its menu, in order:
 
-- **`Save HTML`** renders the document in the project's theme and writes `<name>.html` beside `<name>.md`, replacing an earlier save. The file is self-contained: fonts, logos and Mermaid diagrams are inlined, and it opens offline. The path is copied, and the status line says `saved <name>.html · path copied`.
-- **`Copy path`** copies the `.md` file's full path. The Markdown is already on disk, so there is nothing to export.
-- **`Copy link · later`** is disabled. Links are not available yet.
+- **`Download HTML`** renders the document in the project's theme and the browser downloads it as `<name>.html`. The file is self-contained: fonts, logos and Mermaid diagrams are inlined, and it opens offline.
+- **`Download Markdown`** downloads the `.md` as it is on disk, as `<name>.md`.
+- **`Share HTML`** writes the same page to `<name>.html` beside `<name>.md`, replacing an earlier one, and puts that file on the clipboard. Pasting into Slack or an email attaches it. The status line says `<name>.html copied · paste to attach`.
+- **`Share Markdown`** puts the `.md` file on the clipboard the same way. The status line says `<name>.md copied · paste to attach`.
 
-An HTML page under review offers only `Copy path`, for the page itself.
+The two Share items appear only on macOS. If the clipboard refuses the file, the status line shows the error.
+
+An HTML page under review offers `Download HTML` and `Share HTML`, both for the page itself, and no Markdown items.
 
 **The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `HTML preview ↗` button in the bar opens it too. A page review has no preview address.
 
@@ -136,7 +139,7 @@ A project chooses its theme in `.galley/config.json`, found by searching up from
 { "theme": "acme" }
 ```
 
-With no config file, the base theme is used. A theme name that does not exist, or a `theme.json` that does not parse, makes the preview and `Save HTML` show the error instead of a page.
+With no config file, the base theme is used. A theme name that does not exist, or a `theme.json` that does not parse, makes the preview, `Download HTML` and `Share HTML` show the error instead of a page.
 
 **Check a theme by opening the preview** (the `preview` address `galley_open` returned) on a document in the project. Look at it in light and dark mode, and include a Mermaid diagram if the brand's documents use them.
 

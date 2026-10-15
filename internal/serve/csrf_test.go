@@ -30,6 +30,7 @@ func editEndpoints() []mutatingEndpoint {
 		{"ack", "/_galley/ack", `{"state":"working"}`, false},
 		{"stop", "/_galley/stop", "", false},
 		{"share", "/_galley/share/html", "", false},
+		{"share-md", "/_galley/share/md", "", false},
 	}
 }
 

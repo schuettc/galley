@@ -758,7 +758,7 @@ class App implements AppState {
   provider: WebsocketProvider;
   docName: string;
   pageMode: boolean;
-  docPath: string;
+  canShare: boolean;
   room: string | null;
   sealed: boolean;
 
@@ -997,7 +997,7 @@ class App implements AppState {
     const mount = document.getElementById('editor');
     this.docName = (mount && mount.dataset.doc) || '';
     this.pageMode = !!mount && mount.dataset.pageMode === '1';
-    this.docPath = (mount && mount.dataset.path) || '';
+    this.canShare = !!mount && mount.dataset.canShare === '1';
     // THE TRAIL HAS NO REGION TO REMEMBER A COLLAPSE FOR, AND NO SAVE STATE
     // EITHER. `changedOpen` was a collapse flag for the log at the rail's foot; the trail is an outgoing message and not a history, so there
     // is no log, no head to open and nothing to persist.

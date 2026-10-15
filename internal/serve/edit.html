@@ -247,7 +247,7 @@
   <button id="gly-revise" type="button">Revise</button>
 </header>
 <main>
-  <div id="editor" data-room="{{.Room}}" data-doc="{{.Title}}" data-page-mode="{{if .PageMode}}1{{end}}" data-preview="{{.PreviewURL}}" data-path="{{.Path}}"></div>
+  <div id="editor" data-room="{{.Room}}" data-doc="{{.Title}}" data-page-mode="{{if .PageMode}}1{{end}}" data-preview="{{.PreviewURL}}" data-can-share="{{if .CanShare}}1{{end}}"></div>
 </main>
 <script src="/_galley/editor.js" defer></script>
 <script>

@@ -13,20 +13,25 @@
 // them occupies the slot. Its width and height are Revise's own, read on that
 // edge, so approving moves nothing in the bar (web/share.mjs measures it).
 //
-// SAVING IS THE SERVER'S, because a browser download cannot say where the
-// file landed: POST /_galley/share/html renders the document with the
-// project's theme, writes <name>.html beside <name>.md and answers the path.
-// A page under review (page mode) is already the HTML a reader gets, so its
-// menu offers only Copy path, for the page.
+// TWO WAYS TO HAND IT OVER. A download is the browser's: Download HTML is
+// GET /_galley/render?download=1 (the branded page, no refresh script) and
+// Download Markdown GET /_galley/download/md, each an attachment the browser
+// puts in Downloads. A Share is the server's, macOS only: POST
+// /_galley/share/html writes <name>.html beside <name>.md and puts that file
+// on the clipboard, /_galley/share/md puts the .md there, so a paste into a
+// chat attaches the file. The server says whether it can (`data-can-share`),
+// and the Shares are absent where it cannot. A page under review (page mode)
+// is already the HTML a reader gets: its menu hands over the page itself and
+// has no Markdown items.
 
 import { postJSON } from './net.ts';
 import type { AppShell } from './appshell.ts';
 
 export const SHARE_LABEL = 'Share ▾';
-export const SHARE_SAVE_HTML = 'Save HTML';
-export const SHARE_COPY_PATH = 'Copy path';
-export const SHARE_COPY_LINK = 'Copy link · later';
-export const SHARE_LINK_LATER = 'links are not available yet';
+export const SHARE_DOWNLOAD_HTML = 'Download HTML';
+export const SHARE_DOWNLOAD_MD = 'Download Markdown';
+export const SHARE_SHARE_HTML = 'Share HTML';
+export const SHARE_SHARE_MD = 'Share Markdown';
 export const PREVIEW_LABEL = 'HTML preview ↗';
 const PREVIEW_HREF = '/_galley/render';
 
@@ -35,53 +40,50 @@ function baseName(path: string): string {
   return i === -1 ? path : path.slice(i + 1);
 }
 
-/** savedLine is the status line after Save HTML. `copied` is false only when
- * the browser refused the clipboard; the line then carries the whole path, so
- * the reviewer still learns where the file is. */
-export function savedLine(path: string, copied: boolean): string {
-  const name = baseName(path);
-  return copied ? `saved ${name} · path copied` : `saved ${name} · ${path}`;
-}
-
-/** copiedLine is the status line after Copy path. */
-function copiedLine(path: string, copied: boolean): string {
-  return copied ? `path copied · ${baseName(path)}` : path;
+/** sharedLine is the status line after a Share put the file at path on the
+ * clipboard. */
+export function sharedLine(path: string): string {
+  return `${baseName(path)} copied · paste to attach`;
 }
 
 export interface ShareItem {
   label: string;
-  act: 'save' | 'copy' | 'link';
-  disabled?: boolean;
-  title?: string;
+  act: 'download-html' | 'download-md' | 'share-html' | 'share-md';
 }
 
-/** shareItems is the menu, in order: a page under review offers only Copy
- * path; a markdown review all three, the link held disabled for later. */
-export function shareItems(pageMode: boolean): ShareItem[] {
-  const copy: ShareItem = { label: SHARE_COPY_PATH, act: 'copy' };
-  if (pageMode) {
-    return [copy];
-  }
-  return [
-    { label: SHARE_SAVE_HTML, act: 'save' },
-    copy,
-    {
-      label: SHARE_COPY_LINK,
-      act: 'link',
-      disabled: true,
-      title: SHARE_LINK_LATER,
-    },
+/** shareItems is the menu, in order: the downloads, then, where the server
+ * can put a file on the clipboard, the Shares. A page under review has no
+ * Markdown items. */
+export function shareItems(pageMode: boolean, canShare: boolean): ShareItem[] {
+  const items: ShareItem[] = [
+    { label: SHARE_DOWNLOAD_HTML, act: 'download-html' },
   ];
+  if (!pageMode) {
+    items.push({ label: SHARE_DOWNLOAD_MD, act: 'download-md' });
+  }
+  if (canShare) {
+    items.push({ label: SHARE_SHARE_HTML, act: 'share-html' });
+    if (!pageMode) {
+      items.push({ label: SHARE_SHARE_MD, act: 'share-md' });
+    }
+  }
+  return items;
 }
 
-function copyText(text: string): Promise<boolean> {
-  if (!navigator.clipboard || !navigator.clipboard.writeText) {
-    return Promise.resolve(false);
-  }
-  return navigator.clipboard.writeText(text).then(
-    () => true,
-    () => false,
-  );
+const DOWNLOADS: Record<string, string> = {
+  'download-html': '/_galley/render?download=1',
+  'download-md': '/_galley/download/md',
+};
+
+// download starts the browser's download of href; the server's
+// Content-Disposition names the file.
+function download(href: string) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 export const shareMethods = {
@@ -133,17 +135,11 @@ export const shareMethods = {
     el.className = 'gly-share-menu';
     el.setAttribute('role', 'menu');
     el.hidden = true;
-    for (const item of shareItems(this.pageMode)) {
+    for (const item of shareItems(this.pageMode, this.canShare)) {
       const b = document.createElement('button');
       b.type = 'button';
       b.setAttribute('role', 'menuitem');
       b.textContent = item.label;
-      if (item.disabled) {
-        b.disabled = true;
-      }
-      if (item.title) {
-        b.title = item.title;
-      }
       b.addEventListener('click', () => {
         this.closeShareMenu();
         this.runShare(item.act);
@@ -199,30 +195,28 @@ export const shareMethods = {
   },
 
   runShare(this: AppShell, act: ShareItem['act']) {
-    if (act === 'copy') {
-      const path = this.docPath;
-      void copyText(path).then((ok) => this.say(copiedLine(path, ok)));
+    const href = DOWNLOADS[act];
+    if (href) {
+      download(href);
       return;
     }
-    if (act !== 'save') {
-      return;
-    }
-    this.say('saving HTML…');
-    postJSON('/_galley/share/html', {})
+    const route = act === 'share-md' ? 'md' : 'html';
+    this.say('copying…');
+    postJSON(`/_galley/share/${route}`, {})
       .then((res) =>
         res.ok
           ? res
               .json()
-              .then((v: { path: string }) =>
-                copyText(v.path).then((ok) => this.say(savedLine(v.path, ok))),
-              )
+              .then((v: { path: string }) => this.say(sharedLine(v.path)))
           : res
               .text()
-              .then((t) => this.say(t.trim() || `save failed (${res.status})`)),
+              .then((t) =>
+                this.say(t.trim() || `share failed (${res.status})`),
+              ),
       )
       .catch((err: unknown) =>
         this.say(
-          `save failed: ${err instanceof Error ? err.message : String(err)}`,
+          `share failed: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
   },
@@ -241,7 +235,7 @@ export const shareMethods = {
     b.type = 'button';
     b.className = 'gly-preview-open';
     b.textContent = PREVIEW_LABEL;
-    b.title = 'the branded page Save HTML writes, refreshed on every save';
+    b.title = 'the branded page Download HTML saves, refreshed on every save';
     b.addEventListener('click', () => {
       window.open(PREVIEW_HREF, '_blank', 'noopener');
     });

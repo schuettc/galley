@@ -235,11 +235,11 @@ export interface AppState {
   // --- editor and identity ---
   editor: Editor;
   docName: string;
-  // Read once off the mount (`data-page-mode`, `data-path`), before the rail
-  // is built: whether a page is under review, and the absolute path Share's
-  // Copy path copies — the .md, or the page itself in page mode.
+  // Read once off the mount (`data-page-mode`, `data-can-share`), before the
+  // rail is built: whether a page is under review, and whether the server can
+  // put a file on the clipboard, which only macOS can (Share's menu).
   pageMode: boolean;
-  docPath: string;
+  canShare: boolean;
   room: string | null;
   sealed: boolean;
 
@@ -688,7 +688,9 @@ export interface AppMethods {
   makeShareMenu(): HTMLElement;
   openShareMenu(): void;
   closeShareMenu(): void;
-  runShare(act: 'save' | 'copy' | 'link'): void;
+  runShare(
+    act: 'download-html' | 'download-md' | 'share-html' | 'share-md',
+  ): void;
   makePreview(): HTMLButtonElement | null;
 }
 

@@ -1,5 +1,6 @@
 // Package render turns a markdown document into one self-contained, branded
-// HTML page: the file Share's Save HTML writes and the preview tab shows. It
+// HTML page: the file Share's Download HTML and Share HTML hand over and the
+// preview tab shows. It
 // knows nothing about the server; internal/serve calls it with the document
 // and the embedded mermaid.js.
 package render

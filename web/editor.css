@@ -2495,8 +2495,7 @@ body.gly-collapsed:not(.gly-page) > main {
    FILLED, LIKE REVISE, because it is the slot's primary: after approval it is
    the one press left. Its width is Revise's (`--gly-verb-w` below) and its
    padding and font are the bar's, so the swap moves nothing; `[hidden]` needs a real
-   rule because `.gly-bar button` is an author rule the user-agent's loses to.
-   The link item is disabled and keeps the menu's hover from lighting it. */
+   rule because `.gly-bar button` is an author rule the user-agent's loses to. */
 .gly-bar .gly-share {
   border-color: var(--gly-signal);
   background: var(--gly-signal);
@@ -2507,8 +2506,6 @@ body.gly-collapsed:not(.gly-page) > main {
 .gly-bar .gly-share:hover { border-color: var(--gly-signal); filter: brightness(1.08); }
 .gly-bar .gly-share[hidden],
 .gly-bar .gly-revise[hidden] { display: none; }
-.gly-share-menu button[disabled] { color: var(--gly-muted); cursor: default; }
-.gly-share-menu button[disabled]:hover { border-color: transparent; }
 
 /* The bar's door to the rendered page: an ordinary bar button. */
 .gly-bar .gly-preview-open { white-space: nowrap; }
