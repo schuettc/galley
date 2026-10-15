@@ -19,8 +19,8 @@
 //     doc.md.
 //   · The approved bar reads `Approved HH:MM` and nothing more.
 //   · Share HTML writes <doc>.html beside <doc>.md and says so on the status
-//     line, and the line clears itself SHARE_REPLY_MS later; Share Markdown
-//     says so too. On macOS this really sets the
+//     line, and the line clears itself SHARE_REPLY_MS later, while `Approved`
+//     stays where it was; Share Markdown says so too. On macOS this really sets the
 //     clipboard, to the file; nothing here reads it back.
 //   · The preview link answers.
 //   · A page under review (page mode) offers Download HTML and Share HTML, for
@@ -275,6 +275,23 @@ async function downloadName(page, label) {
   ]);
   return download ? download.suggestedFilename() : null;
 }
+// Where the sealed state's text starts: the left edge of the `A` of
+// `Approved`, measured with a Range on the text itself, so a reply that moved
+// it would show.
+const approvedStart = (page) =>
+  page.evaluate(() => {
+    const el = document.getElementById('gly-seal');
+    const node = el && el.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+    const word = 'Approved';
+    const at = node.data.indexOf(word);
+    if (at < 0) return null;
+    const r = document.createRange();
+    r.setStart(node, at);
+    r.setEnd(node, at + word.length);
+    const [first] = r.getClientRects();
+    return first ? first.left : null;
+  });
 // The status line, once it says want or after ten seconds.
 async function statusSays(page, want) {
   await page
@@ -452,10 +469,12 @@ async function statusSays(page, want) {
   );
 
   if (MAC) {
+    const startBefore = await approvedStart(page);
     await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
     await pick(page, SHARE_SHARE_HTML);
     const line = sharedLine(SAVED);
     const status = await statusSays(page, line);
+    const startWith = await approvedStart(page);
     check(
       'Share HTML says the file is ready to paste',
       line === 'doc.html copied · paste to attach' && status.includes(line),
@@ -469,6 +488,15 @@ async function statusSays(page, want) {
       `the copied line clears itself after ${SHARE_REPLY_MS}ms`,
       !cleared.includes(line),
       cleared,
+    );
+    const startAfter = await approvedStart(page);
+    check(
+      'Approved starts at one x before, during and after the copied line',
+      startBefore !== null &&
+        [startWith, startAfter].every(
+          (x) => x !== null && Math.abs(x - startBefore) <= 1,
+        ),
+      { startBefore, startWith, startAfter },
     );
     check('doc.html is beside doc.md', existsSync(SAVED), SAVED);
     if (existsSync(SAVED)) {

@@ -615,7 +615,13 @@ export const sealMethods = {
     // the terminal that started it, which is what `handleStop` itself tells a
     // caller when no hook is installed. Anyone restoring the terminal bar's
     // verbs should restore Done alone.
-    if (bar && spacer) {
+    // BEFORE `#gly-status`, which on a sealed page carries only a reply: the
+    // state first and the reply after it, so a reply that comes and goes
+    // never moves `Approved HH:MM`. See paintReadout.
+    const status = bar && bar.querySelector('#gly-status');
+    if (bar && status) {
+      bar.insertBefore(readout, status);
+    } else if (bar && spacer) {
       bar.insertBefore(readout, spacer);
     } else if (bar) {
       bar.append(readout);

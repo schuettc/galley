@@ -45,9 +45,8 @@ import type { AppShell } from './appshell.ts';
  * while it is the reviewer's, `with the agent` while it is not, `settled` once
  * the review has ended.
  *
- * The saved clause is composed separately and stays last, because it is the
- * one part that changes on a timer and the truncation order is oldest-last.
- * See paintReadout. */
+ * The saved clause is composed separately and follows this one, because it is
+ * the part that changes on a timer. See paintReadout. */
 export const PHASE_DRAFT = 'draft';
 export const PHASE_AGENT = 'with the agent';
 const PHASE_SETTLED = 'settled';
@@ -227,17 +226,20 @@ export const barMethods = {
     this.paintReadout();
   },
 
-  /** paintReadout writes the one line, NEWEST CLAUSE FIRST.
+  /** paintReadout writes the one line, THE STATE FIRST AND THE REPLY LAST.
    *
-   *   reply · round N · draft · connection-if-it-is-not-good · saved
+   *   round N · draft · connection-if-it-is-not-good · saved · reply
    *
-   * The order is the truncation policy, and it is the only design decision in
-   * here. The cell ellipsizes at its END (`text-overflow: ellipsis`), so
-   * whatever is last is what a tight bar takes away — and the last clause has
-   * to be the one whose loss costs least. What must NOT be taken away is what
-   * just happened, so a reply goes first; then where the document IS, which is
-   * the fact a reviewer navigates by; then how long ago it was written, which
-   * is the clause that changes on a timer and says least.
+   * The order is the line's start, and it is the only design decision in
+   * here: a reply comes and goes (Share's clears itself), and anything printed
+   * before the state would slide it right and back as it did. So the state
+   * starts where it always starts, and what changes is only at the end. Within
+   * the state, where the document IS goes before how long ago it was written,
+   * the clause that changes on a timer.
+   *
+   * THE COST IS THE TRUNCATION. The cell ellipsizes at its END, so in a bar
+   * too narrow for the whole line it is the reply the ellipsis eats, not the
+   * save age. Accepted: a line that moves under the reader is worse.
    *
    * THE STANDING SENTENCE IS GONE FROM HERE, AND THAT IS THE POINT OF THE
    * GRAMMAR. `instructions in this round` was the last clause and it printed
@@ -255,8 +257,9 @@ export const barMethods = {
    * to say twice. paintSurfaces still calls this on a resize and the line it
    * writes is now the same at every width.
    *
-   * A SEALED REVIEW PRINTS ONLY WHAT THE SEAL SAID. The terminal bar is the
-   * record; this line is where a reopen's reason lands and nothing else. */
+   * A SEALED REVIEW PRINTS ONLY THE REPLY. The state there is the seal's own
+   * readout (`Approved HH:MM`), which makeSeal puts BEFORE this element for
+   * the same reason: the reply lands after it and moves nothing. */
   paintReadout(this: AppShell) {
     paintDiskNotice(this.diskNotice);
     // HISTORY SAYS WHERE YOU ARE AND THAT THE DRAFT IS SAFE, and it says both
@@ -290,13 +293,9 @@ export const barMethods = {
       return;
     }
     const parts: string[] = [];
-    if (this.said) {
-      parts.push(this.said);
-    }
     // WHERE THE DOCUMENT IS, before how long ago it was written: the phase is
     // the part a reviewer navigates by, and `saved` is the part that changes on
-    // a timer. The cell ellipsizes at its end, so this order is the truncation
-    // policy — see roundPhrase.
+    // a timer. The reply goes last — see above.
     parts.push(
       roundPhrase(
         this.historyCount,
@@ -322,6 +321,9 @@ export const barMethods = {
       // The one case the fixed grammar cannot state: the agent's save is on
       // disk and NOT on this page, and silence there reads as a lost save.
       parts.push(HANDOFF_NOTE_HELD);
+    }
+    if (this.said) {
+      parts.push(this.said);
     }
     this.status.textContent = parts.join(' · ');
     // The full sentence, always, because the cell is allowed to lose the end of

@@ -307,6 +307,23 @@ async function waitForWire(page, fn, arg, ms = 15000) {
 // press here starts shut, and a window already open could not be told from
 // this one), and the round this press cut must be newer than any round there
 // was. Only then is the open window this press's.
+// WHERE THE STATE'S TEXT STARTS on the status line: the left edge of the
+// first character of `v1 · …` or `round N · …`, measured with a Range on the
+// text itself, so a reply printed before it would show as a shift.
+async function stateStart(page) {
+  return page.evaluate(() => {
+    const el = document.getElementById('gly-status');
+    const node = el && el.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+    const at = node.data.search(/v1 · |round \d+ · /);
+    if (at < 0) return null;
+    const range = document.createRange();
+    range.setStart(node, at);
+    range.setEnd(node, at + 1);
+    return range.getBoundingClientRect().left;
+  });
+}
+
 async function windowMark(page) {
   return page.evaluate(async () => {
     const [revise, versions] = await Promise.all([
@@ -1855,10 +1872,34 @@ try {
     JSON.stringify(exits),
   );
   const beforeRevise = await windowMark(page);
+  const startBefore = await stateStart(page);
   await page.click('.gly-verdict-revise');
   // The window, keyed to this press: the composer closes on the 204. See
   // responseWindowOpen.
   await responseWindowOpen(page, beforeRevise);
+  // THE REPLY ENTERS AFTER THE STATE, so the state's text does not move.
+  await page
+    .waitForFunction(
+      () =>
+        (document.getElementById('gly-status')?.textContent || '').includes(
+          'revision requested',
+        ),
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {});
+  const startAfter = await stateStart(page);
+  const replyLine = await page.evaluate(
+    () => document.getElementById('gly-status')?.textContent || '',
+  );
+  check(
+    'a reply on the status line comes after the state, and the state does not move',
+    replyLine.includes('revision requested') &&
+      startBefore !== null &&
+      startAfter !== null &&
+      Math.abs(startBefore - startAfter) <= 1,
+    JSON.stringify({ startBefore, startAfter, replyLine }),
+  );
   const leftPending = await page.evaluate(
     async () =>
       (await (await fetch('/_galley/pending')).json()).instructions.length,
