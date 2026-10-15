@@ -2,6 +2,14 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## 0.13.1
+
+- **The + Instruction button is gone from the bar.** Click anywhere on empty space in the right-hand panel to write an instruction about the whole document, or right-click anywhere below the bar with nothing selected. Selecting words still shows the instruction button beside them, and right-clicking a selection now shows your browser's own menu. (#78)
+
+Fixed:
+
+- An agent that answered a round right after saving its edits was sometimes told nothing had changed, and had to answer again. galley now waits a moment for the save to land. (#77)
+
 ## 0.13.0
 
 - **Share an approved document.** After you approve a review, the Revise button becomes **Share**. **Download HTML** and **Download Markdown** save the document to your Downloads folder. On macOS, **Share HTML** and **Share Markdown** put the file on your clipboard, so pasting into Slack or an email attaches it. The HTML is one file that opens offline, with the document's sections in a sidebar, its diagrams drawn, and images that sit next to the document included. (#74)
