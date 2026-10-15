@@ -8,6 +8,11 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"io"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -19,6 +24,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer"
+	gmhtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
@@ -53,8 +59,9 @@ type pageData struct {
 // Render turns a markdown document into one self-contained HTML page in the
 // theme's look. Review instructions and highlights are removed first, front
 // matter is not shown, and mermaid.js is inlined only when a diagram needs it.
-// Nothing in the page is fetched from anywhere.
-func Render(md []byte, t Theme, mermaidJS []byte) ([]byte, error) {
+// Nothing in the page is fetched from anywhere, except a remote image: an
+// image by relative path is read from docDir and embedded as a data: URL.
+func Render(md []byte, t Theme, mermaidJS []byte, docDir string) ([]byte, error) {
 	d, _, err := markdown.Parse(md)
 	if err != nil {
 		return nil, err
@@ -63,10 +70,15 @@ func Render(md []byte, t Theme, mermaidJS []byte) ([]byte, error) {
 	d.Blocks = dropFrontMatter(d.Blocks)
 	src := markdown.Serialize(d)
 
+	imgs := newImageRenderer(docDir)
+	defer imgs.close()
 	gm := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
-		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(fenceRenderer{}, 100))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(
+			util.Prioritized(fenceRenderer{}, 100),
+			util.Prioritized(imgs, 100),
+		)),
 	)
 	doc := gm.Parser().Parse(text.NewReader(src))
 	title, headings, hasMermaid := survey(doc, src)
@@ -202,6 +214,104 @@ func renderFence(w util.BufWriter, src []byte, node ast.Node, entering bool) (as
 		_, _ = fmt.Fprintf(w, "<pre><code>%s</code></pre>\n", esc)
 	}
 	return ast.WalkSkipChildren, nil
+}
+
+// ImageTypes is the figures galley shows from beside a document: extension
+// to Content-Type. The editor serves these as siblings, and the render embeds
+// them, so the two show the same images.
+var ImageTypes = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".gif":  "image/gif",
+	".svg":  "image/svg+xml",
+	".webp": "image/webp",
+	".avif": "image/avif",
+}
+
+// imageRenderer embeds an image whose src is a relative path as a data: URL,
+// read from the document's folder through an os.Root, so a path cannot leave
+// it. Any other image, and one it cannot embed (missing, outside the folder,
+// not a figure type), is drawn as goldmark draws it, with its src unchanged.
+type imageRenderer struct {
+	root *os.Root
+	base renderer.NodeRendererFunc
+}
+
+func newImageRenderer(docDir string) *imageRenderer {
+	r := &imageRenderer{}
+	gmhtml.NewRenderer().RegisterFuncs(captureImage{&r.base})
+	if docDir != "" {
+		r.root, _ = os.OpenRoot(docDir)
+	}
+	return r
+}
+
+func (r *imageRenderer) close() {
+	if r.root != nil {
+		_ = r.root.Close()
+	}
+}
+
+func (r *imageRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindImage, r.renderImage)
+}
+
+func (r *imageRenderer) renderImage(w util.BufWriter, src []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	n := node.(*ast.Image)
+	data, ok := r.embed(string(n.Destination))
+	if !entering || !ok {
+		return r.base(w, src, node, entering)
+	}
+	_, _ = fmt.Fprintf(w, `<img src="%s" alt="%s"`, data, html.EscapeString(plainText(n, src)))
+	if n.Title != nil {
+		_, _ = w.WriteString(` title="`)
+		gmhtml.DefaultWriter.Write(w, n.Title)
+		_ = w.WriteByte('"')
+	}
+	if n.Attributes() != nil {
+		gmhtml.RenderAttributes(w, n, gmhtml.ImageAttributeFilter)
+	}
+	_, _ = w.WriteString(">")
+	return ast.WalkSkipChildren, nil
+}
+
+// embed answers dest as a data: URL, or false when dest is not a relative
+// path to a figure inside the document's folder.
+func (r *imageRenderer) embed(dest string) (string, bool) {
+	if r.root == nil {
+		return "", false
+	}
+	u, err := url.Parse(dest)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.RawQuery != "" || u.Fragment != "" || u.Path == "" {
+		return "", false
+	}
+	ctype, ok := ImageTypes[strings.ToLower(path.Ext(u.Path))]
+	if !ok {
+		return "", false
+	}
+	f, err := r.root.Open(filepath.FromSlash(u.Path))
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = f.Close() }()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return "", false
+	}
+	return "data:" + ctype + ";base64," + base64.StdEncoding.EncodeToString(b), true
+}
+
+// captureImage takes goldmark's own image function from its HTML renderer.
+type captureImage struct{ fn *renderer.NodeRendererFunc }
+
+func (c captureImage) Register(k ast.NodeKind, fn renderer.NodeRendererFunc) {
+	if k == ast.KindImage {
+		*c.fn = fn
+	}
 }
 
 func svgURL(svg []byte) template.URL {

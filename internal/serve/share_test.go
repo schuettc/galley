@@ -83,6 +83,23 @@ func TestRenderRouteServesBrandedPage(t *testing.T) {
 	}
 }
 
+func TestRenderRouteEmbedsSiblingImages(t *testing.T) {
+	noThemes(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "img"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "img", "a.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := newEditServer(t, dir, "doc.md", "# Hi\n\n![a](img/a.png)\n")
+	defer func() { _ = s.Close() }()
+	rec := get(s.Handler(), "/_galley/render")
+	if !strings.Contains(rec.Body.String(), `src="data:image/png;base64,cG5n"`) {
+		t.Fatalf("the preview does not embed the image: %s", rec.Body.String())
+	}
+}
+
 func TestDownloadHTMLIsTheRenderAsAnAttachment(t *testing.T) {
 	noThemes(t)
 	s := newEditServer(t, t.TempDir(), "doc.md", "# Hi\n\n## Part\n\nWords.\n")

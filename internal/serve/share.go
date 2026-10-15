@@ -52,7 +52,7 @@ func RenderDoc(mdPath string) ([]byte, error) {
 		return nil, err
 	}
 	mermaid, _ := assets.ReadFile("assets/mermaid.js")
-	return render.Render(md, theme, mermaid)
+	return render.Render(md, theme, mermaid, filepath.Dir(mdPath))
 }
 
 // handleRender serves the preview tab, or with ?download=1 Download HTML: the

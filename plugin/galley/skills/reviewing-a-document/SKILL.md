@@ -91,7 +91,7 @@ A comment is discharged **by the revision itself**. Do not reply to instructions
 
 After approval, the slot Revise leaves holds a filled `Share ▾` button. Its menu, in order:
 
-- **`Download HTML`** renders the document in the project's theme and the browser downloads it as `<name>.html`. The file is self-contained: fonts, logos and Mermaid diagrams are inlined, and it opens offline.
+- **`Download HTML`** renders the document in the project's theme and the browser downloads it as `<name>.html`. The file is self-contained: fonts, logos, Mermaid diagrams and images beside the document are inlined, so it opens offline; an image by `http(s)` address stays a link.
 - **`Download Markdown`** downloads the `.md` as it is on disk, as `<name>.md`.
 - **`Share HTML`** writes the same page to `<name>.html` beside `<name>.md`, replacing an earlier one, and puts that file on the clipboard. Pasting into Slack or an email attaches it. The status line says `<name>.html copied · paste to attach`.
 - **`Share Markdown`** puts the `.md` file on the clipboard the same way. The status line says `<name>.md copied · paste to attach`.

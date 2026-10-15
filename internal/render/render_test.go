@@ -1,6 +1,9 @@
 package render
 
 import (
+	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -9,7 +12,7 @@ const fakeMermaid = "/*MERMAID*/"
 
 func render(t *testing.T, md string, th Theme) string {
 	t.Helper()
-	out, err := Render([]byte(md), th, []byte(fakeMermaid))
+	out, err := Render([]byte(md), th, []byte(fakeMermaid), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,4 +146,49 @@ func TestRenderMissingDarkLogoUsesLight(t *testing.T) {
 // inPage is a logo's data: URL as the page writes it, with "+" escaped.
 func inPage(svg []byte) string {
 	return strings.ReplaceAll(string(svgURL(svg)), "+", "&#43;")
+}
+
+// pngBytes is any bytes; the renderer embeds a file as it is.
+const pngBytes = "\x89PNG\r\n\x1a\nfake"
+
+func renderIn(t *testing.T, dir, md string) string {
+	t.Helper()
+	out, err := Render([]byte(md), BaseTheme(), []byte(fakeMermaid), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+func TestRenderEmbedsLocalImages(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "doc")
+	writeFile(t, filepath.Join(dir, "a.png"), pngBytes)
+	writeFile(t, filepath.Join(dir, "figs", "b.png"), pngBytes)
+	writeFile(t, filepath.Join(root, "outside.png"), pngBytes)
+	if err := os.Symlink(filepath.Join(root, "outside.png"), filepath.Join(dir, "link.png")); err != nil {
+		t.Fatal(err)
+	}
+	data := `src="data:image/png;base64,` + base64.StdEncoding.EncodeToString([]byte(pngBytes)) + `"`
+	for _, tc := range []struct {
+		name, src string
+		embed     bool
+	}{
+		{"beside the doc", "a.png", true},
+		{"in a subfolder", "figs/b.png", true},
+		{"outside the folder", "../outside.png", false},
+		{"a symlink out of the folder", "link.png", false},
+		{"remote", "https://example.com/c.png", false},
+		{"missing", "nope.png", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := renderIn(t, dir, "# T\n\n![x]("+tc.src+")\n")
+			if tc.embed && !strings.Contains(out, data) {
+				t.Fatalf("%s not embedded: %s", tc.src, out)
+			}
+			if !tc.embed && !strings.Contains(out, `src="`+tc.src+`"`) {
+				t.Fatalf("%s did not keep its src: %s", tc.src, out)
+			}
+		})
+	}
 }
