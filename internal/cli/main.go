@@ -55,6 +55,9 @@ The installed path comes from this repository's own marketplace manifest
 way — installing changes WHICH flag, not whether one is required. See
 plugin/README.md.
 
+'galley render doc.md' writes the document's branded HTML page without an
+editor, the same page Share HTML writes.
+
 Run 'galley <command> -h' for a command's flags.
 `
 
@@ -239,6 +242,20 @@ func newApp() *tools.App {
 			"Exit codes: 0 woke · 3 --timeout elapsed · 4 the editor stopped",
 		NewFlags: func() *flag.FlagSet { fs, _ := newWaitFlags(); return fs },
 		Run:      runWait,
+	})
+	app.Register(tools.Command{
+		Name:     "render",
+		Group:    "review",
+		Summary:  "write the document's branded HTML page, without an editor",
+		Synopsis: "render <doc.md> [-o out.html]",
+		Help: "Writes the page Share HTML writes — the project's theme, the same renderer,\n" +
+			"diagrams drawn by the embedded mermaid.js — without starting an editor, and\n" +
+			"prints the path it wrote. By default that is <name>.html beside the\n" +
+			"document; -o writes it elsewhere.\n\n" +
+			"A theme or render error is printed and nothing is written, so it is also\n" +
+			"how to check a theme. Markdown only: a page review is already HTML.",
+		NewFlags: func() *flag.FlagSet { fs, _ := newRenderFlags(); return fs },
+		Run:      runRender,
 	})
 	app.Register(tools.Command{
 		Name:     "agent-prompt",

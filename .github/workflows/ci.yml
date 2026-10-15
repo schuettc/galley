@@ -245,6 +245,15 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
+      # SHARE TAKES REVISE'S SLOT, AND NOTHING ELSE ON THE BAR MOVES. After
+      # approval `Share ▾` sits in exactly Revise's box; Save HTML writes the
+      # branded page beside the document and copies its path; a page review
+      # offers only Copy path and has no preview link.
+      - name: Gate — Share takes Revise's slot
+        run: node web/share.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
       # `web/layers.mjs` IS DELIBERATELY NOT HERE YET, AND THAT IS NOT AN
       # OVERSIGHT — it is the one gate that measures PIXELS, and it is not
       # platform-stable. Two checks fail on a Linux runner and pass on a mac:

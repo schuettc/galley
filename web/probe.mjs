@@ -80,6 +80,16 @@ import {
 // The seal vocabulary moved out of entry.ts — see web/seal.ts's header.
 import { sealLine, reopenLine, sealMethods } from './seal.ts';
 import {
+  SHARE_LABEL,
+  SHARE_DOWNLOAD_HTML,
+  SHARE_DOWNLOAD_MD,
+  SHARE_SHARE_HTML,
+  SHARE_SHARE_MD,
+  PREVIEW_LABEL,
+  sharedLine,
+  shareItems,
+} from './share.ts';
+import {
   MODE_ASK,
   MODE_LIVE,
   modeLabel,
@@ -6125,7 +6135,7 @@ function bindsContentField(src) {
     );
     check(
       'the built bundle carries the three verdict readouts',
-      src.includes('review closed') &&
+      src.includes('Approved') &&
         src.includes('entrusted') &&
         src.includes('markup thrown away'),
     );
@@ -6544,9 +6554,8 @@ function bindsContentField(src) {
       // watching it land" are two different things to have been told.
       const at = new Date(2026, 7, 15, 11, 42).getTime();
       check(
-        'a pure approve reads as closed',
-        sealLine('approved', at, 0) ===
-          'Approved 11:42 · review closed · restart galley edit to reopen',
+        'a pure approve reads as the verdict and its time, nothing more',
+        sealLine('approved', at, 0) === 'Approved 11:42',
       );
       check(
         'the trust exit counts what it handed over',
@@ -6602,13 +6611,11 @@ function bindsContentField(src) {
           'Discarded 11:42 · markup thrown away',
       );
       // A seal with no timestamp is a seal read before the server answered; the
-      // sentence still has to be a sentence rather than "Approved  · review
-      // closed" with a hole in it.
+      // line still has to be the bare verdict rather than "Approved " with a
+      // hole where the time was.
       check(
         'a verdict with no instant still reads',
-        sealLine('approved', 0, 0) ===
-          'Approved · review closed · restart galley edit to reopen' &&
-          clockTime(0) === '',
+        sealLine('approved', 0, 0) === 'Approved' && clockTime(0) === '',
       );
       // The agent's reopen carries its reason INTO the readout, because the
       // reviewer is looking at a sealed page and at nothing else.
@@ -7844,6 +7851,71 @@ function bindsContentField(src) {
     'a page already sealed does not hide the strip again',
     hidden === 1,
     hidden,
+  );
+}
+
+// SHARE'S VOCABULARY IS THE SPEC'S, VERBATIM (web/share.ts). The downloads
+// come first and are always there; the Shares follow only where the server can
+// put a file on the clipboard. A page review has no Markdown items. The built
+// bundle carries every label, because the binary embeds it and a label only in
+// the source is a label nobody sees.
+{
+  check(
+    'the Share labels are verbatim',
+    SHARE_LABEL === 'Share ▾' &&
+      SHARE_DOWNLOAD_HTML === 'Download HTML' &&
+      SHARE_DOWNLOAD_MD === 'Download Markdown' &&
+      SHARE_SHARE_HTML === 'Share HTML' &&
+      SHARE_SHARE_MD === 'Share Markdown' &&
+      PREVIEW_LABEL === 'HTML preview ↗',
+  );
+  const labels = (pageMode, canShare) =>
+    shareItems(pageMode, canShare)
+      .map((i) => i.label)
+      .join('|');
+  check(
+    'a markdown review offers both downloads, then both Shares where it can',
+    labels(false, true) ===
+      [
+        SHARE_DOWNLOAD_HTML,
+        SHARE_DOWNLOAD_MD,
+        SHARE_SHARE_HTML,
+        SHARE_SHARE_MD,
+      ].join('|') &&
+      labels(false, false) ===
+        [SHARE_DOWNLOAD_HTML, SHARE_DOWNLOAD_MD].join('|'),
+    [labels(false, true), labels(false, false)],
+  );
+  check(
+    'a page review offers Download HTML, and Share HTML where it can',
+    labels(true, true) === [SHARE_DOWNLOAD_HTML, SHARE_SHARE_HTML].join('|') &&
+      labels(true, false) === SHARE_DOWNLOAD_HTML,
+    [labels(true, true), labels(true, false)],
+  );
+  check(
+    'the share line names the file and the paste',
+    sharedLine('/a/b/doc.html') === 'doc.html copied · paste to attach',
+    sharedLine('/a/b/doc.html'),
+  );
+  let bundle = '';
+  try {
+    bundle = readFileSync(
+      new URL('../internal/serve/assets/editor.js', import.meta.url),
+      'utf8',
+    );
+  } catch {
+    // Reported below.
+  }
+  check(
+    'the built bundle carries the Share labels',
+    [
+      SHARE_LABEL,
+      SHARE_DOWNLOAD_HTML,
+      SHARE_DOWNLOAD_MD,
+      SHARE_SHARE_HTML,
+      SHARE_SHARE_MD,
+      PREVIEW_LABEL,
+    ].every((l) => bundle.includes(l)),
   );
 }
 

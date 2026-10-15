@@ -1948,7 +1948,8 @@ body.gly-collapsed:not(.gly-page) > main {
 .gly-bar button,
 .gly-bottombar button,
 .gly-census button,
-.gly-verdict-menu button {
+.gly-verdict-menu button,
+.gly-share-menu button {
   font: inherit;
   border: 1px solid var(--gly-line);
   border-radius: 6px;
@@ -2458,7 +2459,8 @@ body.gly-collapsed:not(.gly-page) > main {
    them, at the same shape, and nothing out-specifies it. Both labels are
    fixed strings (MENU_REVISE, MENU_TRUST), so no width reservation is needed:
    nothing in this menu ever changes size once it is open. */
-.gly-verdict-menu {
+.gly-verdict-menu,
+.gly-share-menu {
   position: absolute;
   z-index: 40;
   display: flex;
@@ -2479,7 +2481,8 @@ body.gly-collapsed:not(.gly-page) > main {
    list of two choices, not two pills — so the only thing it overrides in the
    chrome button is the border's colour. It reserves the 1px either way, so
    hovering one cannot move the other. */
-.gly-verdict-menu button {
+.gly-verdict-menu button,
+.gly-share-menu button {
   font-size: 12px;
   padding: 5px 14px;
   border-color: transparent;
@@ -2487,6 +2490,41 @@ body.gly-collapsed:not(.gly-page) > main {
   white-space: nowrap;
 }
 .gly-verdict-menu button:hover { border-color: var(--gly-signal); }
+
+/* --- Share: the approved document's way to a reader (web/share.ts) ---
+   FILLED, LIKE REVISE, because it is the slot's primary: after approval it is
+   the one press left. Its width is Revise's (`--gly-verb-w` below) and its
+   padding and font are the bar's, so the swap moves nothing; `[hidden]` needs a real
+   rule because `.gly-bar button` is an author rule the user-agent's loses to. */
+.gly-bar .gly-share {
+  border-color: var(--gly-signal);
+  background: var(--gly-signal);
+  color: var(--gly-signal-ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gly-bar .gly-share:hover { border-color: var(--gly-signal); filter: brightness(1.08); }
+.gly-bar .gly-share[hidden],
+.gly-bar .gly-revise[hidden] { display: none; }
+
+/* The bar's door to the rendered page: an ordinary bar button. */
+.gly-bar .gly-preview-open { white-space: nowrap; }
+
+/* ONE WIDTH FOR THE FOUR VERBS: History, HTML preview, the verdict (Revise /
+   Approve) and Share. Sized to the verdict's widest reserved label —
+   `revising · ` + the 4ch seconds reserve + `s` is 16ch of the bar's mono —
+   plus `.gly-bar button`'s 14px padding and 1px border each side (buttons are
+   border-box). `ch` is resolved on each button against its own mono font, so
+   the value is the same box on all four, and Share takes Revise's box from
+   this rule rather than from a measurement on the seal edge. A `width`, not a
+   `min-width`: no label the verdict paints is wider, so none can grow it. */
+:root { --gly-verb-w: calc(16ch + 30px); }
+.gly-bar .gly-versions-open,
+.gly-bar .gly-preview-open,
+.gly-bar .gly-revise,
+.gly-bar .gly-share {
+  width: var(--gly-verb-w);
+}
 
 /* --- the arrival strip ---
    It says what landed and offers one control that moves the page. It is
@@ -2688,8 +2726,12 @@ body.gly-collapsed:not(.gly-page) > main {
   color: var(--gly-signal);
   background: var(--gly-card);
 }
+/* History is a bar verb, so it wears the bar's padding (and so its height),
+   not the strip's tighter `3px 10px`; its width is the shared verb width
+   (see `--gly-verb-w` at the HTML preview rule). (0,2,0) beats
+   `.gly-census button` at (0,1,1). */
 .gly-census .gly-versions-open {
-  min-width: calc(14ch + 20px + 2px);
+  padding: 5px 14px;
 }
 /* `.gly-census-n` IS DELETED WITH THE SWEEP IT COUNTED. It reserved 3ch of
    digits inside `✓ all` so the number going to zero ON ITS OWN CLICK could not
@@ -2784,10 +2826,11 @@ body.gly-collapsed:not(.gly-page) > main {
     flex-wrap: wrap;
   }
 
-  /* The sealed readout wraps here for the same reason. Its sentence ends
-     `restart galley edit to reopen`, about 485px of `nowrap` mono, which left
-     a 390px window and scrolled the page sideways (layers §8 measured it).
-     The sealed bar has no verbs after it to push, so wrapping moves nothing. */
+  /* The sealed readout wraps here for the same reason. The trust exit's
+     sentence (`Approved 14:32 · 2 notes entrusted · 1 still landing`) is long
+     `nowrap` mono, and an earlier, longer one scrolled a 390px window
+     sideways (layers §8 measured it). The sealed bar has no verbs after it to
+     push, so wrapping moves nothing. */
   .gly-seal {
     min-width: 0;
     white-space: normal;
@@ -3745,6 +3788,7 @@ body.gly-history-mode > main {
 .gly-strip-read[hidden],
 .gly-strip-show[hidden],
 .gly-verdict-menu[hidden],
+.gly-share-menu[hidden],
 .gly-versions[hidden] { display: none; }
 
 /* THE REVIEWER'S OWN EDITS, IN THE RAIL. One surface: the rail is the list of

@@ -337,7 +337,8 @@ analyse: check-entries _web-deps
 #     The unused-EXPORT backlog this started from — 36 issues, 32 of them
 #     unused exports — was cleared by narrowing exports, not by deleting code.
 #   · dupes-ratchet: 52 clone groups / 137 instances, 3.9% duplication (1778
-#     of 45,676 lines), bound 52. 135 of the 137 instances are the standalone
+#     of 45,676 lines), bound 52 — 55 since share.mjs (see dupes-ratchet.py).
+#     135 of the 137 instances are the standalone
 #     `.mjs` gate harnesses, whose independence is deliberate and was refused a
 #     shared module on purpose; the other 2 are one real group in composer.ts.
 #     See dupes-ratchet.py for how it got from 33 to 52.
@@ -349,7 +350,7 @@ analyse: check-entries _web-deps
 # The bounds are considered limits and not backlog sizes, which is what took
 # them from a survey to a gate: the sweep that cleared the unused exports and
 # #143's break-up of the five accreted functions are what earned the right to
-# gate on 4 / 33 / 14 (52 and 13 today). A ratchet stops the number GROWING
+# gate on 4 / 33 / 14 (55 and 13 today). A ratchet stops the number GROWING
 # without demanding it shrink; the branch that clears a finding lowers the bound with it, the way
 # the five `no-unused-vars` findings became the four `--max-warnings` holds.
 # `check-entries` above never needed that argument: it has no backlog and no
@@ -527,6 +528,7 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/grip.mjs
     GALLEY="$PWD/bin/galley" node web/align.mjs
     GALLEY="$PWD/bin/galley" node web/livestructure.mjs
+    GALLEY="$PWD/bin/galley" node web/share.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
 
 # Unwrap markdown prose. NOT part of `verify` — that gate is the Go binary,

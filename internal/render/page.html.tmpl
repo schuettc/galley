@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<style>
+{{.CSS}}
+</style>
+</head>
+<body>
+{{- if or .LogoLight .Label}}
+<header class="g-head">
+  {{- if .LogoLight}}
+  <picture class="g-logo">
+    <source srcset="{{.LogoDark}}" media="(prefers-color-scheme: dark)">
+    <img src="{{.LogoLight}}" alt="">
+  </picture>
+  {{- end}}
+  {{- if .Label}}
+  <span class="g-label">{{.Label}}</span>
+  {{- end}}
+</header>
+{{- end}}
+<div class="g-wrap">
+  <nav class="g-side" aria-label="Sections">
+    {{- range .Headings}}
+    <a class="g-h{{.Level}}" href="#{{.ID}}">{{.Text}}</a>
+    {{- end}}</nav>
+  <main class="g-body">
+{{.Body}}
+  </main>
+</div>
+{{- if .Mermaid}}
+<script>
+{{.Mermaid}}
+</script>
+<script>
+(function () {
+  var m = window.galleyMermaid && (window.galleyMermaid.default || window.galleyMermaid);
+  if (!m) return;
+  var vars = {{.MermaidVars}};
+  var blocks = Array.prototype.slice.call(document.querySelectorAll('pre.mermaid'));
+  blocks.forEach(function (b) { b.setAttribute('data-src', b.textContent); });
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  function draw() {
+    blocks.forEach(function (b) {
+      b.removeAttribute('data-processed');
+      b.textContent = b.getAttribute('data-src');
+    });
+    m.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: 'base',
+      themeVariables: mq.matches ? vars.dark : vars.light
+    });
+    m.run({ nodes: blocks });
+  }
+  draw();
+  if (mq.addEventListener) mq.addEventListener('change', draw);
+})();
+</script>
+{{- end}}
+</body>
+</html>
