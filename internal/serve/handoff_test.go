@@ -488,3 +488,42 @@ func TestCloseWaitsForAnImportUnderWay(t *testing.T) {
 		t.Fatal("Close never returned after the import finished")
 	}
 }
+
+// An agent harness runs one turn's tool calls together and queues writes to
+// the same file, so an `answered` ack sent in the same turn as its edits can
+// reach the server before those edits reach the disk. Measured in two real
+// rounds: one "imported the agent's save" for several edits, landing between
+// a refused ack and an accepted retry seconds later. The ack must not call a
+// round with the save still landing a zero-change round.
+func TestAnAnsweredAckWaitsForASaveStillLanding(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(md, []byte("# T\n\nAlpha beta gamma.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	s.openResponseWindow(1, "fp", false)
+
+	saved := make(chan struct{})
+	go func() {
+		defer close(saved)
+		time.Sleep(200 * time.Millisecond)
+		_ = os.WriteFile(md, []byte("# T\n\nAlpha **beta** gamma.\n"), 0o644)
+	}()
+	first := postAckRec(t, s, "answered", "bolded it")
+	<-saved
+	if first.Code != http.StatusNoContent {
+		t.Errorf("answered ack sent with its save still landing: got %d, want 204: %s",
+			first.Code, strings.TrimSpace(first.Body.String()))
+		// The retry the agent made seconds later, once the save had landed.
+		awaitState(t, 3*time.Second, s.appliedOpen)
+		if retry := postAckRec(t, s, "answered", "bolded it"); retry.Code != http.StatusNoContent {
+			t.Fatalf("retry after the save landed: got %d: %s", retry.Code, retry.Body.String())
+		}
+		t.Log("the same ack, sent after the watcher imported the save, was accepted")
+	}
+}
