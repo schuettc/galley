@@ -826,9 +826,6 @@ class App implements AppState {
   // --- History: the door, the round, the reading state ---
   versionsPanel: VersionsPanel;
   versionsButton: HTMLButtonElement;
-  // The bar's capture door. Built once in the constructor and never rebuilt,
-  // like its neighbour — the bar's controls outlive every paint.
-  captureBtn: HTMLButtonElement;
   historyScroll: number;
   seenRound: number | null;
   seenCannot: string;
@@ -1091,9 +1088,6 @@ class App implements AppState {
       },
     });
     this.versionsButton = this.makeVersionsButton();
-    // AFTER History, so the bar reads Instructions · History · + Instruction:
-    // the two doors to what already exists, and then the verb that makes one.
-    this.captureBtn = this.makeCaptureButton();
     // Paint the peer control's count on first load without opening History.
     // Fire-and-forget: this is the constructor, nothing is awaiting a
     // result, and a failure here means the History chip reads 0 until the
@@ -1381,12 +1375,13 @@ class App implements AppState {
     // why there is no mode switch anywhere on this page — the answer to "which
     // scope" is already on screen before the menu opens.
     //
-    // SCOPED TO THE PROSE, not to the page. A right-click on the bar, the rail
-    // or the composer is the browser's own menu, because those are chrome and
-    // the reviewer may genuinely want to copy out of them; the document is the
-    // one surface where galley has something better to offer.
-    // `preventDefault` is called ONLY where this menu opens, so nothing is
-    // taken away where nothing is given.
+    // ANYWHERE BELOW THE BAR, not only on the prose: the text, the margins,
+    // the space under the document and the right-hand panel all open it, and
+    // the menu's `Copy` row gives back what the browser's menu offered there.
+    // The browser keeps its own menu where galley has nothing better: the bar,
+    // galley's open menus and popovers, text fields (paste and spelling live
+    // there), and History (see menuAt). `preventDefault` is called ONLY where
+    // this menu opens, so nothing is taken away where nothing is given.
     //
     // DELEGATED OFF `document`, in both directions, because `paintRail`
     // destroys and rebuilds every card in the rail on every poll — a listener
@@ -1394,20 +1389,56 @@ class App implements AppState {
     // firing without an error. The menu itself is on `body` and outlives every
     // paint (web/menu.ts), so this pair is bound once.
     document.addEventListener('contextmenu', (event) => {
-      const target = event.target;
-      if (!(target instanceof Node) || !this.editor.view.dom.contains(target)) {
+      if (!this.menuAt(event.target)) {
+        return;
+      }
+      const items = this.menuItems();
+      if (items.length === 0) {
         return;
       }
       event.preventDefault();
       openMenu(
         this.menu,
-        this.menuItems(),
+        items,
         { x: event.clientX, y: event.clientY },
         // MEASURED per open. The bar folds, so the band this menu is clamped
         // into is not a constant — the reason `--gly-bar-h` exists at all.
         this.chromeFrame(),
       );
     });
+    // THE PANEL'S BLANK SPACE OPENS THE WHOLE-DOCUMENT BOX (see panelDoorAt),
+    // and the pointer says so before the press. Delegated off `document` for
+    // the reason the menu is: the rail's cards are rebuilt on every poll. A
+    // press that ends a drag-selection inside the rail is the reviewer
+    // selecting, not asking, so it opens nothing.
+    document.addEventListener('click', (event) => {
+      if (
+        event.button !== 0 ||
+        !this.panelDoorAt(event.target, event.clientX, event.clientY)
+      ) {
+        return;
+      }
+      const picked = window.getSelection();
+      if (
+        picked &&
+        !picked.isCollapsed &&
+        picked.anchorNode &&
+        this.rail.root.contains(picked.anchorNode)
+      ) {
+        return;
+      }
+      this.openCaptureByHand();
+    });
+    document.addEventListener(
+      'mousemove',
+      (event) => {
+        document.documentElement.classList.toggle(
+          'gly-panel-door',
+          this.panelDoorAt(event.target, event.clientX, event.clientY),
+        );
+      },
+      { passive: true },
+    );
     // A PRESS OFF AN EMPTY COMPOSER PUTS IT AWAY, a grip's and a selection's
     // alike: an open box nobody has typed in is not worth a second gesture to
     // dismiss. One holding words stays, so a stray press never costs them.

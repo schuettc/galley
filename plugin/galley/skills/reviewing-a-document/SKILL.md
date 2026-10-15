@@ -21,9 +21,9 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 ## What the reviewer does, so you can tell them
 
-**They will ask you this, and the answer is not in the browser.** galley opens onto a document with no instructions, and every gesture below is discoverable only by trying it. The page teaches one sentence in an empty rail — *"Select any words in the document to ask for a change. Your instructions collect here, then go to the agent as one round"* — and that is the whole of the onboarding. Say the rest when they ask, and use these words, because they are the product's own.
+**They will ask you this, and the answer is not in the browser.** galley opens onto a document with no instructions, and every gesture below is discoverable only by trying it. The page teaches two sentences in an empty rail — *"Select any words in the document to ask for a change. Your instructions collect here, then go to the agent as one round. Or click here to ask about the whole document."* — and that is the whole of the onboarding. Say the rest when they ask, and use these words, because they are the product's own.
 
-**Asking for a change.** Select the words, right-click, add an instruction — it hangs on that passage. Right-click with nothing selected and the instruction is on the whole document. `+ Instruction` in the bar does the same thing without the selection. There is no mode to switch: what is selected when the menu opens decides the scope.
+**Asking for a change.** Select the words, right-click, add an instruction — it hangs on that passage. Right-click with nothing selected and the instruction is on the whole document. The right-click works anywhere below the bar — the text, the margins, the space under the document, the rail — and offers `Copy` first when text is selected. A click on blank space in the rail opens the whole-document instruction too. There is no mode to switch: what is selected when the menu opens decides the scope.
 
 **Editing by hand.** Their typing applies directly. There is nothing to accept and nothing to propose — if a word is easier to fix than to explain, they fix it. Each hand edit collects in the rail beside their instructions, with a `revert` on it if they change their mind.
 

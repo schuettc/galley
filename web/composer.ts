@@ -33,7 +33,7 @@ import { gripOn } from './grips.ts';
 import type { GripTarget } from './grips.ts';
 import { scopeKey } from './scope.ts';
 import type { Region } from './wire';
-import type { MenuItem } from './menu.ts';
+import { COPY_LABEL, type MenuItem } from './menu.ts';
 
 // How long a refused-keystroke note stays put before the caret moving on can
 // dismiss it. See App.dismissRefusal.
@@ -543,6 +543,25 @@ export const composerMethods = {
     // arrives as one line rather than with the block boundaries in it — the
     // head is chrome and `elide` collapses the rest.
     const said = this.editor.state.doc.textBetween(from, to, ' ').trim();
+    // COPY FIRST, AND ONLY WITH A SELECTION. Galley's menu covers the
+    // browser's wherever it opens, and Copy is the browser item a reviewer
+    // reaches for first. The DOM selection first, so words selected in a card
+    // copy too, as the plain text the browser's own Copy would have taken;
+    // the editor's own selection when the DOM holds none (a selection made by
+    // a command rather than the mouse). Read now, while the menu opens.
+    const picked =
+      window.getSelection()?.toString() ||
+      this.editor.state.doc.textBetween(from, to, '\n\n');
+    if (picked.trim()) {
+      items.push({
+        label: COPY_LABEL,
+        run: () => {
+          // A refused write leaves the clipboard as it was, and there is no
+          // surface here to say so on; the reviewer still has the shortcut.
+          navigator.clipboard.writeText(picked).catch(() => {});
+        },
+      });
+    }
     if (said) {
       items.push({
         label: 'Instruction on this passage',
@@ -572,6 +591,32 @@ export const composerMethods = {
       });
     }
     return items;
+  },
+
+  // menuAt is where galley's right-click menu opens: anywhere below the bar,
+  // except where the browser's own menu is worth more — the bar, galley's
+  // open menus and popovers, text fields (paste and spelling), and History,
+  // which is a reading surface with no instruction to offer. The prose is
+  // contenteditable and is the menu's first home, so it is let through before
+  // the field test.
+  menuAt(this: AppShell, target: EventTarget | null): boolean {
+    const el =
+      target instanceof Element
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
+    if (!el || (this.versionsPanel && this.versionsPanel.open)) {
+      return false;
+    }
+    if (this.editor.view.dom.contains(el)) {
+      return true;
+    }
+    return !el.closest(
+      '.gly-bar, .gly-bottombar, .gly-menu, .gly-verdict-menu, ' +
+        '.gly-share-menu, .gly-composer, .gly-bubble, .gly-versions, ' +
+        'input, textarea, select, [contenteditable]',
+    );
   },
 
   // `byReviewer` is false for a selection change the reviewer did not make:

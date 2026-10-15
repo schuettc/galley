@@ -1312,6 +1312,26 @@ body.gly-collapsed:not(.gly-page) > main {
   cursor: default;
   color: var(--gly-muted);
 }
+/* "click here" in the empty panel's hint: a real button, so the keyboard
+   reaches the whole-document box, dressed as the link it reads as. */
+.gly-rail-teach-ask {
+  font: inherit;
+  color: var(--gly-fg);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+/* THE PANEL'S BLANK SPACE IS A DOOR (web/cards.ts panelDoorAt), and the
+   pointer says so. Set on the root by the mousemove that reads the same
+   predicate the click does, because the space under the rail's last card is
+   outside every element a selector could name. `cursor` is inherited, so the
+   element under the pointer — body, the rail, the band — shows it. */
+html.gly-panel-door {
+  cursor: pointer;
+}
 
 .gly-card {
   padding: 0.5rem 0.6rem;
@@ -3597,8 +3617,8 @@ body.gly-history-mode > main {
    the top of the instruction rail, opening the form under it. The rail holds
    live work only, and a `+ add` button needs nothing and is beside nothing —
    see web/cards.ts's own section for the two defects that placement caused.
-   Capture is the bar's now (`.gly-capture-open`) and the typing happens in
-   `.gly-capture`, which COVERS this column rather than pushing it down. */
+   Capture has no control now: a click on the panel's blank space opens
+   `.gly-capture`, where the typing happens. */
 /* THE HEAD'S SLOT IS RESERVED WHEN THERE IS NOTHING TO HEAD.
    `.gly-overall-head` carries `.gly-rail-head`, which is ONE SLOT at ONE height
    carrying three labels across the draft rail and History's two states — so

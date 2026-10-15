@@ -333,9 +333,6 @@ export interface AppState {
   // --- History: the door, the round, the reading state ---
   versionsPanel: VersionsPanel;
   versionsButton: HTMLButtonElement;
-  // The bar's capture door. Built once in the constructor and never rebuilt,
-  // like its neighbour — the bar's controls outlive every paint.
-  captureBtn: HTMLButtonElement;
   historyScroll: number;
   seenRound: number | null;
   seenCannot: string;
@@ -468,6 +465,7 @@ export interface AppMethods {
   clearScope(): void;
   openComposerForm(): void;
   menuItems(): MenuItem[];
+  menuAt(target: EventTarget | null): boolean;
   hideRefusal(): void;
   hideStrip(): void;
   paintVersionsButton(): void;
@@ -549,8 +547,8 @@ export interface AppMethods {
   closeCapture(): void;
   strandEdit(words: string): void;
   makeCaptureCard(): CaptureCard;
-  makeCaptureButton(): HTMLButtonElement;
-  paintCaptureVerb(): void;
+  panelDoorAt(target: EventTarget | null, x: number, y: number): boolean;
+  openCaptureByHand(): void;
   // The band of the window the PROSE is readable in, measured per call —
   // App's own, and the number every floating surface here clamps into.
   chromeFrame(): { top: number; bottom: number };

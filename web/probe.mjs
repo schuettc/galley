@@ -6049,16 +6049,17 @@ function bindsContentField(src) {
     // reach, and opening it slid every anchored card 39.29px off its mark. The
     // rail holds live work only — *here is what needs you, beside the text it
     // is about* — and a `+ add` button needs nothing and is beside nothing.
-    // Capture is chrome now: `+ Instruction` in the bar, a right-click in the
-    // document, and `.gly-capture` for the typing. The old handle's sentence is
+    // Capture has no button now: a click on blank panel space, a right-click
+    // anywhere below the bar, and `.gly-capture` for the typing. The bar's
+    // `+ Instruction` is asserted ABSENT for the same reason as the old handle. The old handle's sentence is
     // asserted ABSENT, because a rail that grew one back is the defect
     // returning and a check that only looked for the new string would not see
     // it. `gly-overall-rail` stays: the instructions already FILED are still
     // the rail's, which is the half that never had to move.
     check(
-      'capture is chrome, and the rail carries no handle of its own',
+      'capture has no button of its own, in the bar or the rail',
       src.includes('gly-capture') &&
-        src.includes('+ Instruction') &&
+        !src.includes('+ Instruction') &&
         src.includes('gly-overall-rail') &&
         src.includes('add an instruction on the whole doc') &&
         !src.includes('+ instruction on the whole document'),
@@ -6776,13 +6777,17 @@ function bindsContentField(src) {
     );
     // §2.2: the whole-document instruction is a card in the rail and nothing
     // else — that part is unchanged. WHERE IT IS ASKED FOR IS NOT: the handle
-    // was the rail's own first card and is the bar's control now, for the
+    // was the rail's own first card, then the bar's `+ Instruction`, and is the
+    // panel's blank space now, named by the empty panel's "click here", for the
     // reason spelled where `+ instruction on the whole document` is asserted
     // absent above. The verb carries no count, because the count is on the
     // primary and the cards are directly underneath it.
     check(
-      'the built bundle offers the whole-document instruction from the BAR',
-      src.includes('+ Instruction') &&
+      'the built bundle offers the whole-document instruction from the PANEL',
+      src.includes('Or ') &&
+        src.includes('click here') &&
+        src.includes(' to ask about the whole document.') &&
+        !src.includes('+ Instruction') &&
         !src.includes('Whole-document instruction · '),
     );
     // §2.3: an instruction is editable. Both the verb and the endpoint it
@@ -6916,8 +6921,8 @@ function bindsContentField(src) {
         src.includes('gly-overall') &&
         src.includes('gly-capture'),
     );
-    // AND THE TWO DOORS TO IT, WHICH IS WHERE THE VERB WENT. The bar's control
-    // and the right-click menu are one decision seen twice: capture is chrome,
+    // AND THE TWO DOORS TO IT, WHICH IS WHERE THE VERB WENT. The panel's blank
+    // space (its pointer is `gly-panel-door`) and the right-click menu are one decision seen twice: capture is chrome,
     // and the rail holds only the work. A bundle carrying neither is a document
     // whose whole-file instruction cannot be started at all.
     // `contextmenu` ALONE IS NOT A READ. The bundle carries third-party code
@@ -6926,8 +6931,8 @@ function bindsContentField(src) {
     // left a check on that string green. What only this menu puts in the
     // bundle is its own rows and their classes, so those are what is read.
     check(
-      'the built bundle offers capture from the bar AND from a right-click',
-      src.includes('+ Instruction') &&
+      'the built bundle offers capture from the panel AND from a right-click',
+      src.includes('gly-panel-door') &&
         src.includes('gly-menu-item') &&
         src.includes('gly-menu-detail') &&
         src.includes('Instruction on the whole document') &&
