@@ -128,3 +128,19 @@ func postAck(baseURL, state, note string, changes []AckChange) error {
 	}
 	return nil
 }
+
+// postApprove sends exactly what the page's Approve button sends, so the
+// channel's galley_approve tool ends a review the same way a press does.
+func postApprove(baseURL string) error {
+	resp, err := http.Post(baseURL+"/_galley/revise", "application/json",
+		strings.NewReader(`{"verdict":"approve"}`))
+	if err != nil {
+		return fmt.Errorf("the editor did not answer: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("approve refused: %s", strings.TrimSpace(string(body)))
+	}
+	return nil
+}

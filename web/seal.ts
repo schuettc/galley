@@ -524,6 +524,10 @@ export const sealMethods = {
       // whole story; the terminal readout says it and this line stops
       // competing with it.
       this.say('');
+      // The arrival strip offers to read changes in a review that has
+      // ended, so it goes on this edge. History is not marked read: the
+      // arrivals are still there for whoever opens it.
+      this.hideStrip();
       return;
     }
     this.editor.setEditable(true);

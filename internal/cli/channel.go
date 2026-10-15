@@ -159,6 +159,15 @@ var openSchema = json.RawMessage(`{
   "required": ["doc"]
 }`)
 
+// approveSchema takes the document and nothing else, like the button.
+var approveSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "doc": {"type": "string", "description": "path to the document under review"}
+  },
+  "required": ["doc"]
+}`)
+
 // channelPoll is how long one attach poll is held open — the channel's whole
 // life is re-arming, so minutes-long polls cost nothing and a short one would
 // turn a quiet review into a stream of requests. The server bounds every poll
@@ -267,6 +276,11 @@ func newChannel(scope, self string) *channel {
 				"Idempotent — a document this session already has open returns the same URL and opens nothing. " +
 				"This is the only way to open a document; do not run `galley edit` from a shell.",
 			InputSchema: openSchema,
+		}, {
+			Name: "galley_approve",
+			Description: "Approve a document under review. Call it only when the reviewer says in the conversation that they approve the document. " +
+				"It ends the review exactly like the page's Approve button: the document is sealed as it stands and the page locks itself.",
+			InputSchema: approveSchema,
 		}},
 		Call: c.callTool,
 	})
@@ -286,6 +300,21 @@ func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
 			return "", err
 		}
 		return c.open(p.Doc)
+	case "galley_approve":
+		var p struct {
+			Doc string `json:"doc"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil {
+			return "", err
+		}
+		rt, ok := serve.FindRuntime(p.Doc)
+		if !ok {
+			return "", fmt.Errorf("no running editor for %s", p.Doc)
+		}
+		if err := postApprove(rt.URL); err != nil {
+			return "", err
+		}
+		return "approved: the review of " + p.Doc + " is over and the page is locked", nil
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}

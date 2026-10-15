@@ -78,7 +78,7 @@ import {
   spanIn,
 } from './entry.ts';
 // The seal vocabulary moved out of entry.ts — see web/seal.ts's header.
-import { sealLine, reopenLine } from './seal.ts';
+import { sealLine, reopenLine, sealMethods } from './seal.ts';
 import {
   MODE_ASK,
   MODE_LIVE,
@@ -7812,6 +7812,38 @@ function bindsContentField(src) {
   check(
     'an edit with no words strands nothing',
     strandedValue('draft', '  \n ') === null,
+  );
+}
+
+// AN APPROVED SEAL HIDES THE ARRIVAL STRIP, on the edge and only there. The
+// review is over, so a strip still offering "read changes" is about a review
+// that no longer takes input. History is not marked read: the strip goes, the
+// arrivals stay.
+{
+  let hidden = 0;
+  const shell = {
+    sealed: false,
+    paintGrips() {},
+    closeVerdictMenu() {},
+    editor: { setEditable() {} },
+    say() {},
+    paintSeal() {},
+    hideStrip() {
+      hidden += 1;
+    },
+    applySeal: sealMethods.applySeal,
+  };
+  sealMethods.readSeal.call(shell, { sealed: true, verdict: 'approved' });
+  check(
+    'a page that becomes sealed hides the arrival strip',
+    hidden === 1,
+    hidden,
+  );
+  sealMethods.readSeal.call(shell, { sealed: true, verdict: 'approved' });
+  check(
+    'a page already sealed does not hide the strip again',
+    hidden === 1,
+    hidden,
   );
 }
 
