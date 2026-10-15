@@ -3,10 +3,14 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/schuettc/galley/internal/registry"
 	"github.com/schuettc/galley/internal/serve"
@@ -18,11 +22,27 @@ import (
 // the resolution order for a document that is ALREADY open; open_spawn_test.go
 // covers the spawn.
 
+// plantAdvert writes an advert for page whose URL is a stand-in editor that
+// answers GET /_galley/revise with a review still open, which is all
+// galley_open asks of an editor it already has.
 func plantAdvert(t *testing.T, page, owner string) registry.Entry {
 	t.Helper()
+	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_galley/revise" && r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`{"sealed":false}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(ed.Close)
+	return plantAdvertAt(t, page, owner, ed.URL, os.Getpid())
+}
+
+func plantAdvertAt(t *testing.T, page, owner, url string, pid int) registry.Entry {
+	t.Helper()
 	e := registry.Entry{
-		URL: "http://127.0.0.1:1", Room: "room-" + registry.Token(page)[:8],
-		Page: page, PID: os.Getpid(), Owner: owner,
+		URL: url, Room: "room-" + registry.Token(page)[:8],
+		Page: page, PID: pid, Owner: owner,
 	}
 	if err := registry.Write(e); err != nil {
 		t.Fatal(err)
@@ -55,12 +75,106 @@ func TestOpenReturnsTheEditorThisSessionAlreadyOwns(t *testing.T) {
 	e := plantAdvert(t, doc, "session-me")
 
 	c := newChannel(dir, "session-me")
+	opened := recordOpens(c)
 	r, err := openDoc(t, c, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.URL != e.URL || r.Room != e.Room || r.Page != doc {
 		t.Fatalf("got %+v, want the existing advert %+v", r, e)
+	}
+	// THE PAGE IS OPENED EVERY TIME: a second galley_open on a review still
+	// running brings its page back, rather than leaving only a link.
+	if got := *opened; len(got) != 1 || got[0] != e.URL {
+		t.Fatalf("browser opened %v, want exactly [%s]", got, e.URL)
+	}
+}
+
+// recordOpens swaps the channel's browser opener for one that records the
+// URLs it was asked to open, so no test opens a real tab.
+func recordOpens(c *channel) *[]string {
+	var opened []string
+	c.openPage = func(url string) { opened = append(opened, url) }
+	return &opened
+}
+
+// AN EDITOR THAT DOES NOT ANSWER IS SHUTTING DOWN, and handing back its URL
+// gives the reviewer a dead page. Its entry is waited out and a fresh editor
+// takes its place.
+func TestOpenWaitsOutAnEditorThatDoesNotAnswer(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	if err := registry.AnnounceSession("session-me"); err != nil {
+		t.Fatal(err)
+	}
+	dying := exec.Command("sleep", "30")
+	if err := dying.Start(); err != nil {
+		t.Fatal(err)
+	}
+	old := plantAdvertAt(t, doc, "session-me", "http://127.0.0.1:1", dying.Process.Pid)
+
+	c := newChannel(dir, "session-me")
+	c.exe = buildGalley(t)
+	noBrowser(t)
+	recordOpens(c)
+	c.openPoll = 20 * time.Millisecond
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = dying.Process.Kill()
+		_ = dying.Wait()
+	}()
+	r, err := openDoc(t, c, doc)
+	if err != nil {
+		t.Fatalf("galley_open: %v", err)
+	}
+	t.Cleanup(func() { killEditor(t, r.Room) })
+	if r.Room == old.Room || r.URL == old.URL {
+		t.Fatalf("handed back the dying editor: %+v", r)
+	}
+}
+
+func TestOpenReportsAnEditorThatNeitherAnswersNorExits(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	plantAdvertAt(t, doc, "session-me", "http://127.0.0.1:1", os.Getpid())
+
+	c := newChannel(dir, "session-me")
+	recordOpens(c)
+	c.openPoll = 10 * time.Millisecond
+	c.shutdownWait = 100 * time.Millisecond
+	_, err := openDoc(t, c, doc)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("pid %d", os.Getpid())) {
+		t.Fatalf("expected an error naming pid %d, got %v", os.Getpid(), err)
+	}
+}
+
+// AN ENDED REVIEW IN AN EDITOR STARTED FROM A TERMINAL cannot be stopped from
+// here: it has no stop hook, so the reviewer is told to stop it.
+func TestOpenRefusesAnEndedReviewItCannotStop(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_galley/revise":
+			_, _ = w.Write([]byte(`{"sealed":true}`))
+		case "/_galley/stop":
+			http.Error(w, "this server was started without a stop hook", http.StatusNotImplemented)
+		}
+	}))
+	t.Cleanup(ed.Close)
+	plantAdvertAt(t, doc, "", ed.URL, os.Getpid())
+
+	c := newChannel(dir, "session-me")
+	opened := recordOpens(c)
+	_, err := openDoc(t, c, doc)
+	if err == nil || !strings.Contains(err.Error(), "review there has ended") {
+		t.Fatalf("expected an ended-review error, got %v", err)
+	}
+	if len(*opened) != 0 {
+		t.Fatalf("opened %v for a review that has ended", *opened)
 	}
 }
 
@@ -204,5 +318,42 @@ func TestSamePageComparesBothSpellings(t *testing.T) {
 	}
 	if samePage(filepath.Join(real, "d.md"), filepath.Join(real, "e.md")) {
 		t.Fatal("two files were read as one")
+	}
+}
+
+// AN ENDED REVIEW THAT IS NOT THIS SESSION'S IS LEFT ALONE. With no registry
+// entry, the runtime file is the only record of the editor; one owned by
+// another session is reported as open, never stopped.
+func TestOpenDoesNotStopAnotherSessionsEndedReview(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	stops := 0
+	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/_galley/revise":
+			_, _ = w.Write([]byte(`{"sealed":true}`))
+		case "/_galley/stop":
+			stops++
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	t.Cleanup(ed.Close)
+	raw, err := json.Marshal(serve.Runtime{URL: ed.URL, Room: "doc", Page: doc, PID: os.Getpid(), Owner: "session-other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(serve.DefaultRuntimePath(doc), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newChannel(dir, "session-me")
+	opened := recordOpens(c)
+	_, err = openDoc(t, c, doc)
+	if err == nil || !strings.Contains(err.Error(), "already open") {
+		t.Fatalf("expected an already-open error, got %v", err)
+	}
+	if stops != 0 || len(*opened) != 0 {
+		t.Fatalf("stopped %d times, opened %v; another session's editor must be left alone", stops, *opened)
 	}
 }

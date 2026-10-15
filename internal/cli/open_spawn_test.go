@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/schuettc/galley/internal/registry"
+	"github.com/schuettc/galley/internal/serve"
 )
 
 // buildGalley compiles the real binary once per test that needs it. The
@@ -81,6 +82,7 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
 	noBrowser(t)
+	opened := recordOpens(c)
 	c.openPoll = 20 * time.Millisecond
 
 	r, err := openDoc(t, c, doc)
@@ -88,6 +90,11 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 		t.Fatalf("galley_open: %v", err)
 	}
 	t.Cleanup(func() { killEditor(t, r.Room) })
+	// The spawned editor opens its own page; the channel opening it too
+	// would put two tabs in front of the reviewer.
+	if len(*opened) != 0 {
+		t.Fatalf("the channel opened %v on the spawn path; the editor does that", *opened)
+	}
 
 	if r.Page != doc || r.URL == "" || r.Room == "" {
 		t.Fatalf("incomplete result %+v", r)
@@ -109,14 +116,76 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// THE RUNTIME FILE NAMES THE OWNER, so an approved review — whose registry
+	// entry is gone — can still be recognised as this session's.
+	if rt, ok := serve.FindRuntime(doc); !ok || rt.Owner != "session-me" {
+		t.Fatalf("runtime file %+v (found %v), want owner session-me", rt, ok)
+	}
 	if again.Room != r.Room {
 		t.Fatalf("second open started a second editor: %s then %s", r.Room, again.Room)
+	}
+	if got := *opened; len(got) != 1 || got[0] != r.URL {
+		t.Fatalf("second open opened %v, want exactly [%s]", got, r.URL)
 	}
 
 	logDir, _ := registry.LogDir()
 	if _, err := os.Stat(filepath.Join(logDir, registry.Token(doc)+".log")); err != nil {
 		t.Fatalf("no editor log written: %v", err)
 	}
+}
+
+// A REVIEW THAT HAS ENDED IS NOT HANDED BACK. After an approve the old
+// editor serves a sealed page; galley_open stops it and starts a fresh review.
+func TestOpenStartsAFreshReviewWhenTheLastOneEnded(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
+	if err := registry.AnnounceSession("session-me"); err != nil {
+		t.Fatal(err)
+	}
+	c := newChannel(dir, "session-me")
+	c.exe = buildGalley(t)
+	noBrowser(t)
+	recordOpens(c)
+	c.openPoll = 20 * time.Millisecond
+
+	first, err := openDoc(t, c, doc)
+	if err != nil {
+		t.Fatalf("galley_open: %v", err)
+	}
+	if err := postApprove(first.URL); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	second, err := openDoc(t, c, doc)
+	if err != nil {
+		t.Fatalf("galley_open after approve: %v", err)
+	}
+	t.Cleanup(func() { killEditor(t, second.Room) })
+	// The room, not the URL: a fresh editor reclaims the last port on purpose.
+	if second.Room == first.Room {
+		t.Fatalf("handed back the ended review: %+v then %+v", first, second)
+	}
+	for _, e := range mustList(t) {
+		if e.Room == first.Room {
+			t.Fatalf("the ended editor is still advertised: %+v", e)
+		}
+	}
+	st, err := reviseState(second.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Sealed {
+		t.Fatal("the fresh review is already sealed")
+	}
+}
+
+func mustList(t *testing.T) []registry.Entry {
+	t.Helper()
+	es, err := registry.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return es
 }
 
 // THE EDITOR galley_open STARTS OPENS THE PAGE ITSELF: it is started without

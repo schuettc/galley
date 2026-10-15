@@ -12,7 +12,10 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,7 +72,10 @@ func samePage(a, b string) bool {
 // (claim it — the human-terminal editor being adopted, the same adoption the
 // scan performs); open by another LIVE session (theirs, refuse); open by a
 // session that has stopped (its editor is going down on its own — see
-// watchOwnerSession — refuse and say retry); otherwise spawn.
+// watchOwnerSession — refuse and say retry); otherwise spawn. An editor this
+// session has is handed back only while it answers with a review still open:
+// one whose review has ended is stopped, one that does not answer is waited
+// out, and a fresh editor is spawned in its place (see settle).
 func (c *channel) open(doc string) (string, error) {
 	if doc == "" {
 		return "", fmt.Errorf("galley_open needs a document path")
@@ -86,26 +92,137 @@ func (c *channel) open(doc string) (string, error) {
 	// child is still told to open the page, and the log is still named after
 	// what the agent asked for.
 	adv := serve.AdvertisedPath(abs)
-	if r, found, err := c.findOpen(adv); err != nil || found {
+	r, pid, found, err := c.findOpen(adv)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		// AN APPROVED REVIEW HAS NO REGISTRY ENTRY — approve withdraws it while
+		// the editor keeps serving — so the runtime file beside the document is
+		// the only record of the editor and of whose it is. Only this session's
+		// is ever stopped; anyone else's is reported as open, as before.
+		if rt, ok := serve.FindRuntime(adv); ok {
+			if c.self == "" || rt.Owner != c.self {
+				return "", &serve.AlreadyServing{Runtime: rt}
+			}
+			r, pid, found = openResult{URL: rt.URL, Room: rt.Room, Page: rt.Page}, rt.PID, true
+		}
+	}
+	if found {
+		live, err := c.settle(r.Page, r.URL, pid)
 		if err != nil {
 			return "", err
 		}
-		return r.withPreview(abs, adv).text()
+		if live {
+			// THE PAGE IS OPENED EVERY TIME, so a second galley_open brings the
+			// review back in front of the reviewer. Only here: on the spawn path
+			// the editor opens its own page, and two tabs would be one too many.
+			c.openPage(r.URL)
+			return r.withPreview(abs, adv).text()
+		}
 	}
-	r, err := c.spawnEditor(abs, adv)
+	r, err = c.spawnEditor(abs, adv)
 	if err != nil {
 		return "", err
 	}
 	return r.withPreview(abs, adv).text()
 }
 
+// settle decides whether an editor this session already has can be handed
+// back. live=true means it answers with a review still open. An editor whose
+// review has ended (approved or discarded) is stopped and waited out; one that
+// does not answer is taken to be shutting down and waited out. live=false
+// with a nil error means it is gone and the caller spawns a fresh one.
+func (c *channel) settle(page, url string, pid int) (bool, error) {
+	st, err := probeRevise(url)
+	if err != nil {
+		if c.waitGone(pid) {
+			return false, nil
+		}
+		return false, fmt.Errorf("the editor for %s (pid %d) does not answer and has not exited after %s; stop it, then call galley_open again",
+			page, pid, c.shutdownWait)
+	}
+	if !st.Sealed {
+		return true, nil
+	}
+	if err := postStop(url); err != nil {
+		if errors.Is(err, errNoStopHook) {
+			return false, fmt.Errorf("the review there has ended, and the editor for %s (pid %d) has no stop hook — it was started from a terminal; "+
+				"stop that editor (Ctrl-C in its terminal), then call galley_open again", page, pid)
+		}
+		return false, fmt.Errorf("the review there has ended, and its editor would not stop: %w", err)
+	}
+	if c.waitGone(pid) {
+		return false, nil
+	}
+	return false, fmt.Errorf("the review there has ended; asked its editor (pid %d) to stop, but it is still running after %s — stop it, then call galley_open again",
+		pid, c.shutdownWait)
+}
+
+// waitGone polls until pid has exited, for at most shutdownWait.
+func (c *channel) waitGone(pid int) bool {
+	deadline := time.Now().Add(c.shutdownWait)
+	for registry.Alive(pid) {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(c.openPoll)
+	}
+	return true
+}
+
+// probeTimeout is how long an editor has to answer before galley_open takes it
+// to be shutting down. A live editor answers GET /_galley/revise at once.
+const probeTimeout = time.Second
+
+// probeRevise is reviseState with a bound: an editor going down can accept a
+// connection and never answer it.
+func probeRevise(baseURL string) (reviseStateView, error) {
+	client := &http.Client{Timeout: probeTimeout}
+	resp, err := client.Get(baseURL + "/_galley/revise")
+	if err != nil {
+		return reviseStateView{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return reviseStateView{}, fmt.Errorf("revise state: %s", resp.Status)
+	}
+	var st reviseStateView
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		return reviseStateView{}, err
+	}
+	return st, nil
+}
+
+// errNoStopHook is a 501 from /_galley/stop: a server started without a stop
+// hook, which only the terminal that started it can stop.
+var errNoStopHook = errors.New("no stop hook")
+
+// postStop sends what the page's Done button sends, with postAck's conventions.
+func postStop(baseURL string) error {
+	resp, err := http.Post(baseURL+"/_galley/stop", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		return fmt.Errorf("the editor did not answer: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		return nil
+	case http.StatusNotImplemented:
+		return errNoStopHook
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("stop refused: %s", strings.TrimSpace(string(body)))
+}
+
 // findOpen answers "is this document already being served, and by whom".
-// found=false with a nil error means nothing is open and the caller spawns.
+// found=false with a nil error means no registry entry holds it; the pid is
+// the editor's, for waiting it out.
 // It takes the ADVERTISED path (see open), never the path the tool was given.
-func (c *channel) findOpen(adv string) (openResult, bool, error) {
+func (c *channel) findOpen(adv string) (openResult, int, bool, error) {
 	entries, _, err := registry.Inspect()
 	if err != nil {
-		return openResult{}, false, fmt.Errorf("cannot read the live registry: %w", err)
+		return openResult{}, 0, false, fmt.Errorf("cannot read the live registry: %w", err)
 	}
 	for _, e := range entries {
 		if !samePage(e.Page, adv) {
@@ -114,34 +231,34 @@ func (c *channel) findOpen(adv string) (openResult, bool, error) {
 		r := openResult{URL: e.URL, Room: e.Room, Page: e.Page}
 		switch {
 		case e.Owner == c.self:
-			return r, true, nil
+			return r, e.PID, true, nil
 		case e.Owner == "":
 			// A channel with no session id has nothing to stamp; the advert
 			// stays unowned and the scan attaches to it as before.
 			if c.self == "" {
-				return r, true, nil
+				return r, e.PID, true, nil
 			}
 			claimed, err := registry.Claim(e.Room, c.self)
 			if err != nil {
-				return openResult{}, false, fmt.Errorf("cannot claim %s: %w", e.Page, err)
+				return openResult{}, 0, false, fmt.Errorf("cannot claim %s: %w", e.Page, err)
 			}
 			if !claimed {
-				return openResult{}, false, fmt.Errorf("%s is open, but another live session claimed it first; its wakes go there", e.Page)
+				return openResult{}, 0, false, fmt.Errorf("%s is open, but another live session claimed it first; its wakes go there", e.Page)
 			}
-			return r, true, nil
+			return r, e.PID, true, nil
 		case registry.SessionLive(e.Owner):
-			return openResult{}, false, fmt.Errorf("open in session %s; its wakes go there", e.Owner)
+			return openResult{}, 0, false, fmt.Errorf("open in session %s; its wakes go there", e.Owner)
 		default:
-			return openResult{}, false, fmt.Errorf("opened by session %s, which has stopped; "+
+			return openResult{}, 0, false, fmt.Errorf("opened by session %s, which has stopped; "+
 				"its editor is shutting down, retry in a few seconds — if it is still there, stop it (pid %d)", e.Owner, e.PID)
 		}
 	}
-	return openResult{}, false, nil
+	return openResult{}, 0, false, nil
 }
 
 // spawnEditor starts `galley edit <abs> --owner <self>` and waits for its
 // advert. The editor opens the page in the reviewer's browser itself, as
-// `galley edit` does from a terminal; the reuse path in open opens nothing.
+// `galley edit` does from a terminal; open opens it only on the reuse path.
 //
 // DETACHED, AND ON PURPOSE IN EVERY PARTICULAR. Setsid puts the editor in its
 // own session and process group, so a channel that restarts (the MCP server

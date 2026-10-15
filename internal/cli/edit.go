@@ -394,10 +394,11 @@ const reviseShutdownGrace = 5 * time.Second
 // how a plain `galley pending`/`wait`/`ack` finds the running server.
 func announceEdit(srv *serve.EditServer, url, owner string) error {
 	raw, err := json.MarshalIndent(serve.Runtime{
-		URL:  url,
-		Room: srv.Room,
-		Page: srv.MdPath,
-		PID:  os.Getpid(),
+		URL:   url,
+		Room:  srv.Room,
+		Page:  srv.MdPath,
+		PID:   os.Getpid(),
+		Owner: owner,
 	}, "", "  ")
 	if err != nil {
 		return err
