@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tools "github.com/schuettc/tools-common"
 )
@@ -77,6 +78,9 @@ func themesDir() string { return filepath.Join(tools.ConfigDir("galley"), "theme
 // LoadTheme reads the theme folder of that name, filling anything it leaves
 // out from the base theme.
 func LoadTheme(name string) (Theme, error) {
+	if !plainName(name) {
+		return Theme{}, fmt.Errorf("theme %q: a theme is named by its folder in %s, not a path", name, themesDir())
+	}
 	dir := filepath.Join(themesDir(), name)
 	raw, err := os.ReadFile(filepath.Join(dir, "theme.json"))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -97,6 +101,9 @@ func LoadTheme(name string) (Theme, error) {
 	t.Light = fill(f.Light, t.Light)
 	t.Dark = fill(f.Dark, t.Dark)
 	for _, font := range f.Fonts {
+		if !plainName(font.File) {
+			return Theme{}, fmt.Errorf("theme %q: font file %q must be a file in %s", name, font.File, dir)
+		}
 		data, err := os.ReadFile(filepath.Join(dir, font.File))
 		if err != nil {
 			return Theme{}, fmt.Errorf("theme %q: font file %s: %w", name, font.File, err)
@@ -114,6 +121,13 @@ func LoadTheme(name string) (Theme, error) {
 		t.ExtraCSS = string(b)
 	}
 	return t, nil
+}
+
+// plainName reports whether n names an entry directly inside a folder: not
+// empty, not "." or "..", and without a path separator — so a theme name or
+// a font file cannot reach outside the folder it is joined onto.
+func plainName(n string) bool {
+	return n != "" && n != "." && n != ".." && !strings.ContainsAny(n, `/\`)
 }
 
 // fill takes each colour p leaves empty from base.

@@ -2,6 +2,7 @@ package render
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,3 +129,44 @@ func TestLoadThemeReadsFontsAndExtraCSS(t *testing.T) {
 		t.Fatalf("ExtraCSS = %q", got.ExtraCSS)
 	}
 }
+
+// A theme name is a folder name in the themes directory and nothing else: a
+// project config cannot point galley at a folder outside it.
+func TestThemeNameCannotLeaveTheThemesFolder(t *testing.T) {
+	home := configHome(t)
+	themes := filepath.Join(home, "galley", "themes")
+	// A loadable theme.json wherever each name would land if it were joined
+	// as given, so an unchecked name loads instead of failing by accident.
+	for _, at := range []string{
+		filepath.Join(home, "galley", "x"), filepath.Join(themes, "a", "b"),
+		themes, filepath.Join(home, "galley"),
+	} {
+		writeFile(t, filepath.Join(at, "theme.json"), `{"label":"outside"}`)
+	}
+	for _, name := range []string{"../x", "a/b", ".", ".."} {
+		repo := t.TempDir()
+		writeFile(t, filepath.Join(repo, ".galley", "config.json"), `{"theme":`+strconvQuote(name)+`}`)
+		doc := filepath.Join(repo, "a.md")
+		writeFile(t, doc, "# A\n")
+		_, err := ThemeFor(doc)
+		if err == nil || !strings.Contains(err.Error(), strconvQuote(name)) {
+			t.Errorf("theme %q: err = %v, want an error naming it", name, err)
+		}
+	}
+}
+
+// A font file is a file in the theme's own folder: theme.json cannot embed
+// a file from anywhere else on the machine.
+func TestFontFileCannotLeaveTheThemeFolder(t *testing.T) {
+	home := configHome(t)
+	writeTheme(t, home, "acme", `{"fonts":[{"family":"X","file":"../../etc/passwd"}]}`)
+	// The file the unchecked join would reach, so the escape is a load, not a
+	// missing file.
+	writeFile(t, filepath.Join(home, "galley", "etc", "passwd"), "secret")
+	_, err := LoadTheme("acme")
+	if err == nil || !strings.Contains(err.Error(), "../../etc/passwd") {
+		t.Fatalf("err = %v, want an error naming the font file", err)
+	}
+}
+
+func strconvQuote(s string) string { return fmt.Sprintf("%q", s) }
