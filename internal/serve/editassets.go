@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/schuettc/galley/internal/render"
 )
 
 // editassets.go serves the files that live BESIDE the document, so an
@@ -101,15 +103,10 @@ import (
 //
 // Keys are lower-case; the lookup folds the request's extension to match, so
 // IMG_0001.JPG off a phone is served like any other figure.
-var assetTypes = map[string]string{
-	".png":  "image/png",
-	".jpg":  "image/jpeg",
-	".jpeg": "image/jpeg",
-	".gif":  "image/gif",
-	".svg":  "image/svg+xml",
-	".webp": "image/webp",
-	".avif": "image/avif",
-}
+//
+// It is render.ImageTypes, so the figures the editor shows are the ones the
+// rendered page embeds.
+var assetTypes = render.ImageTypes
 
 // serveSibling answers a request for a file beside the document, or 404s.
 func (s *EditServer) serveSibling(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,115 @@
+/* The extra colours are mixed from the theme's five, so a theme supplies
+   only bg, fg, muted, line and accent. */
+:root {
+  --panel: color-mix(in srgb, var(--line) 35%, var(--bg));
+  --panel-raised: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --accent-strong: color-mix(in srgb, var(--accent) 65%, var(--fg));
+  --accent-wash: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-padding-top: 1.5rem; }
+html:has(.g-head) { scroll-padding-top: 5rem; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 var(--sans); }
+::selection { background: var(--accent-wash); }
+a { color: var(--accent-strong); text-underline-offset: 2px; }
+
+/* Header: only when the theme has a logo or a label. */
+.g-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 24px; background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.g-logo img { display: block; height: 1.6rem; width: auto; }
+.g-label { font-size: 14px; font-weight: 600; color: var(--fg); }
+.g-logo + .g-label { border-left: 1px solid var(--line); padding-left: 14px; }
+
+.g-wrap { display: flex; gap: 40px; max-width: 1140px; margin: 0 auto; padding: 0 24px 96px; }
+
+/* Sidebar: "On this page" caption, hairline rail, accent hover bar. The top
+   padding centres the caption on the title's first line beside it. */
+.g-side {
+  flex: 0 0 232px; position: sticky; top: 0; align-self: flex-start;
+  max-height: 100vh; overflow-y: auto; padding: 47px 0 22px;
+  display: flex; flex-direction: column; font-size: 13px;
+}
+/* Under a header the sidebar sticks a little lower, but less than the header is
+   tall, so at rest it never gets pushed down out of line with the title; its
+   top padding keeps the caption clear of the header once stuck. */
+.g-head ~ .g-wrap .g-side { top: 24px; max-height: calc(100vh - 24px); }
+.g-side:empty { display: none; }
+.g-side::before {
+  content: "On this page";
+  font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 10px;
+  padding-left: 16px; /* where the entries' text starts: 14px padding + 2px bar */
+}
+.g-side a {
+  display: block; padding: 5px 0 5px 14px; line-height: 1.35;
+  color: var(--muted); text-decoration: none;
+  border-left: 2px solid transparent; box-shadow: inset 1px 0 0 var(--line);
+}
+.g-side .g-h2 { font-size: 16px; }
+.g-side .g-h3 { padding-left: 26px; font-size: 12px; }
+.g-side a:hover, .g-side a:focus-visible {
+  color: var(--accent-strong); border-left-color: var(--accent); box-shadow: none;
+}
+
+.g-body { flex: 1 1 auto; min-width: 0; max-width: 800px; padding-top: 8px; }
+
+/* Headings: subaud's semibold and tight, strong accent for h1/h2, a rule above h2. */
+.g-body h1, .g-body h2, .g-body h3, .g-body h4 { letter-spacing: -.02em; line-height: 1.2; font-weight: 600; }
+.g-body h1 { font-size: 32px; color: var(--accent-strong); margin: 28px 0 8px; }
+.g-body h2 {
+  font-size: 24px; color: var(--accent-strong); margin: 44px 0 12px;
+  padding-top: 20px; border-top: 1px solid var(--line);
+}
+.g-body h3 { font-size: 20px; margin: 28px 0 8px; }
+.g-body h4 { font-size: 16px; margin: 22px 0 6px; }
+.g-body img { max-width: 100%; }
+.g-body hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+.g-body ul, .g-body ol { padding-left: 22px; }
+.g-body li { margin: .25em 0; }
+
+/* Code: inline on the accent wash, blocks on a panel card. */
+.g-body code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--accent-wash); color: var(--accent-strong);
+  padding: .12em .38em; border-radius: 4px;
+}
+.g-body pre {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto;
+}
+.g-body pre code { background: none; padding: 0; color: var(--fg); font-size: 13px; line-height: 1.5; tab-size: 4; }
+
+/* Quotes: a panel card with the accent bar. */
+.g-body blockquote {
+  margin: 18px 0; padding: 12px 16px; color: var(--fg);
+  background: var(--panel); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0;
+}
+.g-body blockquote p { margin: .3em 0; }
+
+/* Tables: subaud's small mono header, striped rows; a wide table scrolls. */
+.g-body table { border-collapse: collapse; margin: 18px 0; display: block; overflow-x: auto; font-size: 14px; }
+.g-body th, .g-body td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+.g-body th {
+  background: var(--panel); color: var(--muted); font-family: var(--mono); font-size: 11px;
+  font-weight: 500; letter-spacing: .1em; text-transform: uppercase;
+}
+.g-body tr:nth-child(even) td { background: var(--panel); }
+
+/* Diagrams: a panel card, labels in mono as on subaud.tools, nodes on the raised panel.
+   Mermaid measures labels in the page, so setting the font here still sizes
+   the nodes. */
+.g-body pre.mermaid {
+  margin: 24px 0; padding: 16px; text-align: center; font-size: 13px; font-family: var(--mono);
+}
+.g-body pre.mermaid svg, .g-body pre.mermaid svg * { font-family: var(--mono) !important; }
+.g-body pre.mermaid .node rect,
+.g-body pre.mermaid .node polygon,
+.g-body pre.mermaid .node circle,
+.g-body pre.mermaid rect.actor { fill: var(--panel-raised) !important; }
+.g-body pre.mermaid .cluster rect { fill: var(--panel) !important; stroke: var(--line) !important; }
+
+@media (max-width: 52rem) { .g-side { display: none; } }

@@ -13,6 +13,7 @@
     "grip.mjs",
     "align.mjs",
     "livestructure.mjs",
+    "share.mjs",
     "undo.mjs",
     "layers.mjs",
     "preflight.mjs",

@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,6 +120,13 @@ type EditServer struct {
 	// two that drift. Nil means no stop hook, and the endpoint says so rather
 	// than pretending.
 	OnStop func()
+
+	// canShare is whether this machine can put a file on the clipboard for the
+	// reviewer to paste as an attachment: macOS only (see share.go). putFile
+	// does it, the osascript call by default; a test supplies its own so it
+	// never touches the real clipboard.
+	canShare bool
+	putFile  func(path string) error
 
 	doc *crdt.Doc
 	yjs *ws.Server
@@ -521,6 +529,9 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// supplied a command would make pull — which needs no command at all —
 		// depend on push being configured.
 		Notify: &Notifier{},
+
+		canShare: runtime.GOOS == "darwin",
+		putFile:  putFileOnClipboard,
 	}
 
 	// The review map is pending.json's live state. Where each comment sits is
@@ -1330,6 +1341,11 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/versions/restore", s.handleVersionRestore)
 	mux.HandleFunc("/_galley/rev", s.handleEditRev)
 	mux.HandleFunc("/_galley/saved", s.handleEditSaved)
+	// The branded page and Share's downloads and clipboard puts; see share.go.
+	mux.HandleFunc("/_galley/render", s.handleRender)
+	mux.HandleFunc("/_galley/download/md", s.handleDownloadMD)
+	mux.HandleFunc("/_galley/share/html", s.handleShareHTML)
+	mux.HandleFunc("/_galley/share/md", s.handleShareMD)
 	mux.HandleFunc("/", s.handleEditRoot)
 	return mux
 }
@@ -1371,11 +1387,13 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 		Room       string
 		PageMode   bool
 		PreviewURL string
+		CanShare   bool
 	}{
 		Title:      filepath.Base(s.MdPath),
 		Room:       s.Room,
 		PageMode:   s.pageMode,
 		PreviewURL: previewURL,
+		CanShare:   s.canShare,
 	}); err != nil {
 		http.Error(w, "edit shell: "+err.Error(), http.StatusInternalServerError)
 		return

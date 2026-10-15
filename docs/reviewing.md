@@ -120,7 +120,7 @@ With instructions pending it reads **`Revise · N ▾`** — the count is the nu
 
 While a revision is out, the button counts: `revising · 12s`. It counts until the revision *lands*, not until the request returns, so a six-second revision shows six seconds. The document is read-only while the agent holds it and the readout says `with the agent`. A **`✕ cancel`** button appears beside the primary; it takes the document back, keeping the agent's partial work as that round if the file parses.
 
-With no instructions pending the button reads **`Approve`** and the press sends the approve directly — there is nothing to choose between. Once it lands, the label becomes `approved`, the bar shows the terminal line (`Approved 14:32 · review closed`), and the page stops taking input.
+With no instructions pending the button reads **`Approve`** and the press sends the approve directly — there is nothing to choose between. Once it lands, the label becomes `approved`, the bar shows the terminal line (`Approved 14:32`), and the page stops taking input.
 
 ## Reading what came back
 

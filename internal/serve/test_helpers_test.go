@@ -73,6 +73,8 @@ func newEditServer(t *testing.T, dir, name, content string) *EditServer {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// No test puts anything on the machine's real clipboard.
+	s.putFile = func(string) error { return nil }
 	return s
 }
 

@@ -47,6 +47,15 @@ collapse and the rail's collapse were deleted as code nothing called: both
 were probe.mjs's fake-storage and hostile-storage blocks, written once per
 persisted flag, and the flags are gone.
 
+share.mjs is the tenth, and it added three groups (52 → 55), all of them
+harness: the `check` helper with the tmpdir setup beside it, the `galley edit`
+spawn with its output drain, and the teardown — shared with typing.mjs,
+layers.mjs and the loop family. Its two in-file repeats (the wait for the seal
+edge, run once per scenario) were folded into one helper before counting, and
+the menu placement it first copied from verdict.ts was rewritten rather than
+counted, because that one was product code. The bar measurements and the
+menu/clipboard claims are in no group.
+
 THE OTHER TWO INSTANCES ARE ONE GROUP IN composer.ts, and they are the only
 duplication in product code anywhere under web/. It is a `postJSON` +
 `.then(res => …)` shape appearing twice in one file — small, real, and not
@@ -61,7 +70,7 @@ even if the answer turns out to be the same one.
 import json
 import sys
 
-BOUND = 52
+BOUND = 55
 
 data = json.load(sys.stdin)
 groups = data["clone_groups"]
@@ -84,6 +93,7 @@ KNOWN = {
     "page.mjs",
     "align.mjs",
     "livestructure.mjs",
+    "share.mjs",
     "composer.ts",
 }
 

@@ -26,10 +26,22 @@ import (
 
 // openResult is what galley_open returns, as JSON text: enough for the agent
 // to hand the reviewer a URL and to recognise the document in later wakes.
+// Preview is the branded page's address, for a markdown review only — a page
+// under review is already its own HTML and has no preview route.
 type openResult struct {
-	URL  string `json:"url"`
-	Room string `json:"room"`
-	Page string `json:"page"`
+	URL     string `json:"url"`
+	Room    string `json:"room"`
+	Page    string `json:"page"`
+	Preview string `json:"preview,omitempty"`
+}
+
+// withPreview sets the preview address when the document opened is markdown:
+// the advertised path is the path asked for exactly when it is not a page.
+func (r openResult) withPreview(abs, adv string) openResult {
+	if abs == adv {
+		r.Preview = strings.TrimRight(r.URL, "/") + "/_galley/render"
+	}
+	return r
 }
 
 func (r openResult) text() (string, error) {
@@ -78,13 +90,13 @@ func (c *channel) open(doc string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return r.text()
+		return r.withPreview(abs, adv).text()
 	}
 	r, err := c.spawnEditor(abs, adv)
 	if err != nil {
 		return "", err
 	}
-	return r.text()
+	return r.withPreview(abs, adv).text()
 }
 
 // findOpen answers "is this document already being served, and by whom".

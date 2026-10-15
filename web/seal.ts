@@ -105,20 +105,10 @@ export function sealLine(
     if (inFlight > 0) return `${handed} · ${inFlight} still landing`;
     return `${handed} · all applied`;
   }
-  // AND HOW TO GET BACK, WHICH THIS DID NOT SAY. The seal is terminal by
-  // design and there is no reopen button — that was decided, and it holds. What
-  // was never decided is that the way back should be INVISIBLE: the seal is
-  // in-memory only, so stopping `galley edit` and starting it again returns a
-  // live review, and Approve changes no bytes, cuts no version and reaches git
-  // not at all. Measured 2026-08-23: approve, restart, `sealed: false`.
-  //
-  // So the whole cost of a mis-pressed Approve is one command — and a reviewer
-  // reading `Approved 14:32 · review closed` has no way to know that. A
-  // recovery that exists and is unmentioned is this codebase's own
-  // invisible-but-present defect wearing the other face, and it is answered
-  // with a clause rather than with a button: a confirmation would tax every
-  // review forever to protect against something a restart undoes.
-  return `Approved${stamp} · review closed · restart galley edit to reopen`;
+  // The bare verdict and its time. The reopen hint (`restart galley edit to
+  // reopen`) was dropped to keep the bar short; reopening is the agent's to
+  // explain, not the bar's.
+  return `Approved${stamp}`;
 }
 
 /** reopenLine is what the status readout says when the page comes back from
@@ -524,7 +514,19 @@ export const sealMethods = {
       // whole story; the terminal readout says it and this line stops
       // competing with it.
       this.say('');
+      // The arrival strip offers to read changes in a review that has
+      // ended, so it goes on this edge. History is not marked read: the
+      // arrivals are still there for whoever opens it.
+      this.hideStrip();
+      // Share takes Revise's box (web/share.ts). Guarded, because a shell
+      // without the mixin (probe.mjs's) has no slot to swap.
+      if (this.swapShare) {
+        this.swapShare(true);
+      }
       return;
+    }
+    if (this.swapShare) {
+      this.swapShare(false);
     }
     this.editor.setEditable(true);
     // THE FLAGS COME BACK FROM THEIR OWNERS, never from a blanket re-enable.
@@ -613,7 +615,13 @@ export const sealMethods = {
     // the terminal that started it, which is what `handleStop` itself tells a
     // caller when no hook is installed. Anyone restoring the terminal bar's
     // verbs should restore Done alone.
-    if (bar && spacer) {
+    // BEFORE `#gly-status`, which on a sealed page carries only a reply: the
+    // state first and the reply after it, so a reply that comes and goes
+    // never moves `Approved HH:MM`. See paintReadout.
+    const status = bar && bar.querySelector('#gly-status');
+    if (bar && status) {
+      bar.insertBefore(readout, status);
+    } else if (bar && spacer) {
       bar.insertBefore(readout, spacer);
     } else if (bar) {
       bar.append(readout);

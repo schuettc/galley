@@ -31,6 +31,8 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 **Sending.** `Revise` sends the round to you. `Revise & Approve` sends it and approves in the same press, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands.
 
+**Approving in the conversation.** If the reviewer tells you here that they approve the document, call the `galley_approve` tool with its path. It ends the review exactly as their `Approve` button would, and the page locks itself. Call it only on their word; never approve on their behalf because the revision looks done.
+
 **Then it arrives here.** They do not have to tell you they pressed it — a round reaches this session on its own.
 
 ## Answering a round
@@ -84,6 +86,78 @@ A comment is discharged **by the revision itself**. Do not reply to instructions
 - **`changed`** — re-read the document before doing anything else.
 - **`closed`** — the editor is gone; nobody is waiting.
 - **Silence when you expect a round** — call `galley_channel_status`. It lists which open documents this session is attached to, and why any others are not.
+
+## Sharing an approved document
+
+After approval, the slot Revise leaves holds a filled `Share ▾` button. Its menu, in order:
+
+- **`Download HTML`** renders the document in the project's theme and the browser downloads it as `<name>.html`. The file is self-contained: fonts, logos, Mermaid diagrams and images beside the document are inlined, so it opens offline; an image by `http(s)` address stays a link.
+- **`Download Markdown`** downloads the `.md` as it is on disk, as `<name>.md`.
+- **`Share HTML`** writes the same page to `<name>.html` beside `<name>.md`, replacing an earlier one, and puts that file on the clipboard. Pasting into Slack or an email attaches it. The status line says `<name>.html copied · paste to attach`.
+- **`Share Markdown`** puts the `.md` file on the clipboard the same way. The status line says `<name>.md copied · paste to attach`.
+
+The two Share items appear only on macOS. If the clipboard refuses the file, the status line shows the error.
+
+An HTML page under review offers `Download HTML` and `Share HTML`, both for the page itself, and no Markdown items.
+
+**The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `HTML preview ↗` button in the bar opens it too. A page review has no preview address.
+
+## Making a theme
+
+A theme changes only the look of the saved HTML and the preview: colours, fonts, logo, label and an optional extra stylesheet. Every theme uses galley's one layout. Themes live in the human's config, not in a repository, so one theme serves every repository of a brand:
+
+```
+~/.config/galley/themes/<name>/
+  theme.json
+  logo-light.svg     the logo drawn on a light page: colours meant for a light background
+  logo-dark.svg      the logo drawn on a dark page
+  extra.css          optional, loaded after galley's styles
+  <font files>       any that theme.json names
+```
+
+(`$XDG_CONFIG_HOME/galley/themes/` when that is set.) Every field of `theme.json` is optional; anything left out comes from galley's base theme:
+
+```json
+{
+  "label": "Acme",
+  "light": { "bg": "#ffffff", "fg": "#1a1a2e", "muted": "#5c5c70", "line": "#e4e4ec", "accent": "#6b4eff" },
+  "dark":  { "bg": "#121218", "fg": "#ececf4", "muted": "#9a9ab0", "line": "#2c2c3a", "accent": "#a594ff" },
+  "fonts": [
+    { "family": "Aeonik", "file": "Aeonik-Regular.woff2", "weight": "400" },
+    { "family": "Aeonik", "file": "Aeonik-Bold.woff2", "weight": "700", "style": "normal" }
+  ]
+}
+```
+
+- **The default page** is galley's one layout for every theme: an "On this page" sidebar of the `##` and `###` headings on a hairline rail, `#` and `##` headings in a strong accent with a rule above each `##`, inline code on a wash, code blocks, quotes and diagrams on panel cards, and tables with a small uppercase monospace header and striped rows. A wide table scrolls.
+- **The header** appears only when the theme has a logo or a `label`. The base theme has neither, so its page starts with the sidebar and the document.
+- **Logo.** Shown at the left of the sticky header at 1.6rem high (about 26px), width following the SVG's aspect ratio. A `viewBox` is enough; `width`/`height` attributes are not needed. The page shows `logo-dark.svg` in dark mode and `logo-light.svg` otherwise. With no `logo-light.svg` there is no logo. With `logo-light.svg` but no `logo-dark.svg`, the light logo shows in dark mode too, so ship a dark one if the light one is unreadable on a dark page.
+- **`label`** is plain text in the header, in `fg` at 14px and weight 600, after a hairline divider when there is a logo. Left out or empty, there is no label.
+- **`light` and `dark`** are the palettes for each system colour scheme. galley mixes four more colours from them, so a theme supplies only these five:
+  - `bg`: the page and the header background.
+  - `fg`: body text, code-block text and the label.
+  - `muted`: the sidebar links and its caption, and the table header text.
+  - `line`: the header's bottom border, the rule above each `##` heading, `---` rules, table borders, card borders and the sidebar rail.
+  - `accent`: the blockquote bar and a hovered sidebar link's bar.
+  - Derived: `--accent-strong` (65% `accent` into `fg`) colours links, `#` and `##` headings, inline code text and a hovered sidebar link. `--accent-wash` (10% `accent` into `bg`) is the background of inline code. `--panel` (35% `line` into `bg`) is the card behind code blocks, quotes and diagrams, the table header, and every other table row. `--panel-raised` (12% `accent` into `bg`) fills diagram nodes. Set any of them in `extra.css` to pin it.
+- **Mermaid diagrams** use Mermaid's `base` theme coloured from the same palette, switching with the scheme, on a `--panel` card in the monospace font. Nodes and sequence actors are filled with `--panel-raised` and subgraphs with `--panel`. Node and actor borders are `accent`. All diagram text is `fg`, including sequence messages. Edges are `muted`. Edge-label backgrounds are `bg`. Notes and the secondary colour are `line`.
+- **`fonts`** lists font files in the theme folder to embed. Each needs a `family` and a `file`; `weight` and `style` default to `normal`. The families become the body font, ahead of the system stack. Code always uses a monospace stack. A listed file that is missing is an error naming it.
+- **`extra.css`** can target these stable elements:
+  - `header.g-head`, when there is one, containing `picture.g-logo` (its `img`) and `span.g-label`, each only when the theme has it.
+  - `div.g-wrap`, the centred row of sidebar and document.
+  - `nav.g-side`, the sidebar. It lists the `##` and `###` headings as `a.g-h2` and `a.g-h3`, and is hidden under 52rem wide.
+  - `main.g-body`, the document. The first `#` heading is the page title. Diagrams are `pre.mermaid`.
+  - The colours are the custom properties `--bg`, `--fg`, `--muted`, `--line` and `--accent`, the derived `--accent-strong`, `--accent-wash`, `--panel` and `--panel-raised`, and the fonts are `--sans` and `--mono`.
+
+A project chooses its theme in `.galley/config.json`, either in the document's folder or in any folder above it. The nearest one wins:
+
+```json
+{ "theme": "acme" }
+```
+
+With no config file, or no `theme` in it, the base theme is used. A theme name that does not exist, a `theme.json` that does not parse, or a missing font file makes the preview, `Download HTML` and `Share HTML` show the error instead of a page.
+
+**Check a theme with `galley render <test doc.md>`.** It writes the page Share HTML writes, beside the document (`-o` writes it elsewhere), and prints its path. A theme error is printed instead, exits non-zero and writes nothing. Open the file in light and dark mode. The test document should have headings at levels 2 and 3, a table, inline code, a code block and a Mermaid diagram. While reviewing, the preview (the `preview` address `galley_open` returned) shows the same page as the document changes.
 
 ## Without the channel
 

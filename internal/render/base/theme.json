@@ -1,0 +1,5 @@
+{
+  "label": "",
+  "light": {"bg": "#f4f5f8", "fg": "#1a1d27", "muted": "#59606f", "line": "#e3e5ec", "accent": "#b06f14"},
+  "dark": {"bg": "#14161d", "fg": "#e8eaf1", "muted": "#969cae", "line": "#2b2f3b", "accent": "#eba63f"}
+}

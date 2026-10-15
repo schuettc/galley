@@ -6303,7 +6303,7 @@ const placeComposer = (nth = 0) =>
   } else {
     check(
       'the terminal readout closes a review that entrusted nothing',
-      !!readout && readout.text.includes('review closed'),
+      !!readout && /^Approved( \d\d:\d\d)?$/.test(readout.text),
       { readout: readout && readout.text, handoff },
     );
   }
