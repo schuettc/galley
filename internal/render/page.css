@@ -26,18 +26,23 @@ a { color: var(--accent-strong); text-underline-offset: 2px; }
 
 .g-wrap { display: flex; gap: 40px; max-width: 1140px; margin: 0 auto; padding: 0 24px 96px; }
 
-/* Sidebar: "On this page" caption, hairline rail, accent hover bar. */
+/* Sidebar: "On this page" caption, hairline rail, accent hover bar. The top
+   padding centres the caption on the title's first line beside it. */
 .g-side {
   flex: 0 0 232px; position: sticky; top: 0; align-self: flex-start;
-  max-height: 100vh; overflow-y: auto; padding: 22px 0;
+  max-height: 100vh; overflow-y: auto; padding: 47px 0 22px;
   display: flex; flex-direction: column; font-size: 13px;
 }
-.g-head ~ .g-wrap .g-side { top: 70px; max-height: calc(100vh - 90px); }
+/* Under a header the sidebar sticks a little lower, but less than the header is
+   tall, so at rest it never gets pushed down out of line with the title; its
+   top padding keeps the caption clear of the header once stuck. */
+.g-head ~ .g-wrap .g-side { top: 24px; max-height: calc(100vh - 24px); }
 .g-side:empty { display: none; }
 .g-side::before {
   content: "On this page";
   font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
   text-transform: uppercase; color: var(--muted); margin: 0 0 10px;
+  padding-left: 16px; /* where the entries' text starts: 14px padding + 2px bar */
 }
 .g-side a {
   display: block; padding: 5px 0 5px 14px; line-height: 1.35;
