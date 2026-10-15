@@ -76,13 +76,21 @@ func Render(md []byte, t Theme, mermaidJS []byte) ([]byte, error) {
 	}
 
 	data := pageData{
-		Title:     title,
-		Label:     t.Label,
-		LogoLight: svgURL(t.LogoLight),
-		LogoDark:  template.Srcset(svgURL(t.LogoDark)), //nolint:gosec // inline logo
-		CSS:       template.CSS(themeCSS(t) + pageCSS + "\n" + t.ExtraCSS),
-		Headings:  headings,
-		Body:      template.HTML(body.String()), //nolint:gosec // goldmark output, raw HTML omitted
+		Title:    title,
+		Label:    t.Label,
+		CSS:      template.CSS(themeCSS(t) + pageCSS + "\n" + t.ExtraCSS), //nolint:gosec // galley and theme styles
+		Headings: headings,
+		Body:     template.HTML(body.String()), //nolint:gosec // goldmark output, raw HTML omitted
+	}
+	// The header shows only what the theme has. A theme with no dark logo
+	// shows its light one in both schemes.
+	if len(t.LogoLight) > 0 {
+		dark := t.LogoDark
+		if len(dark) == 0 {
+			dark = t.LogoLight
+		}
+		data.LogoLight = svgURL(t.LogoLight)
+		data.LogoDark = template.Srcset(svgURL(dark)) //nolint:gosec // inline logo
 	}
 	if hasMermaid {
 		vars, err := json.Marshal(map[string]map[string]string{"light": mermaidVars(t.Light), "dark": mermaidVars(t.Dark)})

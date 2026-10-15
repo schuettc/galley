@@ -9,13 +9,19 @@
 </style>
 </head>
 <body>
+{{- if or .LogoLight .Label}}
 <header class="g-head">
+  {{- if .LogoLight}}
   <picture class="g-logo">
     <source srcset="{{.LogoDark}}" media="(prefers-color-scheme: dark)">
     <img src="{{.LogoLight}}" alt="">
   </picture>
+  {{- end}}
+  {{- if .Label}}
   <span class="g-label">{{.Label}}</span>
+  {{- end}}
 </header>
+{{- end}}
 <div class="g-wrap">
   <nav class="g-side" aria-label="Sections">
     {{- range .Headings}}

@@ -58,7 +58,8 @@ type themeFile struct {
 }
 
 // BaseTheme is galley's own look, used when a project names no theme and for
-// every setting a theme leaves out.
+// every colour a theme leaves out. It has no logo and no label, so its page
+// has no header.
 func BaseTheme() Theme {
 	raw, err := baseFS.ReadFile("base/theme.json")
 	if err != nil {
@@ -68,9 +69,7 @@ func BaseTheme() Theme {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		panic(err)
 	}
-	light, _ := baseFS.ReadFile("base/logo-light.svg")
-	dark, _ := baseFS.ReadFile("base/logo-dark.svg")
-	return Theme{Name: "base", Label: f.Label, Light: f.Light, Dark: f.Dark, LogoLight: light, LogoDark: dark}
+	return Theme{Name: "base", Label: f.Label, Light: f.Light, Dark: f.Dark}
 }
 
 // themesDir is where themes live: ~/.config/galley/themes (XDG-aware).

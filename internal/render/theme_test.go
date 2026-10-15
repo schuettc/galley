@@ -145,3 +145,18 @@ func TestThemeNameCannotLeaveTheThemesFolder(t *testing.T) {
 		t.Fatalf("err = %v, want an error naming the theme", err)
 	}
 }
+
+// A theme that leaves out a logo file has no logo for that scheme: galley has
+// none of its own to fill it with.
+func TestLoadThemeMissingLogoIsEmpty(t *testing.T) {
+	home := configHome(t)
+	dir := filepath.Join(home, "galley", "themes", "plain")
+	writeFile(t, filepath.Join(dir, "theme.json"), `{}`)
+	got, err := LoadTheme("plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.LogoLight) != 0 || len(got.LogoDark) != 0 || got.Label != "" {
+		t.Fatalf("got logos %q %q label %q, want none", got.LogoLight, got.LogoDark, got.Label)
+	}
+}

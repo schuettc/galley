@@ -90,3 +90,57 @@ func TestRenderUsesTheme(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderBaseHasNoHeader(t *testing.T) {
+	out := render(t, "# T\n\n## One\n", BaseTheme())
+	if strings.Contains(out, "<header") {
+		t.Errorf("base theme rendered a header: %s", out)
+	}
+}
+
+func TestRenderLabelOnlyHeader(t *testing.T) {
+	th := BaseTheme()
+	th.Label = "Acme"
+	out := render(t, "# T\n", th)
+	head, _, _ := strings.Cut(out, "</header>")
+	_, head, ok := strings.Cut(head, "<header")
+	if !ok {
+		t.Fatalf("no header: %s", out)
+	}
+	if !strings.Contains(head, "Acme") {
+		t.Errorf("header lacks the label: %s", head)
+	}
+	if strings.Contains(head, "<img") || strings.Contains(head, "g-logo") {
+		t.Errorf("header has a logo: %s", head)
+	}
+}
+
+func TestRenderLogoHeader(t *testing.T) {
+	th := BaseTheme()
+	th.LogoLight = []byte("<svg>light</svg>")
+	th.LogoDark = []byte("<svg>dark</svg>")
+	out := render(t, "# T\n", th)
+	for _, want := range []string{inPage(th.LogoLight), inPage(th.LogoDark)} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks logo %s", want)
+		}
+	}
+	if strings.Contains(out, `class="g-label"`) {
+		t.Error("an empty label rendered")
+	}
+}
+
+func TestRenderMissingDarkLogoUsesLight(t *testing.T) {
+	th := BaseTheme()
+	th.LogoLight = []byte("<svg>light</svg>")
+	out := render(t, "# T\n", th)
+	light := inPage(th.LogoLight)
+	if !strings.Contains(out, `srcset="`+light+`"`) {
+		t.Errorf("dark scheme does not fall back to the light logo: %s", out)
+	}
+}
+
+// inPage is a logo's data: URL as the page writes it, with "+" escaped.
+func inPage(svg []byte) string {
+	return strings.ReplaceAll(string(svgURL(svg)), "+", "&#43;")
+}

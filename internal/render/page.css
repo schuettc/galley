@@ -1,39 +1,107 @@
+/* The extra colours are mixed from the theme's five, so a theme supplies
+   only bg, fg, muted, line and accent. */
+:root {
+  --panel: color-mix(in srgb, var(--line) 35%, var(--bg));
+  --panel-raised: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --accent-strong: color-mix(in srgb, var(--accent) 65%, var(--fg));
+  --accent-wash: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
 * { box-sizing: border-box; }
-html { scroll-padding-top: 5rem; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 var(--sans); }
-a { color: var(--accent); }
+html { scroll-padding-top: 1.5rem; }
+html:has(.g-head) { scroll-padding-top: 5rem; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 var(--sans); }
+::selection { background: var(--accent-wash); }
+a { color: var(--accent-strong); text-underline-offset: 2px; }
+
+/* Header: only when the theme has a logo or a label. */
 .g-head {
   position: sticky; top: 0; z-index: 1;
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.8rem 1.5rem; background: var(--bg); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 24px; background: var(--bg); border-bottom: 1px solid var(--line);
 }
 .g-logo img { display: block; height: 1.6rem; width: auto; }
-.g-label { font-weight: 600; color: var(--fg); }
-.g-wrap { display: flex; gap: 2.5rem; max-width: 72rem; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+.g-label { font-size: 14px; font-weight: 600; color: var(--fg); }
+.g-logo + .g-label { border-left: 1px solid var(--line); padding-left: 14px; }
+
+.g-wrap { display: flex; gap: 40px; max-width: 1140px; margin: 0 auto; padding: 0 24px 96px; }
+
+/* Sidebar: "On this page" caption, hairline rail, accent hover bar. */
 .g-side {
-  flex: 0 0 14rem; position: sticky; top: 5rem; align-self: flex-start;
-  max-height: calc(100vh - 6rem); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.88rem;
+  flex: 0 0 232px; position: sticky; top: 0; align-self: flex-start;
+  max-height: 100vh; overflow-y: auto; padding: 22px 0;
+  display: flex; flex-direction: column; font-size: 13px;
 }
+.g-head ~ .g-wrap .g-side { top: 70px; max-height: calc(100vh - 90px); }
 .g-side:empty { display: none; }
-.g-side a { color: var(--muted); text-decoration: none; }
-.g-side a:hover { color: var(--accent); }
-.g-side .g-h3 { padding-left: 0.9rem; }
-.g-body { flex: 1 1 auto; min-width: 0; max-width: 46rem; }
-.g-body h1, .g-body h2, .g-body h3, .g-body h4 { line-height: 1.25; margin: 2rem 0 0.75rem; }
-.g-body h1 { margin-top: 0; font-size: 2rem; }
-.g-body h2 { padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
-.g-body img { max-width: 100%; }
-.g-body hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
-.g-body code {
-  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-  font-size: 0.88em; background: var(--line); padding: 0.1em 0.3em; border-radius: 4px;
+.g-side::before {
+  content: "On this page";
+  font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 10px;
 }
-.g-body pre { background: var(--line); padding: 0.9rem 1rem; border-radius: 6px; overflow-x: auto; }
-.g-body pre code { background: none; padding: 0; }
-.g-body pre.mermaid { background: none; text-align: center; }
-.g-body blockquote { margin: 1rem 0; padding: 0.2rem 1rem; border-left: 3px solid var(--accent); color: var(--muted); }
-.g-body table { border-collapse: collapse; margin: 1rem 0; display: block; overflow-x: auto; }
-.g-body th, .g-body td { border: 1px solid var(--line); padding: 0.4rem 0.7rem; text-align: left; }
-.g-body th { background: var(--line); }
+.g-side a {
+  display: block; padding: 5px 0 5px 14px; line-height: 1.35;
+  color: var(--muted); text-decoration: none;
+  border-left: 2px solid transparent; box-shadow: inset 1px 0 0 var(--line);
+}
+.g-side .g-h2 { font-size: 16px; }
+.g-side .g-h3 { padding-left: 26px; font-size: 12px; }
+.g-side a:hover, .g-side a:focus-visible {
+  color: var(--accent-strong); border-left-color: var(--accent); box-shadow: none;
+}
+
+.g-body { flex: 1 1 auto; min-width: 0; max-width: 800px; padding-top: 8px; }
+
+/* Headings: bold and tight, strong accent for h1/h2, a rule above h2. */
+.g-body h1, .g-body h2, .g-body h3, .g-body h4 { letter-spacing: -.02em; line-height: 1.2; font-weight: 700; }
+.g-body h1 { font-size: 32px; color: var(--accent-strong); margin: 28px 0 8px; }
+.g-body h2 {
+  font-size: 24px; color: var(--accent-strong); margin: 44px 0 12px;
+  padding-top: 20px; border-top: 1px solid var(--line);
+}
+.g-body h3 { font-size: 20px; margin: 28px 0 8px; }
+.g-body h4 { font-size: 16px; margin: 22px 0 6px; }
+.g-body img { max-width: 100%; }
+.g-body hr { border: 0; border-top: 1px solid var(--line); margin: 32px 0; }
+.g-body ul, .g-body ol { padding-left: 22px; }
+.g-body li { margin: .25em 0; }
+
+/* Code: inline on the accent wash, blocks on a panel card. */
+.g-body code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--accent-wash); color: var(--accent-strong);
+  padding: .12em .38em; border-radius: 4px;
+}
+.g-body pre {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto;
+}
+.g-body pre code { background: none; padding: 0; color: var(--fg); font-size: 13px; line-height: 1.5; tab-size: 4; }
+
+/* Quotes: a panel card with the accent bar. */
+.g-body blockquote {
+  margin: 18px 0; padding: 12px 16px; color: var(--fg);
+  background: var(--panel); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0;
+}
+.g-body blockquote p { margin: .3em 0; }
+
+/* Tables: washed header, striped rows; a wide table scrolls. */
+.g-body table { border-collapse: collapse; margin: 18px 0; display: block; overflow-x: auto; font-size: 14px; }
+.g-body th, .g-body td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+.g-body th { background: var(--accent-wash); color: var(--accent-strong); font-weight: 500; }
+.g-body tr:nth-child(even) td { background: var(--panel); }
+
+/* Diagrams: a panel card, labels in the body font, nodes on the raised panel.
+   Mermaid measures labels in the page, so setting the font here still sizes
+   the nodes. */
+.g-body pre.mermaid {
+  margin: 24px 0; padding: 16px; text-align: center; font-size: 14px; font-family: var(--sans);
+}
+.g-body pre.mermaid svg, .g-body pre.mermaid svg * { font-family: var(--sans) !important; }
+.g-body pre.mermaid .node rect,
+.g-body pre.mermaid .node polygon,
+.g-body pre.mermaid .node circle,
+.g-body pre.mermaid rect.actor { fill: var(--panel-raised) !important; }
+.g-body pre.mermaid .cluster rect { fill: var(--panel) !important; stroke: var(--line) !important; }
+
 @media (max-width: 52rem) { .g-side { display: none; } }
