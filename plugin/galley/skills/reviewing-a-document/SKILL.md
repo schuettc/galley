@@ -129,18 +129,18 @@ A theme changes only the look of the saved HTML and the preview: colours, fonts,
 }
 ```
 
-- **The default page** is galley's one layout for every theme: an "On this page" sidebar of the `##` and `###` headings on a hairline rail, `#` and `##` headings in a strong accent with a rule above each `##`, inline code on a wash, code blocks, quotes and diagrams on panel cards, and tables with a washed header and striped rows. A wide table scrolls.
+- **The default page** is galley's one layout for every theme: an "On this page" sidebar of the `##` and `###` headings on a hairline rail, `#` and `##` headings in a strong accent with a rule above each `##`, inline code on a wash, code blocks, quotes and diagrams on panel cards, and tables with a small uppercase monospace header and striped rows. A wide table scrolls.
 - **The header** appears only when the theme has a logo or a `label`. The base theme has neither, so its page starts with the sidebar and the document.
 - **Logo.** Shown at the left of the sticky header at 1.6rem high (about 26px), width following the SVG's aspect ratio. A `viewBox` is enough; `width`/`height` attributes are not needed. The page shows `logo-dark.svg` in dark mode and `logo-light.svg` otherwise. With no `logo-light.svg` there is no logo. With `logo-light.svg` but no `logo-dark.svg`, the light logo shows in dark mode too, so ship a dark one if the light one is unreadable on a dark page.
 - **`label`** is plain text in the header, in `fg` at 14px and weight 600, after a hairline divider when there is a logo. Left out or empty, there is no label.
 - **`light` and `dark`** are the palettes for each system colour scheme. galley mixes four more colours from them, so a theme supplies only these five:
   - `bg`: the page and the header background.
   - `fg`: body text, code-block text and the label.
-  - `muted`: the sidebar links and its caption.
+  - `muted`: the sidebar links and its caption, and the table header text.
   - `line`: the header's bottom border, the rule above each `##` heading, `---` rules, table borders, card borders and the sidebar rail.
   - `accent`: the blockquote bar and a hovered sidebar link's bar.
-  - Derived: `--accent-strong` (65% `accent` into `fg`) colours links, `#` and `##` headings, inline code text, table header text and a hovered sidebar link. `--accent-wash` (10% `accent` into `bg`) is the background of inline code and the table header. `--panel` (35% `line` into `bg`) is the card behind code blocks, quotes and diagrams, and every other table row. `--panel-raised` (12% `accent` into `bg`) fills diagram nodes. Set any of them in `extra.css` to pin it.
-- **Mermaid diagrams** use Mermaid's `base` theme coloured from the same palette, switching with the scheme, on a `--panel` card in the body font. Nodes and sequence actors are filled with `--panel-raised` and subgraphs with `--panel`. Node and actor borders are `accent`. All diagram text is `fg`, including sequence messages. Edges are `muted`. Edge-label backgrounds are `bg`. Notes and the secondary colour are `line`.
+  - Derived: `--accent-strong` (65% `accent` into `fg`) colours links, `#` and `##` headings, inline code text and a hovered sidebar link. `--accent-wash` (10% `accent` into `bg`) is the background of inline code. `--panel` (35% `line` into `bg`) is the card behind code blocks, quotes and diagrams, the table header, and every other table row. `--panel-raised` (12% `accent` into `bg`) fills diagram nodes. Set any of them in `extra.css` to pin it.
+- **Mermaid diagrams** use Mermaid's `base` theme coloured from the same palette, switching with the scheme, on a `--panel` card in the monospace font. Nodes and sequence actors are filled with `--panel-raised` and subgraphs with `--panel`. Node and actor borders are `accent`. All diagram text is `fg`, including sequence messages. Edges are `muted`. Edge-label backgrounds are `bg`. Notes and the secondary colour are `line`.
 - **`fonts`** lists font files in the theme folder to embed. Each needs a `family` and a `file`; `weight` and `style` default to `normal`. The families become the body font, ahead of the system stack. Code always uses a monospace stack. A listed file that is missing is an error naming it.
 - **`extra.css`** can target these stable elements:
   - `header.g-head`, when there is one, containing `picture.g-logo` (its `img`) and `span.g-label`, each only when the theme has it.
