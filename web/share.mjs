@@ -42,7 +42,7 @@ import {
   SHARE_COPY_PATH,
   SHARE_COPY_LINK,
   SHARE_LINK_LATER,
-  PREVIEW_LINK,
+  PREVIEW_LABEL,
 } from './share.ts';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
@@ -255,34 +255,56 @@ const menuItems = (page) =>
     !(await shareVisible(page)),
   );
   const preview = await page.evaluate(() => {
-    const a = document.querySelector('.gly-rail-preview');
-    return a
-      ? {
-          text: a.textContent,
-          href: a.getAttribute('href'),
-          target: a.target,
-          shown: a.getBoundingClientRect().width > 0,
-        }
-      : null;
+    const b = document.querySelector('.gly-bar .gly-preview-open');
+    if (!b) return null;
+    const bar = [...document.querySelectorAll('.gly-bar > *')];
+    return {
+      text: b.textContent,
+      shown: b.getBoundingClientRect().width > 0,
+      afterMode:
+        bar.indexOf(b) > bar.indexOf(document.querySelector('.gly-mode')),
+      beforeRevise:
+        bar.indexOf(b) < bar.indexOf(document.getElementById('gly-revise')),
+    };
   });
   check(
-    'the rail carries the Preview link, opening a new tab',
+    'the bar carries the HTML preview button, between the mode toggle and Revise',
     !!preview &&
-      preview.text === PREVIEW_LINK &&
-      preview.href === '/_galley/render' &&
-      preview.target === '_blank' &&
-      preview.shown,
+      preview.text === PREVIEW_LABEL &&
+      preview.shown &&
+      preview.afterMode &&
+      preview.beforeRevise,
     preview,
   );
-  if (preview) {
-    const res = await fetch(`${base}${preview.href}`);
+  const opened = await page.evaluate(() => {
+    const calls = [];
+    const real = window.open;
+    window.open = (...a) => {
+      calls.push(a);
+      return null;
+    };
+    document.querySelector('.gly-bar .gly-preview-open')?.click();
+    window.open = real;
+    return calls;
+  });
+  check(
+    'pressing it opens /_galley/render in a new tab, without an opener',
+    opened.length === 1 &&
+      opened[0][0] === '/_galley/render' &&
+      opened[0][1] === '_blank' &&
+      String(opened[0][2] || '').includes('noopener'),
+    opened,
+  );
+  {
+    const res = await fetch(`${base}/_galley/render`);
     const body = await res.text();
     check(
-      'the preview link answers with the rendered document',
-      res.ok && body.includes('Section one'),
+      'the preview answers with the rendered document',
+      res.status === 200 && body.includes('Section one'),
       { status: res.status },
     );
   }
+  const previewBefore = await boxOf(page, '.gly-preview-open');
 
   const before = await barBoxes(page);
   const revise = await boxOf(page, '#gly-revise');
@@ -294,6 +316,12 @@ const menuItems = (page) =>
     await shareVisible(page),
   );
   const share = await boxOf(page, '.gly-share');
+  const previewAfter = await boxOf(page, '.gly-preview-open');
+  check(
+    'the HTML preview button keeps its box across approval',
+    same(previewBefore, previewAfter),
+    { previewBefore, previewAfter },
+  );
   check("Share occupies exactly Revise's box", same(share, revise), {
     share,
     revise,
@@ -381,8 +409,8 @@ const menuItems = (page) =>
 {
   const page = await open(pageBase);
   check(
-    'a page review has no Preview link',
-    (await page.locator('.gly-rail-preview').count()) === 0,
+    'a page review has no HTML preview button',
+    (await page.locator('.gly-preview-open').count()) === 0,
   );
   const approved = await approve(pageBase);
   check('the page approve was accepted', approved.ok, approved.status);

@@ -1,7 +1,7 @@
 // share.ts — handing an approved document to a reader.
 //
 // The vocabulary in the top half is pure — every label the button, its menu
-// and the rail's preview link show, and the status line a save ends on — so
+// and the bar's preview button show, and the status line a save ends on — so
 // probe.mjs and web/share.mjs import the spellings rather than restating them.
 //
 // THE BOTTOM HALF, `shareMethods`, IS A MIXIN `Object.assign`ed onto
@@ -27,7 +27,7 @@ export const SHARE_SAVE_HTML = 'Save HTML';
 export const SHARE_COPY_PATH = 'Copy path';
 export const SHARE_COPY_LINK = 'Copy link · later';
 export const SHARE_LINK_LATER = 'links are not available yet';
-export const PREVIEW_LINK = 'Preview ↗';
+export const PREVIEW_LABEL = 'HTML preview ↗';
 const PREVIEW_HREF = '/_galley/render';
 
 function baseName(path: string): string {
@@ -231,20 +231,25 @@ export const shareMethods = {
       );
   },
 
-  // The rail's way to the rendered page, markdown reviews only: a page under
-  // review already has its own preview pane.
-  makePreviewLink(this: AppShell, rail: HTMLElement): HTMLAnchorElement | null {
-    if (this.pageMode) {
+  // The bar's way to the rendered page, markdown reviews only: a page under
+  // review already has its own preview pane. It sits just before Revise, to
+  // the right of the mode toggle, so the toggle leaving on the seal edge moves
+  // it no more than it moves Revise; the seal does not touch it, because
+  // reading the shared look is as useful after approval as before.
+  makePreview(this: AppShell): HTMLButtonElement | null {
+    const revise = this.revise;
+    if (this.pageMode || !revise || !revise.parentNode) {
       return null;
     }
-    const a = document.createElement('a');
-    a.className = 'gly-rail-preview';
-    a.href = PREVIEW_HREF;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.textContent = PREVIEW_LINK;
-    a.title = 'the branded page Save HTML writes, refreshed on every save';
-    rail.prepend(a);
-    return a;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'gly-preview-open';
+    b.textContent = PREVIEW_LABEL;
+    b.title = 'the branded page Save HTML writes, refreshed on every save';
+    b.addEventListener('click', () => {
+      window.open(PREVIEW_HREF, '_blank', 'noopener');
+    });
+    revise.parentNode.insertBefore(b, revise);
+    return b;
   },
 };

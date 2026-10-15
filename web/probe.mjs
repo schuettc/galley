@@ -85,7 +85,7 @@ import {
   SHARE_COPY_PATH,
   SHARE_COPY_LINK,
   SHARE_LINK_LATER,
-  PREVIEW_LINK,
+  PREVIEW_LABEL,
   savedLine,
   shareItems,
 } from './share.ts';
@@ -7869,7 +7869,7 @@ function bindsContentField(src) {
       SHARE_COPY_PATH === 'Copy path' &&
       SHARE_COPY_LINK === 'Copy link · later' &&
       SHARE_LINK_LATER === 'links are not available yet' &&
-      PREVIEW_LINK === 'Preview ↗',
+      PREVIEW_LABEL === 'HTML preview ↗',
   );
   const md = shareItems(false);
   check(
@@ -7910,7 +7910,7 @@ function bindsContentField(src) {
       SHARE_COPY_PATH,
       SHARE_COPY_LINK,
       SHARE_LINK_LATER,
-      PREVIEW_LINK,
+      PREVIEW_LABEL,
     ].every((l) => bundle.includes(l)),
   );
 }

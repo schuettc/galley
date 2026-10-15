@@ -97,7 +97,7 @@ After approval, the slot Revise leaves holds a filled `Share ▾` button. Its me
 
 An HTML page under review offers only `Copy path`, for the page itself.
 
-**The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `Preview ↗` link at the top of the rail opens it too. A page review has no preview address.
+**The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `HTML preview ↗` button in the bar opens it too. A page review has no preview address.
 
 ## Making a theme
 

@@ -1182,6 +1182,8 @@ class App implements AppState {
     // the sealing edge (applySeal). See web/share.ts.
     this.shareMenu = null;
     this.share = this.makeShare();
+    // The rendered page's door, markdown reviews only, just before Revise.
+    this.makePreview();
 
     // THE SEAL. Whether this review has ENDED, and how — read off
     // /_galley/revise on every poll, exactly where the button already asks
@@ -2101,9 +2103,6 @@ class App implements AppState {
     const notice = document.createElement('div');
     notice.className = 'gly-rail-notice';
     root.append(band, notice);
-    // The rendered page's door, markdown reviews only (web/share.ts). It sits
-    // in the reserved row above the band, so it moves no card.
-    this.makePreviewLink(root);
     document.body.appendChild(root);
     return { root, notice, band };
   }

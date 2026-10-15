@@ -2510,20 +2510,8 @@ body.gly-collapsed:not(.gly-page) > main {
 .gly-share-menu button[disabled] { color: var(--gly-muted); cursor: default; }
 .gly-share-menu button[disabled]:hover { border-color: transparent; }
 
-/* The rail's door to the rendered page. It sits in the reserved row above the
-   band (--gly-rail-top's empty draft row), absolutely, so it moves no card. */
-.gly-rail-preview {
-  position: absolute;
-  top: calc(-1 * var(--gly-rail-top));
-  right: var(--gly-rail-pad);
-  height: var(--gly-sub-h);
-  display: flex;
-  align-items: center;
-  font: 11px/1 var(--gly-mono);
-  color: var(--gly-muted);
-  text-decoration: none;
-}
-.gly-rail-preview:hover { color: var(--gly-signal); }
+/* The bar's door to the rendered page: an ordinary bar button. */
+.gly-bar .gly-preview-open { white-space: nowrap; }
 
 /* --- the arrival strip ---
    It says what landed and offers one control that moves the page. It is

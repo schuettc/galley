@@ -682,14 +682,14 @@ export interface AppMethods {
   // --- Revise's own builder (web/verdict.ts) ---
   makeRevise(): HTMLButtonElement | null;
 
-  // --- Share, and the rail's preview link (web/share.ts) ---
+  // --- Share, and the bar's preview button (web/share.ts) ---
   makeShare(): HTMLButtonElement | null;
   swapShare(sealed: boolean): void;
   makeShareMenu(): HTMLElement;
   openShareMenu(): void;
   closeShareMenu(): void;
   runShare(act: 'save' | 'copy' | 'link'): void;
-  makePreviewLink(rail: HTMLElement): HTMLAnchorElement | null;
+  makePreview(): HTMLButtonElement | null;
 }
 
 // What a mixin method's `this` is: both halves together.
