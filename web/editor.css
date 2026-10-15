@@ -2493,8 +2493,8 @@ body.gly-collapsed:not(.gly-page) > main {
 
 /* --- Share: the approved document's way to a reader (web/share.ts) ---
    FILLED, LIKE REVISE, because it is the slot's primary: after approval it is
-   the one press left. Its width and height are written inline from Revise's
-   own box on the seal edge, so the swap moves nothing; `[hidden]` needs a real
+   the one press left. Its width is Revise's (`--gly-verb-w` below) and its
+   padding and font are the bar's, so the swap moves nothing; `[hidden]` needs a real
    rule because `.gly-bar button` is an author rule the user-agent's loses to.
    The link item is disabled and keeps the menu's hover from lighting it. */
 .gly-bar .gly-share {
@@ -2512,6 +2512,22 @@ body.gly-collapsed:not(.gly-page) > main {
 
 /* The bar's door to the rendered page: an ordinary bar button. */
 .gly-bar .gly-preview-open { white-space: nowrap; }
+
+/* ONE WIDTH FOR THE FOUR VERBS: History, HTML preview, the verdict (Revise /
+   Approve) and Share. Sized to the verdict's widest reserved label —
+   `revising · ` + the 4ch seconds reserve + `s` is 16ch of the bar's mono —
+   plus `.gly-bar button`'s 14px padding and 1px border each side (buttons are
+   border-box). `ch` is resolved on each button against its own mono font, so
+   the value is the same box on all four, and Share takes Revise's box from
+   this rule rather than from a measurement on the seal edge. A `width`, not a
+   `min-width`: no label the verdict paints is wider, so none can grow it. */
+:root { --gly-verb-w: calc(16ch + 30px); }
+.gly-bar .gly-versions-open,
+.gly-bar .gly-preview-open,
+.gly-bar .gly-revise,
+.gly-bar .gly-share {
+  width: var(--gly-verb-w);
+}
 
 /* --- the arrival strip ---
    It says what landed and offers one control that moves the page. It is
@@ -2713,8 +2729,12 @@ body.gly-collapsed:not(.gly-page) > main {
   color: var(--gly-signal);
   background: var(--gly-card);
 }
+/* History is a bar verb, so it wears the bar's padding (and so its height),
+   not the strip's tighter `3px 10px`; its width is the shared verb width
+   (see `--gly-verb-w` at the HTML preview rule). (0,2,0) beats
+   `.gly-census button` at (0,1,1). */
 .gly-census .gly-versions-open {
-  min-width: calc(14ch + 20px + 2px);
+  padding: 5px 14px;
 }
 /* `.gly-census-n` IS DELETED WITH THE SWEEP IT COUNTED. It reserved 3ch of
    digits inside `✓ all` so the number going to zero ON ITS OWN CLICK could not

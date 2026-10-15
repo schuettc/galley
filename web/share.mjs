@@ -11,6 +11,8 @@
 //
 //   · Share's box is Revise's box, to the pixel, and every bar control still
 //     on screen after the seal is where it was before it.
+//   · History, HTML preview, the verdict and Share are one width, and every
+//     visible bar button is one height.
 //   · The menu's three items, verbatim, and the link item disabled.
 //   · Save HTML writes <doc>.html beside <doc>.md, says so on the status line,
 //     and puts that path on the clipboard.
@@ -205,6 +207,18 @@ const barBoxes = (page) =>
     });
     return out;
   });
+// Every bar BUTTON a reviewer can see, with its box: the height check's set.
+const barButtonBoxes = (page) =>
+  page.evaluate(() => {
+    const out = {};
+    document.querySelectorAll('.gly-bar button').forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return;
+      if (getComputedStyle(el).visibility === 'hidden') return;
+      out[el.id || `${el.className}#${i}`] = { w: r.width, h: r.height };
+    });
+    return out;
+  });
 const boxOf = (page, sel) =>
   page.evaluate((s) => {
     const el = document.querySelector(s);
@@ -305,6 +319,26 @@ const menuItems = (page) =>
     );
   }
   const previewBefore = await boxOf(page, '.gly-preview-open');
+  const historyBefore = await boxOf(page, '.gly-versions-open');
+  const reviseBefore = await boxOf(page, '#gly-revise');
+  check(
+    'History, HTML preview and Revise share one width',
+    !!historyBefore &&
+      !!previewBefore &&
+      !!reviseBefore &&
+      Math.abs(historyBefore.w - previewBefore.w) <= 1 &&
+      Math.abs(reviseBefore.w - previewBefore.w) <= 1,
+    { historyBefore, previewBefore, reviseBefore },
+  );
+  {
+    const heights = Object.entries(await barButtonBoxes(page));
+    const h0 = heights[0]?.[1].h;
+    check(
+      'every visible bar button is one height',
+      heights.length > 1 && heights.every(([, b]) => Math.abs(b.h - h0) <= 1),
+      heights.map(([k, b]) => ({ k, w: b.w, h: b.h })),
+    );
+  }
 
   const before = await barBoxes(page);
   const revise = await boxOf(page, '#gly-revise');
@@ -326,6 +360,16 @@ const menuItems = (page) =>
     share,
     revise,
   });
+  const historyAfter = await boxOf(page, '.gly-versions-open');
+  check(
+    "Share's width is HTML preview's and History's",
+    !!share &&
+      !!previewAfter &&
+      !!historyAfter &&
+      Math.abs(share.w - previewAfter.w) <= 1 &&
+      Math.abs(share.w - historyAfter.w) <= 1,
+    { share, previewAfter, historyAfter },
+  );
   const label = await page.evaluate(
     () => document.querySelector('.gly-share')?.textContent || '',
   );

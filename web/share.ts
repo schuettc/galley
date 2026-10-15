@@ -110,7 +110,8 @@ export const shareMethods = {
   },
 
   // swapShare is the seal edge's half for the slot: sealed shows Share in
-  // Revise's measured box, unsealed hands the slot back to Revise.
+  // Revise's box (one CSS width, `--gly-verb-w`, and the bar's padding),
+  // unsealed hands the slot back to Revise.
   swapShare(this: AppShell, sealed: boolean) {
     const share = this.share;
     const revise = this.revise;
@@ -118,11 +119,6 @@ export const shareMethods = {
       return;
     }
     if (sealed) {
-      const r = revise.getBoundingClientRect();
-      if (r.width > 0) {
-        share.style.width = `${r.width}px`;
-        share.style.height = `${r.height}px`;
-      }
       revise.hidden = true;
       share.hidden = false;
       return;
