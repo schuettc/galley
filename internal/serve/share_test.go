@@ -142,3 +142,33 @@ func TestShellCarriesDocPath(t *testing.T) {
 		t.Fatalf("MdPath %q is not absolute", s.MdPath)
 	}
 }
+
+// Save HTML replaces whatever sits at <name>.html, a symlink included: the
+// export never writes through a link into a file elsewhere.
+func TestShareHTMLReplacesASymlinkRatherThanItsTarget(t *testing.T) {
+	noThemes(t)
+	dir := t.TempDir()
+	elsewhere := filepath.Join(t.TempDir(), "precious.txt")
+	if err := os.WriteFile(elsewhere, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, "doc.html")); err != nil {
+		t.Fatal(err)
+	}
+	s := newEditServer(t, dir, "doc.md", "# Hi\n\nRendered words.\n")
+	defer func() { _ = s.Close() }()
+	if rec := post(t, s.Handler(), "/_galley/share/html", nil); rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	if raw, _ := os.ReadFile(elsewhere); string(raw) != "keep me" {
+		t.Fatalf("the symlink's target was overwritten: %q", raw)
+	}
+	saved := filepath.Join(filepath.Dir(s.MdPath), "doc.html")
+	fi, err := os.Lstat(saved)
+	if err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("doc.html is not a regular file: %v %v", fi, err)
+	}
+	if raw, _ := os.ReadFile(saved); !strings.Contains(string(raw), "Rendered words.") {
+		t.Fatal("doc.html does not hold the render")
+	}
+}
