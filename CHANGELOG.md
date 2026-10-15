@@ -2,6 +2,15 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## 0.13.0
+
+- **Share an approved document.** After you approve a review, the Revise button becomes **Share**. **Download HTML** and **Download Markdown** save the document to your Downloads folder. On macOS, **Share HTML** and **Share Markdown** put the file on your clipboard, so pasting into Slack or an email attaches it. The HTML is one file that opens offline, with the document's sections in a sidebar, its diagrams drawn, and images that sit next to the document included. (#74)
+- **HTML preview.** A button in the bar opens that same page in a new tab while you edit a Markdown document. It reloads after every save. (#74)
+- **Themes.** A theme sets the page's colours, fonts and logo. Put one in `~/.config/galley/themes/<name>/` and name it in a project's `.galley/config.json`. With no theme, documents get galley's own page. See https://galley.tools/themes/. (#74)
+- **`galley render doc.md`** writes the shared HTML page without opening a review, and prints the error instead when a theme has a problem. (#74)
+- **Approve from the conversation.** Telling the agent you approve ends the review the same way the page's Approve button does, and the open page locks itself. (#73)
+- After approval the bar says only **Approved** and the time, and the notice in the lower left goes away. Text that appears in the bar no longer moves what is already there. (#73, #74)
+
 ## 0.12.3
 
 - An agent can review a document outside the folder its session started in. Before, galley refused it, so agents reviewed a copy instead. (#68)
