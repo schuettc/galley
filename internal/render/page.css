@@ -5,7 +5,7 @@
   --panel-raised: color-mix(in srgb, var(--accent) 12%, var(--bg));
   --accent-strong: color-mix(in srgb, var(--accent) 65%, var(--fg));
   --accent-wash: color-mix(in srgb, var(--accent) 10%, var(--bg));
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
 html { scroll-padding-top: 1.5rem; }
@@ -52,8 +52,8 @@ a { color: var(--accent-strong); text-underline-offset: 2px; }
 
 .g-body { flex: 1 1 auto; min-width: 0; max-width: 800px; padding-top: 8px; }
 
-/* Headings: bold and tight, strong accent for h1/h2, a rule above h2. */
-.g-body h1, .g-body h2, .g-body h3, .g-body h4 { letter-spacing: -.02em; line-height: 1.2; font-weight: 700; }
+/* Headings: subaud's semibold and tight, strong accent for h1/h2, a rule above h2. */
+.g-body h1, .g-body h2, .g-body h3, .g-body h4 { letter-spacing: -.02em; line-height: 1.2; font-weight: 600; }
 .g-body h1 { font-size: 32px; color: var(--accent-strong); margin: 28px 0 8px; }
 .g-body h2 {
   font-size: 24px; color: var(--accent-strong); margin: 44px 0 12px;
@@ -85,19 +85,22 @@ a { color: var(--accent-strong); text-underline-offset: 2px; }
 }
 .g-body blockquote p { margin: .3em 0; }
 
-/* Tables: washed header, striped rows; a wide table scrolls. */
+/* Tables: subaud's small mono header, striped rows; a wide table scrolls. */
 .g-body table { border-collapse: collapse; margin: 18px 0; display: block; overflow-x: auto; font-size: 14px; }
 .g-body th, .g-body td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
-.g-body th { background: var(--accent-wash); color: var(--accent-strong); font-weight: 500; }
+.g-body th {
+  background: var(--panel); color: var(--muted); font-family: var(--mono); font-size: 11px;
+  font-weight: 500; letter-spacing: .1em; text-transform: uppercase;
+}
 .g-body tr:nth-child(even) td { background: var(--panel); }
 
-/* Diagrams: a panel card, labels in the body font, nodes on the raised panel.
+/* Diagrams: a panel card, labels in mono as on subaud.tools, nodes on the raised panel.
    Mermaid measures labels in the page, so setting the font here still sizes
    the nodes. */
 .g-body pre.mermaid {
-  margin: 24px 0; padding: 16px; text-align: center; font-size: 14px; font-family: var(--sans);
+  margin: 24px 0; padding: 16px; text-align: center; font-size: 13px; font-family: var(--mono);
 }
-.g-body pre.mermaid svg, .g-body pre.mermaid svg * { font-family: var(--sans) !important; }
+.g-body pre.mermaid svg, .g-body pre.mermaid svg * { font-family: var(--mono) !important; }
 .g-body pre.mermaid .node rect,
 .g-body pre.mermaid .node polygon,
 .g-body pre.mermaid .node circle,
