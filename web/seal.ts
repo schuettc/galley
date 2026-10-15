@@ -528,7 +528,15 @@ export const sealMethods = {
       // ended, so it goes on this edge. History is not marked read: the
       // arrivals are still there for whoever opens it.
       this.hideStrip();
+      // Share takes Revise's box (web/share.ts). Guarded, because a shell
+      // without the mixin (probe.mjs's) has no slot to swap.
+      if (this.swapShare) {
+        this.swapShare(true);
+      }
       return;
+    }
+    if (this.swapShare) {
+      this.swapShare(false);
     }
     this.editor.setEditable(true);
     // THE FLAGS COME BACK FROM THEIR OWNERS, never from a blanket re-enable.

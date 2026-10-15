@@ -80,6 +80,16 @@ import {
 // The seal vocabulary moved out of entry.ts — see web/seal.ts's header.
 import { sealLine, reopenLine, sealMethods } from './seal.ts';
 import {
+  SHARE_LABEL,
+  SHARE_SAVE_HTML,
+  SHARE_COPY_PATH,
+  SHARE_COPY_LINK,
+  SHARE_LINK_LATER,
+  PREVIEW_LINK,
+  savedLine,
+  shareItems,
+} from './share.ts';
+import {
   MODE_ASK,
   MODE_LIVE,
   modeLabel,
@@ -7844,6 +7854,64 @@ function bindsContentField(src) {
     'a page already sealed does not hide the strip again',
     hidden === 1,
     hidden,
+  );
+}
+
+// SHARE'S VOCABULARY IS THE SPEC'S, VERBATIM (web/share.ts). The menu a page
+// review offers is Copy path alone; a markdown review's is all three, with the
+// link held disabled. The built bundle carries every label, because the
+// binary embeds it and a label only in the source is a label nobody sees.
+{
+  check(
+    'the Share labels are verbatim',
+    SHARE_LABEL === 'Share ▾' &&
+      SHARE_SAVE_HTML === 'Save HTML' &&
+      SHARE_COPY_PATH === 'Copy path' &&
+      SHARE_COPY_LINK === 'Copy link · later' &&
+      SHARE_LINK_LATER === 'links are not available yet' &&
+      PREVIEW_LINK === 'Preview ↗',
+  );
+  const md = shareItems(false);
+  check(
+    'a markdown review offers Save HTML, Copy path and a disabled link',
+    md.map((i) => i.label).join('|') ===
+      [SHARE_SAVE_HTML, SHARE_COPY_PATH, SHARE_COPY_LINK].join('|') &&
+      md[2].disabled === true &&
+      md[2].title === SHARE_LINK_LATER &&
+      !md[0].disabled &&
+      !md[1].disabled,
+    md,
+  );
+  const page = shareItems(true);
+  check(
+    'a page review offers only Copy path',
+    page.length === 1 && page[0].label === SHARE_COPY_PATH,
+    page,
+  );
+  check(
+    'the save line names the file and the copy',
+    savedLine('/a/b/doc.html', true) === 'saved doc.html · path copied',
+    savedLine('/a/b/doc.html', true),
+  );
+  let bundle = '';
+  try {
+    bundle = readFileSync(
+      new URL('../internal/serve/assets/editor.js', import.meta.url),
+      'utf8',
+    );
+  } catch {
+    // Reported below.
+  }
+  check(
+    'the built bundle carries the Share labels',
+    [
+      SHARE_LABEL,
+      SHARE_SAVE_HTML,
+      SHARE_COPY_PATH,
+      SHARE_COPY_LINK,
+      SHARE_LINK_LATER,
+      PREVIEW_LINK,
+    ].every((l) => bundle.includes(l)),
   );
 }
 

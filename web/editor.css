@@ -1948,7 +1948,8 @@ body.gly-collapsed:not(.gly-page) > main {
 .gly-bar button,
 .gly-bottombar button,
 .gly-census button,
-.gly-verdict-menu button {
+.gly-verdict-menu button,
+.gly-share-menu button {
   font: inherit;
   border: 1px solid var(--gly-line);
   border-radius: 6px;
@@ -2458,7 +2459,8 @@ body.gly-collapsed:not(.gly-page) > main {
    them, at the same shape, and nothing out-specifies it. Both labels are
    fixed strings (MENU_REVISE, MENU_TRUST), so no width reservation is needed:
    nothing in this menu ever changes size once it is open. */
-.gly-verdict-menu {
+.gly-verdict-menu,
+.gly-share-menu {
   position: absolute;
   z-index: 40;
   display: flex;
@@ -2479,7 +2481,8 @@ body.gly-collapsed:not(.gly-page) > main {
    list of two choices, not two pills — so the only thing it overrides in the
    chrome button is the border's colour. It reserves the 1px either way, so
    hovering one cannot move the other. */
-.gly-verdict-menu button {
+.gly-verdict-menu button,
+.gly-share-menu button {
   font-size: 12px;
   padding: 5px 14px;
   border-color: transparent;
@@ -2487,6 +2490,40 @@ body.gly-collapsed:not(.gly-page) > main {
   white-space: nowrap;
 }
 .gly-verdict-menu button:hover { border-color: var(--gly-signal); }
+
+/* --- Share: the approved document's way to a reader (web/share.ts) ---
+   FILLED, LIKE REVISE, because it is the slot's primary: after approval it is
+   the one press left. Its width and height are written inline from Revise's
+   own box on the seal edge, so the swap moves nothing; `[hidden]` needs a real
+   rule because `.gly-bar button` is an author rule the user-agent's loses to.
+   The link item is disabled and keeps the menu's hover from lighting it. */
+.gly-bar .gly-share {
+  border-color: var(--gly-signal);
+  background: var(--gly-signal);
+  color: var(--gly-signal-ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gly-bar .gly-share:hover { border-color: var(--gly-signal); filter: brightness(1.08); }
+.gly-bar .gly-share[hidden],
+.gly-bar .gly-revise[hidden] { display: none; }
+.gly-share-menu button[disabled] { color: var(--gly-muted); cursor: default; }
+.gly-share-menu button[disabled]:hover { border-color: transparent; }
+
+/* The rail's door to the rendered page. It sits in the reserved row above the
+   band (--gly-rail-top's empty draft row), absolutely, so it moves no card. */
+.gly-rail-preview {
+  position: absolute;
+  top: calc(-1 * var(--gly-rail-top));
+  right: var(--gly-rail-pad);
+  height: var(--gly-sub-h);
+  display: flex;
+  align-items: center;
+  font: 11px/1 var(--gly-mono);
+  color: var(--gly-muted);
+  text-decoration: none;
+}
+.gly-rail-preview:hover { color: var(--gly-signal); }
 
 /* --- the arrival strip ---
    It says what landed and offers one control that moves the page. It is
@@ -3745,6 +3782,7 @@ body.gly-history-mode > main {
 .gly-strip-read[hidden],
 .gly-strip-show[hidden],
 .gly-verdict-menu[hidden],
+.gly-share-menu[hidden],
 .gly-versions[hidden] { display: none; }
 
 /* THE REVIEWER'S OWN EDITS, IN THE RAIL. One surface: the rail is the list of

@@ -26,10 +26,10 @@
 // own state, not because nobody got to them yet.
 //
 // Its READ surface is bigger than even that: immediately after the class
-// declaration, ten `Object.assign(App.prototype, …Methods)` calls mix in
+// declaration, eleven `Object.assign(App.prototype, …Methods)` calls mix in
 // the modules this file used to be — `keys.ts`, `pending.ts`, `sheet.ts`,
 // `cards.ts`, `composer.ts`, `figures.ts`, `history.ts`, `bar.ts`,
-// `verdict.ts`, `seal.ts` — each commented at its own assignment with what
+// `verdict.ts`, `seal.ts`, `share.ts` — each commented at its own assignment with what
 // it owns. Read those comments, not this one, for what any given surface
 // does; this file is the shell they all attach to, not a description of
 // them.
@@ -141,6 +141,7 @@ import { historyMethods } from './history.ts';
 import { barMethods, MODE_ASK } from './bar.ts';
 import { verdictMethods } from './verdict.ts';
 import { sealMethods } from './seal.ts';
+import { shareMethods } from './share.ts';
 import { coerceLevel } from './heading.ts';
 import { runFor, markElement } from './runs.ts';
 // ONE CARD AND ONE REVEAL, shared with History's rail. See web/card.ts, whose
@@ -756,6 +757,8 @@ class App implements AppState {
   // typed here and only here.
   provider: WebsocketProvider;
   docName: string;
+  pageMode: boolean;
+  docPath: string;
   room: string | null;
   sealed: boolean;
 
@@ -857,6 +860,8 @@ class App implements AppState {
   sealLanding: number;
   sealUI: { readout: HTMLElement };
   cancelBtn: HTMLButtonElement | null;
+  share: HTMLButtonElement | null;
+  shareMenu: HTMLElement | null;
 
   // --- the block grips (web/figures.ts) ---
   grips: HTMLElement;
@@ -991,6 +996,8 @@ class App implements AppState {
 
     const mount = document.getElementById('editor');
     this.docName = (mount && mount.dataset.doc) || '';
+    this.pageMode = !!mount && mount.dataset.pageMode === '1';
+    this.docPath = (mount && mount.dataset.path) || '';
     // THE TRAIL HAS NO REGION TO REMEMBER A COLLAPSE FOR, AND NO SAVE STATE
     // EITHER. `changedOpen` was a collapse flag for the log at the rail's foot; the trail is an outgoing message and not a history, so there
     // is no log, no head to open and nothing to persist.
@@ -1169,6 +1176,12 @@ class App implements AppState {
     this.draftError = '';
     this.diskNotice = '';
     this.cancelBtn = this.makeHandoffCancel();
+
+    // SHARE, built hidden directly after Revise — after the cancel button so
+    // it is Revise's immediate neighbour — and swapped into Revise's box on
+    // the sealing edge (applySeal). See web/share.ts.
+    this.shareMenu = null;
+    this.share = this.makeShare();
 
     // THE SEAL. Whether this review has ENDED, and how — read off
     // /_galley/revise on every poll, exactly where the button already asks
@@ -2088,6 +2101,9 @@ class App implements AppState {
     const notice = document.createElement('div');
     notice.className = 'gly-rail-notice';
     root.append(band, notice);
+    // The rendered page's door, markdown reviews only (web/share.ts). It sits
+    // in the reserved row above the band, so it moves no card.
+    this.makePreviewLink(root);
     document.body.appendChild(root);
     return { root, notice, band };
   }
@@ -2505,10 +2521,13 @@ Object.assign(App.prototype, verdictMethods);
 // constants it owns — are their own module too — see web/seal.ts — mixed in
 // for the same reason.
 Object.assign(App.prototype, sealMethods);
+// Share — the button that takes Revise's slot after approval, its menu, and
+// the rail's preview link — is its own module too — see web/share.ts.
+Object.assign(App.prototype, shareMethods);
 
 // A DECLARATION, NOT A CHECK — see this file's own header and
 // web/appshell.ts's for the whole argument. Every member of AppMethods
-// arrives through one of the ten `Object.assign` calls immediately above,
+// arrives through one of the eleven `Object.assign` calls immediately above,
 // so no class body declares them and `implements` cannot verify them; this
 // merges their names and signatures onto `App`'s type so the calls this
 // file itself makes to them (`this.makeCensus()` in the constructor,

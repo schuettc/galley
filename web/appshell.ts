@@ -235,6 +235,11 @@ export interface AppState {
   // --- editor and identity ---
   editor: Editor;
   docName: string;
+  // Read once off the mount (`data-page-mode`, `data-path`), before the rail
+  // is built: whether a page is under review, and the absolute path Share's
+  // Copy path copies — the .md, or the page itself in page mode.
+  pageMode: boolean;
+  docPath: string;
   room: string | null;
   sealed: boolean;
 
@@ -387,6 +392,11 @@ export interface AppState {
   // makeHandoffCancel itself may return null (the anchor button it hangs
   // off, `#gly-revise`, may not exist).
   cancelBtn: HTMLButtonElement | null;
+  // `this.share = this.makeShare();` — direct and unconditional, nullable
+  // for the cancel button's reason (no `#gly-revise`, nothing to sit beside).
+  // The menu is built on the first press, like the verdict menu.
+  share: HTMLButtonElement | null;
+  shareMenu: HTMLElement | null;
 
   // --- the block grips (web/figures.ts) ---
   //
@@ -671,6 +681,15 @@ export interface AppMethods {
 
   // --- Revise's own builder (web/verdict.ts) ---
   makeRevise(): HTMLButtonElement | null;
+
+  // --- Share, and the rail's preview link (web/share.ts) ---
+  makeShare(): HTMLButtonElement | null;
+  swapShare(sealed: boolean): void;
+  makeShareMenu(): HTMLElement;
+  openShareMenu(): void;
+  closeShareMenu(): void;
+  runShare(act: 'save' | 'copy' | 'link'): void;
+  makePreviewLink(rail: HTMLElement): HTMLAnchorElement | null;
 }
 
 // What a mixin method's `this` is: both halves together.
