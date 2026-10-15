@@ -7,7 +7,6 @@ import { chromium } from 'playwright-core';
 // web/layers.mjs already states for SEALED_VERBS. A hand-copied label here goes
 // stale the moment the button is renamed, and the check keeps reporting `ok`
 // about a control it can no longer find.
-import { CAPTURE_LABEL } from './history.ts';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 const PORT = Number(process.env.PORT || 8258);
@@ -190,18 +189,45 @@ async function openVerdictMenu(page) {
   });
 }
 
-// THE HANDLE IS THE BAR'S NOW, AND IT DOES NOT TOGGLE. It used to be the rail's
-// own `+ instruction on the whole document`, and it toggled — so a second
-// unconditional click on an already-open form shut it and the fill that
-// followed landed on a hidden textarea, which is why every site that files one
-// goes through here. The control moved to the bar (`.gly-capture-open`, read
-// off the app's own CAPTURE_LABEL rather than a copy of the string) and it only
-// ever OPENS: the way out is `cancel` or Esc, so pressing it twice is idempotent
-// rather than destructive. The visibility guard is kept as a guard against
-// pressing a control that is already doing its job, not against undoing it.
+// A BLANK SPOT IN THE RIGHT-HAND PANEL, found the way a reviewer's eye finds
+// one: inside the rail's column, below the bar, and on nothing that is a card,
+// a control, a link or a field. Read off `elementFromPoint` rather than a fixed
+// coordinate, because the cards move with the prose and a fixed point is a card
+// on one paint and blank space on the next.
+async function blankPanelPoint(page) {
+  return page.evaluate(() => {
+    const rail = document.querySelector('.gly-rail');
+    const bar = document.querySelector('.gly-bar');
+    if (!rail || rail.hidden || !bar) return null;
+    const r = rail.getBoundingClientRect();
+    const top = bar.getBoundingClientRect().bottom;
+    const busy =
+      '.gly-card, .gly-capture, .gly-menu, .ProseMirror, button, a, input, textarea, select';
+    for (let y = window.innerHeight - 20; y > top + 10; y -= 15) {
+      for (const x of [r.left + r.width / 2, r.left + 40, r.right - 40]) {
+        const el = document.elementFromPoint(x, y);
+        if (el && !el.closest(busy)) return { x, y };
+      }
+    }
+    return null;
+  });
+}
+
+// THE PANEL IS THE DOOR NOW. The bar's `+ Instruction` is gone: a click on
+// blank space in the right-hand panel opens the whole-document box, and it only
+// ever OPENS — the way out is `cancel` or Esc, so clicking twice is idempotent
+// rather than destructive. The visibility guard in addOverallInstruction is
+// kept as a guard against pressing a door that is already doing its job.
+async function openCaptureFromPanel(page) {
+  const at = await blankPanelPoint(page);
+  if (!at) throw new Error('no blank spot in the right-hand panel');
+  await page.mouse.click(at.x, at.y);
+  await page.waitForSelector('.gly-capture:not([hidden])', { timeout: 5000 });
+}
+
 async function addOverallInstruction(page, text, want) {
   if (!(await page.locator('.gly-capture').isVisible())) {
-    await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+    await openCaptureFromPanel(page);
   }
   await page.fill('.gly-overall-input', text);
   await page.locator('.gly-overall-input').press('Enter');
@@ -234,9 +260,9 @@ async function openSectionForm(page) {
 }
 
 // What the right-click menu is offering, as the labels a reviewer reads. One
-// reader because the check is made twice — once with nothing selected and once
-// with a passage selected — and the whole claim is that the SAME gesture reads
-// differently, which two spellings of the read could quietly stop being.
+// reader because the check is made wherever the menu opens — the text, the
+// margin, the panel — and the claim is that it offers the same one item in
+// each, which two spellings of the read could quietly stop being.
 async function menuRows(page) {
   return page.evaluate(() =>
     [...document.querySelectorAll('.gly-menu-item')].map((b) =>
@@ -441,35 +467,58 @@ try {
     primaryPaint.bg === primaryPaint.want && primaryPaint.radius === '6px',
     JSON.stringify(primaryPaint),
   );
-  // --- WHERE CAPTURE LIVES, AND IT IS THE BAR ---
+  // --- WHERE CAPTURE LIVES, AND IT IS THE PANEL ---
   //
-  // THIS CHECK IS INVERTED RATHER THAN DELETED, AND THE INVERSION IS THE
-  // RULING. It read `the whole-document affordance is in the instruction rail`
-  // and it was green over both of the defects Court reported from live use: the
-  // affordance scrolled out of reach, and opening it slid every anchored card
-  // 39.29px off its mark. The rail holds live work only — *here is what needs
-  // you, beside the text it is about* — and a `+ add` button needs nothing and
-  // is beside nothing, so the old claim was asserting the placement that caused
-  // both. It says the opposite now, in the same shape and in the same place, so
-  // a future re-rail is a red check rather than a discovery.
+  // The bar's `+ Instruction` is gone, and with it the last capture control in
+  // the chrome: a left click on blank space in the right-hand panel is the door
+  // to the whole-document box, and a right-click anywhere below the bar is the
+  // other. Inverted again rather than deleted, so a button growing back in
+  // either place is a red check rather than a discovery.
   check(
-    'capture is CHROME — the door is in the bar, beside History',
-    await page.isVisible(`.gly-bar button:text-is("${CAPTURE_LABEL}")`),
-  );
-  check(
-    'and the rail carries no capture control at all',
-    (await page.locator('.gly-rail .gly-overall-toggle').count()) === 0 &&
+    'capture has no button in the bar or the rail',
+    (await page.locator('.gly-bar .gly-capture-open').count()) === 0 &&
+      (await page
+        .locator('.gly-bar button:text-is("+ Instruction")')
+        .count()) === 0 &&
+      (await page.locator('.gly-rail .gly-overall-toggle').count()) === 0 &&
       (await page.locator('.gly-rail .gly-capture-open').count()) === 0,
   );
-  // AND IT IS REACHABLE AT ANY SCROLL POSITION, which is note §13 stated as a
-  // check. The bar is sticky, so this is a claim about the bar the control was
-  // moved INTO rather than about the control — which is exactly why the move
-  // fixes it and no arithmetic here does.
+  const blank = await blankPanelPoint(page);
+  const blankCursor = blank
+    ? await page.evaluate(
+        ({ x, y }) => getComputedStyle(document.elementFromPoint(x, y)).cursor,
+        blank,
+      )
+    : '';
+  if (blank) await page.mouse.move(blank.x, blank.y);
+  await page.waitForTimeout(100);
+  const hoverCursor = blank
+    ? await page.evaluate(
+        ({ x, y }) => getComputedStyle(document.elementFromPoint(x, y)).cursor,
+        blank,
+      )
+    : '';
+  check(
+    'blank panel space shows a pointer under the mouse',
+    !!blank && hoverCursor === 'pointer',
+    JSON.stringify({ blank, blankCursor, hoverCursor }),
+  );
+  if (blank) await page.mouse.click(blank.x, blank.y);
+  await page.waitForTimeout(300);
+  check(
+    'a left click on blank panel space opens the whole-document box',
+    await page.locator('.gly-capture').isVisible(),
+    JSON.stringify(blank),
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  // AND IT IS REACHABLE AT ANY SCROLL POSITION: the panel runs the height of
+  // the page, so there is blank panel space at the foot of the document too.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(200);
   check(
-    'the capture door is on screen at the foot of the document',
-    await page.isVisible(`.gly-bar button:text-is("${CAPTURE_LABEL}")`),
+    'there is blank panel space to click at the foot of the document',
+    !!(await blankPanelPoint(page)),
   );
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(200);
@@ -499,11 +548,32 @@ try {
       /^Select any words in the document to ask for a change\./.test(
         teach.body,
       ) &&
-      /one round\.$/.test(teach.body) &&
+      /one round\.( |$)/.test(teach.body) &&
       teach.border === 'dashed' &&
       teach.settled === 0 &&
       teach.teaching === 1,
     JSON.stringify(teach),
+  );
+  // AND IT SAYS WHAT A CLICK ON THE PANEL DOES, in plain words and with no
+  // button: the click on blank panel space is the door, and the sentence only
+  // names it.
+  const hint = await page.evaluate(() => {
+    const card = document.querySelector('.gly-rail-notice .gly-rail-teach');
+    return card
+      ? {
+          body: (card.querySelector('.gly-card-body') || {}).innerText || '',
+          buttons: card.querySelectorAll('button').length,
+        }
+      : null;
+  });
+  check(
+    'the empty panel says a click anywhere in it asks about the whole document',
+    hint !== null &&
+      /one round\. Or click anywhere in this panel to ask about the whole document\.$/.test(
+        hint.body,
+      ) &&
+      hint.buttons === 0,
+    JSON.stringify(hint),
   );
 
   // --- THE BUTTON SITS BY THE WORDS IN A SHORT WINDOW ---
@@ -914,7 +984,7 @@ try {
     /\{>>@comment cm-[0-9a-f]{16}<<\}/,
   );
   if (!(await page.locator('.gly-capture').isVisible())) {
-    await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+    await openCaptureFromPanel(page);
   }
   await page.locator('.gly-overall-input').click();
   await page.keyboard.type('Open with the decision,');
@@ -1057,6 +1127,27 @@ try {
     ),
   );
 
+  // --- A CLICK ON A CARD IS THE CARD'S, NOT THE PANEL'S ---
+  //
+  // The panel's door is its BLANK space. A card's body is reading surface (and
+  // its own controls are its own), so a click on one opens nothing.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  const cardSpot = await page.evaluate(() => {
+    const card = document.querySelector('.gly-rail-band .gly-card');
+    if (!card) return null;
+    const body = card.querySelector('.gly-card-body') || card;
+    const r = body.getBoundingClientRect();
+    return { x: r.left + 4, y: r.top + r.height / 2 };
+  });
+  if (cardSpot) await page.mouse.click(cardSpot.x, cardSpot.y);
+  await page.waitForTimeout(300);
+  check(
+    'a click on a card does not open the whole-document box',
+    !!cardSpot && !(await page.locator('.gly-capture').isVisible()),
+    JSON.stringify(cardSpot),
+  );
+
   // --- §2.2b · THE CAPTURE CARD IS ONE OF THE CARDS, AND THE OTHERS RE-FLOOR
   // CLEAR OF IT ---
   //
@@ -1085,7 +1176,7 @@ try {
       Math.round(c.getBoundingClientRect().top),
     ),
   );
-  await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  await openCaptureFromPanel(page);
   await page.waitForSelector('.gly-capture:not([hidden])');
   await page.waitForTimeout(400);
   const openState = await page.evaluate(() => {
@@ -1138,7 +1229,7 @@ try {
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(200);
-  await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  await openCaptureFromPanel(page);
   await page.waitForSelector('.gly-capture:not([hidden])');
   await page.waitForTimeout(300);
   const deepBox = await page.evaluate(() => {
@@ -1216,20 +1307,82 @@ try {
     JSON.stringify(rowShape),
   );
   await page.keyboard.press('Escape');
-  // AND THE SCOPE IS THE SELECTION'S. Same gesture, different selection,
-  // different offer — no mode, nothing to switch, and the second row still
-  // there because a reviewer with a selection may still mean the whole file.
+  // A RIGHT-CLICK ON A SELECTION IS THE BROWSER'S. Selecting text already
+  // offers the instruction button beside it, and what a reviewer wants from a
+  // right-click there is the browser's own Copy, Look Up and the rest. So
+  // galley's menu does not open and the event is left alone: read as
+  // `defaultPrevented` by a listener on window, which runs after galley's own
+  // on document.
+  await page.evaluate(() => {
+    window.__glyCtx = [];
+    window.addEventListener('contextmenu', (e) => {
+      window.__glyCtx.push(e.defaultPrevented);
+    });
+  });
   await selectRetryBudget(page);
-  await page.locator('.ProseMirror p').first().click({ button: 'right' });
-  await page.waitForSelector('.gly-menu:not([hidden])');
-  const selectedRows = await menuRows(page);
+  const onSelection = await page.evaluate(() => {
+    const r = window.getSelection().getRangeAt(0).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(onSelection.x, onSelection.y, { button: 'right' });
+  await page.waitForTimeout(200);
+  const onSelectionCtx = await page.evaluate(() => window.__glyCtx.slice());
   check(
-    'with text selected the menu offers the passage first, then the document',
-    selectedRows.length === 2 &&
-      /this passage/i.test(selectedRows[0]) &&
-      /whole document/i.test(selectedRows[1]),
-    JSON.stringify(selectedRows),
+    'a right-click on selected text opens the browser’s menu, not galley’s',
+    !(await page.locator('.gly-menu').isVisible()) &&
+      onSelectionCtx.length === 1 &&
+      onSelectionCtx[0] === false,
+    JSON.stringify(onSelectionCtx),
   );
+  await page.evaluate(() => window.getSelection().removeAllRanges());
+  await page.locator('.ProseMirror p').first().click();
+  await page.waitForTimeout(100);
+  // RIGHT-CLICK WORKS ANYWHERE BELOW THE BAR: the left margin, the space under
+  // the document, and the right-hand panel, as well as the text.
+  const margin = await page.evaluate(() => {
+    const pm = document.querySelector('.ProseMirror').getBoundingClientRect();
+    const x = Math.max(8, pm.left / 2);
+    const y = Math.min(window.innerHeight - 40, pm.top + 60);
+    const el = document.elementFromPoint(x, y);
+    return { x, y, el: el ? el.tagName + '.' + el.className : null };
+  });
+  await page.mouse.click(margin.x, margin.y, { button: 'right' });
+  await page.waitForTimeout(200);
+  const marginRows = (await page.locator('.gly-menu').isVisible())
+    ? await menuRows(page)
+    : [];
+  check(
+    'a right-click in the margin opens galley’s menu, with the one item',
+    marginRows.length === 1 && /whole document/i.test(marginRows[0]),
+    JSON.stringify({ margin, marginRows }),
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  const panelSpot = await blankPanelPoint(page);
+  await page.mouse.click(panelSpot.x, panelSpot.y, { button: 'right' });
+  await page.waitForTimeout(200);
+  const panelRows = (await page.locator('.gly-menu').isVisible())
+    ? await menuRows(page)
+    : [];
+  check(
+    'a right-click in the right-hand panel opens galley’s menu, with the one item',
+    panelRows.length === 1 &&
+      /whole document/i.test(panelRows[0]) &&
+      !(await page.locator('.gly-capture').isVisible()),
+    JSON.stringify({ panelSpot, panelRows }),
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  // A TEXT FIELD KEEPS THE BROWSER'S MENU — paste and spelling live there.
+  await openCaptureFromPanel(page);
+  await page.locator('.gly-overall-input').click({ button: 'right' });
+  await page.waitForTimeout(200);
+  check(
+    'a right-click inside the instruction box opens nothing of ours',
+    !(await page.locator('.gly-menu').isVisible()),
+  );
+  await page.locator('.gly-capture-cancel').click();
+  await page.waitForTimeout(200);
   await page.keyboard.press('Escape');
   check(
     'Esc puts the menu away',
@@ -1613,7 +1766,7 @@ try {
     await page.waitForTimeout(100);
     boxes[name] = { opened, full: await boxNow(sel) };
   };
-  await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  await openCaptureFromPanel(page);
   await page.waitForSelector('.gly-overall-input:not([disabled])');
   await measureBox('document', '.gly-overall-input');
   await page.click('.gly-capture-cancel');
@@ -1853,7 +2006,7 @@ try {
   // nowhere to go once the round is sent — only FILED instructions travel. Open
   // it with a draft now; the check after the send below is that Revise closed
   // and discarded it. See verdict.ts postVerdict and cards.ts closeCapture.
-  await page.click(`.gly-bar button:text-is("${CAPTURE_LABEL}")`);
+  await openCaptureFromPanel(page);
   await page.waitForSelector('.gly-capture:not([hidden])');
   await page.fill('.gly-overall-input', 'an unsent draft');
   check(
@@ -3914,6 +4067,16 @@ try {
     'and the instruction list’s door does not, because every verb behind it is dead',
     sealedBar && sealedBar.countShown === false,
     JSON.stringify(sealedBar),
+  );
+  // A SEALED REVIEW TAKES NO INSTRUCTIONS, so the panel's blank space is
+  // just space.
+  const sealedSpot = await blankPanelPoint(page);
+  if (sealedSpot) await page.mouse.click(sealedSpot.x, sealedSpot.y);
+  await page.waitForTimeout(300);
+  check(
+    'a click on blank panel space does nothing on a sealed review',
+    !!sealedSpot && !(await page.locator('.gly-capture').isVisible()),
+    JSON.stringify(sealedSpot),
   );
   await page.click('.gly-versions-open');
   const sealedHistory = await page.evaluate(() => ({

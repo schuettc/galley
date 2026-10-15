@@ -256,7 +256,7 @@ export const SEALED_VERBS =
   '.gly-thread-edit, .gly-thread-edit-text, .gly-thread-edit-save, ' +
   '.gly-overall-input, .gly-census button:not(.gly-versions-open), ' +
   '.gly-composer button, ' +
-  '.gly-composer-text, .gly-capture button, .gly-capture-open, ' +
+  '.gly-composer-text, .gly-capture button, ' +
   '.gly-block-grip';
 
 /** SEAL_ONLY_VERBS is the half of SEALED_VERBS the seal itself owns, because
@@ -350,21 +350,10 @@ export const SEALED_VERBS =
  *
  * AND `.gly-census-overall` HAS LEFT IT, for the reason four selectors left
  * SEALED_VERBS: the whole-document handle was a bar control opening a floating
- * panel, then the rail's own first card, and it is a bar control again
- * (`.gly-capture-open`, matched by the `.gly-census button` entry) opening a
- * card that floats over the rail. Its INPUT kept its class through both moves,
- * which is why this list did not have to.
- *
- * `.gly-capture-open` IS NAMED DIRECTLY BECAUSE IT LEFT THE STRIP. It was a
- * `.gly-census button` for one round — covered by that entry without being
- * mentioned — and it moved OUT of the census strip, which is a group of view
- * doors and no place for a verb (see makeCaptureButton). A control whose seal
- * coverage rode on a container it has left is coverage that disappears with the
- * move and takes no check with it, so it is spelled here. It is NOT in
- * SEAL_ONLY_VERBS: `paintCaptureVerb` re-derives its flag on every
- * `paintSurfaces` and reads `this.sealed` as part of the answer, so it has a
- * painter, and a seal-only entry would be this list claiming an owner it does
- * not have.
+ * panel, then the rail's own first card, then the bar's `+ Instruction`, and it
+ * is no control at all now — blank space in the right-hand panel, which a
+ * sealed review leaves inert (see panelDoorAt). Its INPUT kept its class
+ * through every move, which is why this list did not have to.
  *
  * `.gly-capture-cancel` IS HERE BECAUSE ITS TWIN IS, AND BECAUSE BORROWING THE
  * TWIN'S CLASS IS WHAT WENT WRONG. The capture card's exit first wore
@@ -660,17 +649,11 @@ export const sealMethods = {
   // so the door leads to a surface nothing can be done on. History is the
   // opposite: it is a reading surface, and reading is the only thing left.
   //
-  // `.gly-capture-open` IS DELIBERATELY NOT HERE. It left the strip, so hiding
-  // the container never reached it either — and `paintCaptureVerb` re-derives
-  // its flag on every paintSurfaces and reads `this.sealed` as part of the
-  // answer. Adding it would be a second writer of one control's dead state,
-  // which is the pair-of-writers shape SEAL_ONLY_VERBS exists to keep to one.
-  //
   // The strip's own box stays on the page carrying one live chip. That is
   // deliberate rather than tolerated: moving the door OUT of the strip was the
   // other exit, and it would put a view switch among the controls after the
-  // spacer — the placement `+ Instruction` was measured into and out of, four
-  // checks red at once. One chip in a group of view doors is a smaller lie
+  // spacer — the placement the old `+ Instruction` was measured into and out
+  // of, four checks red at once. One chip in a group of view doors is a smaller lie
   // than a view door filed with the verbs.
   sealHides(this: AppShell): (HTMLElement | null)[] {
     return [
