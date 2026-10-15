@@ -31,6 +31,8 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 **Sending.** `Revise` sends the round to you. `Revise & Approve` sends it and approves in the same press, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands.
 
+**Approving in the conversation.** If the reviewer tells you here that they approve the document, call the `galley_approve` tool with its path. It ends the review exactly as their `Approve` button would, and the page locks itself. Call it only on their word; never approve on their behalf because the revision looks done.
+
 **Then it arrives here.** They do not have to tell you they pressed it — a round reaches this session on its own.
 
 ## Answering a round
