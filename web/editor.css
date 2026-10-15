@@ -2826,10 +2826,11 @@ body.gly-collapsed:not(.gly-page) > main {
     flex-wrap: wrap;
   }
 
-  /* The sealed readout wraps here for the same reason. Its sentence ends
-     `restart galley edit to reopen`, about 485px of `nowrap` mono, which left
-     a 390px window and scrolled the page sideways (layers §8 measured it).
-     The sealed bar has no verbs after it to push, so wrapping moves nothing. */
+  /* The sealed readout wraps here for the same reason. The trust exit's
+     sentence (`Approved 14:32 · 2 notes entrusted · 1 still landing`) is long
+     `nowrap` mono, and an earlier, longer one scrolled a 390px window
+     sideways (layers §8 measured it). The sealed bar has no verbs after it to
+     push, so wrapping moves nothing. */
   .gly-seal {
     min-width: 0;
     white-space: normal;

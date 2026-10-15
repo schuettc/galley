@@ -105,20 +105,10 @@ export function sealLine(
     if (inFlight > 0) return `${handed} · ${inFlight} still landing`;
     return `${handed} · all applied`;
   }
-  // AND HOW TO GET BACK, WHICH THIS DID NOT SAY. The seal is terminal by
-  // design and there is no reopen button — that was decided, and it holds. What
-  // was never decided is that the way back should be INVISIBLE: the seal is
-  // in-memory only, so stopping `galley edit` and starting it again returns a
-  // live review, and Approve changes no bytes, cuts no version and reaches git
-  // not at all. Measured 2026-08-23: approve, restart, `sealed: false`.
-  //
-  // So the whole cost of a mis-pressed Approve is one command — and a reviewer
-  // reading `Approved 14:32 · review closed` has no way to know that. A
-  // recovery that exists and is unmentioned is this codebase's own
-  // invisible-but-present defect wearing the other face, and it is answered
-  // with a clause rather than with a button: a confirmation would tax every
-  // review forever to protect against something a restart undoes.
-  return `Approved${stamp} · review closed · restart galley edit to reopen`;
+  // The bare verdict and its time. The reopen hint (`restart galley edit to
+  // reopen`) was dropped to keep the bar short; reopening is the agent's to
+  // explain, not the bar's.
+  return `Approved${stamp}`;
 }
 
 /** reopenLine is what the status readout says when the page comes back from

@@ -40,6 +40,10 @@ function baseName(path: string): string {
   return i === -1 ? path : path.slice(i + 1);
 }
 
+/** SHARE_REPLY_MS is how long a Share's copied line stays on the status line
+ * before it clears itself. An error stays until something else is said. */
+export const SHARE_REPLY_MS = 5000;
+
 /** sharedLine is the status line after a Share put the file at path on the
  * clipboard. */
 export function sharedLine(path: string): string {
@@ -85,6 +89,10 @@ function download(href: string) {
   a.click();
   a.remove();
 }
+
+// The pending clear of the last Share's copied line. One page, one App, so a
+// module variable rather than a field on the shell.
+let replyClear: ReturnType<typeof setTimeout> | undefined;
 
 export const shareMethods = {
   // makeShare builds the button hidden, directly after Revise, so it can take
@@ -201,13 +209,23 @@ export const shareMethods = {
       return;
     }
     const route = act === 'share-md' ? 'md' : 'html';
+    clearTimeout(replyClear);
     this.say('copying…');
+    // The copied line clears itself, but only if it is still the line: any
+    // say() since then is newer and wins.
+    const copied = (path: string) => {
+      const line = sharedLine(path);
+      this.say(line);
+      replyClear = setTimeout(() => {
+        if (this.said === line) {
+          this.say('');
+        }
+      }, SHARE_REPLY_MS);
+    };
     postJSON(`/_galley/share/${route}`, {})
       .then((res) =>
         res.ok
-          ? res
-              .json()
-              .then((v: { path: string }) => this.say(sharedLine(v.path)))
+          ? res.json().then((v: { path: string }) => copied(v.path))
           : res
               .text()
               .then((t) =>

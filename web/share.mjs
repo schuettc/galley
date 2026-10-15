@@ -17,8 +17,10 @@
 //     the two Shares on macOS only.
 //   · Download HTML and Download Markdown are downloads named doc.html and
 //     doc.md.
+//   · The approved bar reads `Approved HH:MM` and nothing more.
 //   · Share HTML writes <doc>.html beside <doc>.md and says so on the status
-//     line; Share Markdown says so too. On macOS this really sets the
+//     line, and the line clears itself SHARE_REPLY_MS later; Share Markdown
+//     says so too. On macOS this really sets the
 //     clipboard, to the file; nothing here reads it back.
 //   · The preview link answers.
 //   · A page under review (page mode) offers Download HTML and Share HTML, for
@@ -49,6 +51,7 @@ import {
   SHARE_SHARE_HTML,
   SHARE_SHARE_MD,
   PREVIEW_LABEL,
+  SHARE_REPLY_MS,
   sharedLine,
 } from './share.ts';
 
@@ -402,6 +405,15 @@ async function statusSays(page, want) {
     () => document.querySelector('.gly-share')?.textContent || '',
   );
   check('the Share button reads its label', label === SHARE_LABEL, label);
+  const sealText = await page.evaluate(
+    () => document.getElementById('gly-seal')?.textContent || '',
+  );
+  check(
+    'the approved bar says Approved and the time, and nothing about restarting',
+    /^Approved \d\d:\d\d$/.test(sealText) &&
+      !sealText.includes('restart galley edit'),
+    sealText,
+  );
   const reviseGone = await page.evaluate(() => {
     const el = document.getElementById('gly-revise');
     return !el || el.getBoundingClientRect().width === 0;
@@ -448,6 +460,15 @@ async function statusSays(page, want) {
       'Share HTML says the file is ready to paste',
       line === 'doc.html copied · paste to attach' && status.includes(line),
       status,
+    );
+    await page.waitForTimeout(SHARE_REPLY_MS + 1000);
+    const cleared = await page.evaluate(
+      () => document.getElementById('gly-status')?.textContent || '',
+    );
+    check(
+      `the copied line clears itself after ${SHARE_REPLY_MS}ms`,
+      !cleared.includes(line),
+      cleared,
     );
     check('doc.html is beside doc.md', existsSync(SAVED), SAVED);
     if (existsSync(SAVED)) {

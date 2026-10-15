@@ -6135,7 +6135,7 @@ function bindsContentField(src) {
     );
     check(
       'the built bundle carries the three verdict readouts',
-      src.includes('review closed') &&
+      src.includes('Approved') &&
         src.includes('entrusted') &&
         src.includes('markup thrown away'),
     );
@@ -6554,9 +6554,8 @@ function bindsContentField(src) {
       // watching it land" are two different things to have been told.
       const at = new Date(2026, 7, 15, 11, 42).getTime();
       check(
-        'a pure approve reads as closed',
-        sealLine('approved', at, 0) ===
-          'Approved 11:42 · review closed · restart galley edit to reopen',
+        'a pure approve reads as the verdict and its time, nothing more',
+        sealLine('approved', at, 0) === 'Approved 11:42',
       );
       check(
         'the trust exit counts what it handed over',
@@ -6612,13 +6611,11 @@ function bindsContentField(src) {
           'Discarded 11:42 · markup thrown away',
       );
       // A seal with no timestamp is a seal read before the server answered; the
-      // sentence still has to be a sentence rather than "Approved  · review
-      // closed" with a hole in it.
+      // line still has to be the bare verdict rather than "Approved " with a
+      // hole where the time was.
       check(
         'a verdict with no instant still reads',
-        sealLine('approved', 0, 0) ===
-          'Approved · review closed · restart galley edit to reopen' &&
-          clockTime(0) === '',
+        sealLine('approved', 0, 0) === 'Approved' && clockTime(0) === '',
       );
       // The agent's reopen carries its reason INTO the readout, because the
       // reviewer is looking at a sealed page and at nothing else.
