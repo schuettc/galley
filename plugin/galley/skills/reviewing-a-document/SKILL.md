@@ -109,13 +109,13 @@ A theme changes only the look of the saved HTML and the preview: colours, fonts,
 ```
 ~/.config/galley/themes/<name>/
   theme.json
-  logo-light.svg     logo on a light background
-  logo-dark.svg      logo on a dark background
+  logo-light.svg     the logo drawn on a light page: colours meant for a light background
+  logo-dark.svg      the logo drawn on a dark page
   extra.css          optional, loaded after galley's styles
   <font files>       any that theme.json names
 ```
 
-(`$XDG_CONFIG_HOME/galley/themes/` when that is set.) Every field of `theme.json` is optional. Anything left out comes from galley's base theme, and so does a missing logo:
+(`$XDG_CONFIG_HOME/galley/themes/` when that is set.) Every field of `theme.json` is optional; anything left out comes from galley's base theme:
 
 ```json
 {
@@ -129,19 +129,33 @@ A theme changes only the look of the saved HTML and the preview: colours, fonts,
 }
 ```
 
-- `label` is the text beside the logo in the page header.
-- `light` and `dark` are the palettes for each system colour scheme. `bg` is the page, `fg` the text, `muted` the secondary text and the sidebar, `line` the rules, table borders and code background, and `accent` the links and highlights. Mermaid diagrams are coloured from the same five.
-- `fonts` lists font files in the theme folder to embed. Each needs a `family` and a `file`; `weight` and `style` default to `normal`. The families become the body font, ahead of the system stack. A listed file that is missing is an error naming it.
+- **Logo.** Shown at the left of the sticky header at 1.6rem high (about 26px), width following the SVG's aspect ratio. A `viewBox` is enough; `width`/`height` attributes are not needed. The page shows `logo-dark.svg` when the system is in dark mode and `logo-light.svg` otherwise.
+- **A missing logo file** falls back per file to galley's own logo for that scheme, never to the theme's other logo. A theme with only `logo-light.svg` shows galley's logo in dark mode, so ship both.
+- **`label`** is plain text beside the logo, in `fg` at body size and weight 600. Left out, it reads `galley`; hide it with `.g-label { display: none; }` in `extra.css`.
+- **`light` and `dark`** are the palettes for each system colour scheme. Each colour is used here:
+  - `bg`: the page and the header background.
+  - `fg`: body text and the label.
+  - `muted`: the sidebar links and blockquote text.
+  - `line`: the header's bottom border, the rule under each `##` heading, `---` rules, table borders, the table header background, **and the background of inline code and code blocks**. A faint border colour makes code faint, so pick one that still sets code apart from `bg`.
+  - `accent`: links, a hovered sidebar link and the blockquote bar.
+- **Mermaid diagrams** use Mermaid's `base` theme coloured from the same palette, switching with the scheme. Node fill, diagram background and edge-label background are `bg`. Node and actor borders are `accent`. All diagram text is `fg`, including sequence messages. Edges are `muted`. Subgraph fill, notes and the secondary colour are `line`.
+- **`fonts`** lists font files in the theme folder to embed. Each needs a `family` and a `file`; `weight` and `style` default to `normal`. The families become the body font, ahead of the system stack. Code always uses a monospace stack. A listed file that is missing is an error naming it.
+- **`extra.css`** can target these stable elements:
+  - `header.g-head`, containing `picture.g-logo` (its `img`) and `span.g-label`.
+  - `div.g-wrap`, the centred row below the header.
+  - `nav.g-side`, the sidebar. It lists the `##` and `###` headings as `a.g-h2` and `a.g-h3`, and is hidden under 52rem wide.
+  - `main.g-body`, the document. The first `#` heading is the page title. Diagrams are `pre.mermaid`.
+  - The colours are the custom properties `--bg`, `--fg`, `--muted`, `--line` and `--accent`, and the body font is `--sans`.
 
-A project chooses its theme in `.galley/config.json`, found by searching up from the document's folder:
+A project chooses its theme in `.galley/config.json`, either in the document's folder or in any folder above it. The nearest one wins:
 
 ```json
 { "theme": "acme" }
 ```
 
-With no config file, the base theme is used. A theme name that does not exist, or a `theme.json` that does not parse, makes the preview, `Download HTML` and `Share HTML` show the error instead of a page.
+With no config file, or no `theme` in it, the base theme is used. A theme name that does not exist, a `theme.json` that does not parse, or a missing font file makes the preview, `Download HTML` and `Share HTML` show the error instead of a page.
 
-**Check a theme by opening the preview** (the `preview` address `galley_open` returned) on a document in the project. Look at it in light and dark mode, and include a Mermaid diagram if the brand's documents use them.
+**Check a theme with `galley render <test doc.md>`.** It writes the page Share HTML writes, beside the document (`-o` writes it elsewhere), and prints its path. A theme error is printed instead, exits non-zero and writes nothing. Open the file in light and dark mode. The test document should have headings at levels 2 and 3, a table, inline code, a code block and a Mermaid diagram. While reviewing, the preview (the `preview` address `galley_open` returned) shows the same page as the document changes.
 
 ## Without the channel
 

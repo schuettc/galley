@@ -37,12 +37,17 @@ const previewRefresh = `<script>
 `
 
 // renderDoc renders the document as it stands on disk in its project's theme.
-func (s *EditServer) renderDoc() ([]byte, error) {
-	theme, err := render.ThemeFor(s.MdPath)
+func (s *EditServer) renderDoc() ([]byte, error) { return RenderDoc(s.MdPath) }
+
+// RenderDoc renders the markdown document at mdPath, as it stands on disk, in
+// its project's theme with galley's embedded mermaid.js: the page Download
+// HTML and Share HTML hand over, and what `galley render` writes.
+func RenderDoc(mdPath string) ([]byte, error) {
+	theme, err := render.ThemeFor(mdPath)
 	if err != nil {
 		return nil, err
 	}
-	md, err := os.ReadFile(s.MdPath)
+	md, err := os.ReadFile(mdPath)
 	if err != nil {
 		return nil, err
 	}
