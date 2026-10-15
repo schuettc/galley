@@ -5,6 +5,7 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 ## 0.13.1
 
 - **The + Instruction button is gone from the bar.** Click anywhere on empty space in the right-hand panel to write an instruction about the whole document, or right-click anywhere below the bar with nothing selected. Selecting words still shows the instruction button beside them, and right-clicking a selection now shows your browser's own menu. (#78)
+- **Asking the agent to open a document opens its page every time,** and a document whose review has ended comes back as a fresh review in one step. Before, you sometimes got only a link, and reopening an approved review needed its old editor stopped by hand. (#81)
 
 Fixed:
 
