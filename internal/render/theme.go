@@ -101,9 +101,6 @@ func LoadTheme(name string) (Theme, error) {
 	t.Light = fill(f.Light, t.Light)
 	t.Dark = fill(f.Dark, t.Dark)
 	for _, font := range f.Fonts {
-		if !plainName(font.File) {
-			return Theme{}, fmt.Errorf("theme %q: font file %q must be a file in %s", name, font.File, dir)
-		}
 		data, err := os.ReadFile(filepath.Join(dir, font.File))
 		if err != nil {
 			return Theme{}, fmt.Errorf("theme %q: font file %s: %w", name, font.File, err)
@@ -124,8 +121,8 @@ func LoadTheme(name string) (Theme, error) {
 }
 
 // plainName reports whether n names an entry directly inside a folder: not
-// empty, not "." or "..", and without a path separator — so a theme name or
-// a font file cannot reach outside the folder it is joined onto.
+// empty, not "." or "..", and without a path separator — so a theme name
+// cannot reach outside the themes folder it is joined onto.
 func plainName(n string) bool {
 	return n != "" && n != "." && n != ".." && !strings.ContainsAny(n, `/\`)
 }
