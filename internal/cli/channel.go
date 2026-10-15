@@ -197,9 +197,15 @@ type channel struct {
 	exe         string
 	openPoll    time.Duration
 	openTimeout time.Duration
-	srv         *channelmcp.Server
-	mu          sync.Mutex
-	attached    map[string]bool
+	// shutdownWait bounds the wait for an ended or unanswering editor to go
+	// before a fresh one is spawned in its place. openPage opens a review's
+	// page in the reviewer's browser on the reuse path; a field so tests
+	// record the URL instead of opening a tab.
+	shutdownWait time.Duration
+	openPage     func(url string)
+	srv          *channelmcp.Server
+	mu           sync.Mutex
+	attached     map[string]bool
 	// The diagnostic's state — the answer to "why am I not attached?", which
 	// until now no surface in this process could give. Rebuilt on every scan,
 	// except `gone`, which is a short history: an advert that was reaped or an
@@ -238,18 +244,20 @@ func newChannel(scope, self string) *channel {
 		abs = scope
 	}
 	c := &channel{
-		scope:       abs,
-		scopeReal:   resolveSymlinks(abs),
-		self:        self,
-		scanEvery:   100 * time.Millisecond,
-		openPoll:    200 * time.Millisecond,
-		openTimeout: 10 * time.Second,
-		attached:    map[string]bool{},
-		ended:       map[string]bool{},
-		pages:       map[string]string{},
-		unattached:  map[string]string{},
-		stopped:     map[string]bool{},
-		announced:   map[string]bool{},
+		scope:        abs,
+		scopeReal:    resolveSymlinks(abs),
+		self:         self,
+		scanEvery:    100 * time.Millisecond,
+		openPoll:     200 * time.Millisecond,
+		openTimeout:  10 * time.Second,
+		shutdownWait: 10 * time.Second,
+		openPage:     openBrowser,
+		attached:     map[string]bool{},
+		ended:        map[string]bool{},
+		pages:        map[string]string{},
+		unattached:   map[string]string{},
+		stopped:      map[string]bool{},
+		announced:    map[string]bool{},
 	}
 	// os.Executable can fail only in exotic setups; an empty exe makes
 	// galley_open report "cannot locate the galley binary" rather than spawn
@@ -273,7 +281,8 @@ func newChannel(scope, self string) *channel {
 			Name: "galley_open",
 			Description: "Put a document under review: start its editor for THIS session and open the page in the reviewer's browser. " +
 				"Returns the URL too, to give the reviewer if they closed the tab. " +
-				"Idempotent — a document this session already has open returns the same URL and opens nothing. " +
+				"A document this session already has open returns the same URL and opens its page again; " +
+				"calling it on a document whose review has ended (approved or discarded) starts a fresh review. " +
 				"This is the only way to open a document; do not run `galley edit` from a shell.",
 			InputSchema: openSchema,
 		}, {

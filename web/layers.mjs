@@ -128,6 +128,28 @@ function note(name, detail) {
   );
 }
 
+/* openCaptureFromPanel is the reviewer's door to the whole-document box: a
+ * click on blank space in the right-hand panel (the bar's `+ Instruction` is
+ * gone). The spot is the first point down the rail's middle that the app's own
+ * `panelDoorAt` calls a door, so this file and the click agree by construction;
+ * rounds-ux.mjs finds its spot independently, off `elementFromPoint` alone. */
+async function openCaptureFromPanel(page) {
+  const at = await page.evaluate(() => {
+    const app = window.galleyEdit.app;
+    const r = document.querySelector('.gly-rail').getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    for (let y = 0; y < window.innerHeight; y += 15) {
+      if (app.panelDoorAt(document.elementFromPoint(x, y), x, y)) {
+        return { x, y };
+      }
+    }
+    return null;
+  });
+  if (!at) throw new Error('no blank spot in the right-hand panel');
+  await page.mouse.click(at.x, at.y);
+  await page.waitForSelector('.gly-capture:not([hidden])', { timeout: 5000 });
+}
+
 const HERE = mkdtempSync(join(tmpdir(), 'galley-layers-'));
 // THE NAME IS PART OF THE FIXTURE, and `doc.md` made the widest entry in §7a's
 // sweep decorative. The document's name renders in `.gly-doc` at the head of
@@ -1501,8 +1523,8 @@ await page.waitForTimeout(300);
     bar: document.querySelectorAll('.gly-bar .gly-capture-open').length,
   }));
   check(
-    'capture is chrome — the door is in the bar and the rail holds none of it',
-    railChrome.toggle === 0 && railChrome.door === 0 && railChrome.bar === 1,
+    'capture has no control in the bar or the rail — blank panel space is its door',
+    railChrome.toggle === 0 && railChrome.door === 0 && railChrome.bar === 0,
     railChrome,
   );
 
@@ -1516,7 +1538,7 @@ await page.waitForTimeout(300);
   // is this file's own discipline. The slide an in-flow composer used to cause
   // is answered in the script (openCapture calls scheduleAnchors), which
   // rounds-ux.mjs measures; here it is the paint that is read.
-  await page.locator('.gly-bar .gly-capture-open').click();
+  await openCaptureFromPanel(page);
   await page.waitForSelector('.gly-capture:not([hidden])');
   await page.waitForTimeout(400);
   const capture = await style('.gly-capture', 'position', 'z-index');
@@ -3857,7 +3879,7 @@ console.log('\n--- §9 · the rail speaks one card language ---');
   // rather than holding a box open, so the claim is made on the OPEN card,
   // where it is real rendered geometry and not a held-open ghost. Shut, it is
   // `display: none` and out of the query above; open, it must line up here.
-  await page.locator('.gly-bar .gly-capture-open').click();
+  await openCaptureFromPanel(page);
   await page.waitForSelector('.gly-capture:not([hidden])');
   await page.waitForTimeout(300);
   const captureEdge = await page.evaluate(() => {
@@ -5204,7 +5226,7 @@ console.log('\n--- §8b · the three comment boxes are one design ---');
       };
     }, sel);
   const boxes = {};
-  await page.locator('.gly-bar .gly-capture-open').click();
+  await openCaptureFromPanel(page);
   await page.waitForTimeout(150);
   boxes.document = await box('.gly-overall-input');
   await page.keyboard.press('Escape');

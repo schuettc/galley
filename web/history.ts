@@ -35,16 +35,6 @@ import {
 } from './versions.ts';
 import type { AppShell, ReviseView } from './appshell.ts';
 
-// CAPTURE_LABEL is the bar's visible door to writing an instruction about the
-// document as a whole. It names the object galley makes — `Instruction`, the
-// same noun the card says and the composer's own button says — with a `+` for
-// the one thing the noun cannot say by itself, which is that pressing this
-// makes a new one.
-//
-// It never changes on its own click — see makeCaptureButton — so it cannot
-// slide its neighbours out from under the cursor that pressed it.
-export const CAPTURE_LABEL = '+ Instruction';
-
 export const historyMethods = {
   // --- the rounds ---
   //
@@ -68,93 +58,6 @@ export const historyMethods = {
     // as view switches rather than unrelated controls at opposite ends.
     this.census.root.appendChild(b);
     return b;
-  },
-
-  // --- capture ---
-  //
-  // WHERE THE `+ INSTRUCTION` BUTTON WENT, AND WHY IT IS HERE. It stood in the
-  // rail, as the whole-document card's own toggle. The rail holds live work
-  // only — *here is what needs you, beside the text it is about* — and a
-  // `+ add` button needs nothing and is beside nothing, so it was chrome in the
-  // work column, and that placement caused both of the defects Court reported:
-  // it scrolled out of reach, and opening it slid every anchored card 39.29px
-  // off its mark. This bar is where every other document-level action already
-  // lives (`Instructions`, `History`, `Revise`), and it is sticky, so the
-  // control is reachable at any scroll position by the bar's own nature rather
-  // than by anything this button does.
-  //
-  // ONE LABEL, ONE WIDTH, same as its neighbour above: it says the same thing
-  // whether the capture card is open or shut, so pressing it never slides the
-  // controls beside it. NOTHING IN THE BAR MOVES WHEN THE BAR IS CLICKED.
-  //
-  // BESIDE THE CENSUS STRIP AND NOT INSIDE IT, AND THE FIRST CUT GOT THAT
-  // WRONG. `makeVersionsButton` appends to `this.census.root` because
-  // *"Instructions and History are peers, so they live in one group and read as
-  // view switches rather than unrelated controls at opposite ends"* — the strip
-  // is a group of DOORS. This is a VERB: it switches no view, it makes a new
-  // object. Dropping it into that group made the group say two things, and
-  // `web/rounds-ux.mjs` said so — `History is the bar's one view chip` read
-  // `["History","+ Instruction"]`. The check was right and the placement was
-  // wrong, so the button moved out rather than the check being widened.
-  //
-  // BEFORE THE STRIP, WHICH IS THE BAR'S OWN ORDERING RULE READ EXACTLY.
-  // The rule is *controls, the ONE readout, the one flexible cell, controls*,
-  // and the second cut of this read it as "anywhere upstream of the spacer" and
-  // put the button between the census and `#gly-status`. That region is not
-  // spare space — it IS the readout region, and `web/layers.mjs` §1d counts it:
-  // *there is exactly ONE readout in it*, which is the answer to Court reading
-  // three truncated fragments off this bar. A control parked in there is a
-  // second thing in a region whose whole claim is that it holds one thing, and
-  // the gate said so in four checks at once.
-  //
-  // So it is a control among the controls, upstream of every readout. That is
-  // also what protects it: the readout after it changes width whenever the
-  // server says something — `revision requested` was measured sliding three
-  // controls 140.89px — and everything before it is out of that arithmetic.
-  // Placing it after the spacer, beside Revise, would have been downstream of
-  // exactly that, and Revise's own label counts seconds.
-  makeCaptureButton(this: AppShell): HTMLButtonElement {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'gly-capture-open';
-    b.textContent = CAPTURE_LABEL;
-    b.setAttribute('aria-label', 'add an instruction on the whole document');
-    b.addEventListener('click', () => this.openCapture());
-    const bar = document.querySelector('.gly-bar');
-    // The strip itself is the anchor, so the verb and the doors are ordered by
-    // one fact rather than by which constructor happened to run first. Falling
-    // back to the readout keeps it upstream of the flexible cell on a shell
-    // that somehow has no census.
-    const anchor =
-      document.querySelector('.gly-census') ||
-      document.getElementById('gly-status') ||
-      document.querySelector('.gly-spacer');
-    if (bar && anchor) {
-      bar.insertBefore(b, anchor);
-    } else if (bar) {
-      bar.appendChild(b);
-    }
-    return b;
-  },
-
-  // paintCaptureVerb is the button's one state, and it is a DISABLE rather than
-  // a hide: a control that vanishes takes its width with it and slides every
-  // neighbour, which is the defect this bar records more than any other. The
-  // space is reserved and the control is dimmed in place.
-  //
-  // The states it is dead in are the states its card has nowhere to land — the
-  // capture card is the rail's, and `paintSurfaces` hides the rail below the
-  // breakpoint and while History is open. `menuItems` omits the matching row in
-  // exactly the same states; the two are one rule, asked twice.
-  paintCaptureVerb(this: AppShell) {
-    if (!this.captureBtn) {
-      return;
-    }
-    const dead = this.rail.root.hidden || !!this.sealed;
-    this.captureBtn.disabled = dead;
-    this.captureBtn.title = dead
-      ? 'instructions are written in the rail — it is not on screen here'
-      : 'write an instruction about the document as a whole';
   },
 
   // THE INSTRUCTIONS DOOR OPENS THE SURFACE THAT EXISTS AT THIS WIDTH, and for

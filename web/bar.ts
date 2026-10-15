@@ -496,9 +496,6 @@ export const barMethods = {
       // back at coordinates measured for a window that no longer exists.
       this.closeCapture();
     }
-    // The bar's capture door is dead exactly where its card has nowhere to
-    // land, and this is the one place that decides what a width means.
-    this.paintCaptureVerb();
     // THE LIGHT GOES WHERE THE RAIL GOES. Opening the sheet over the prose
     // takes the band's cards off the page, and the light says *the
     // card over there is about these words* — `litRuns` refuses when there is

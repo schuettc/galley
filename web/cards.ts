@@ -125,14 +125,31 @@ export interface CaptureCard {
 // how to ask for anything at all — which is the whole gesture the product
 // is built around, and it was discoverable only by trying it. One dashed
 // card, board 1a, in the margin's own anatomy.
-function teachCard(): HTMLElement {
+//
+// AND IT NAMES THE PANEL'S OWN DOOR. A click on blank panel space opens the
+// whole-document box, and nothing on the page would say so; the second
+// sentence does, in plain words. The click is the door and the sentence only
+// says where it is, so it carries no button of its own. A sealed review takes
+// no instructions, so the sentence is left out there rather than offered dead.
+function teachCard(asks: boolean): HTMLElement {
   const { el: teach, head: teachHead } = cardShell('gly-rail-teach');
   teachHead.textContent = 'how this works';
   cardBody(teach).textContent =
     'Select any words in the document to ask for a change. ' +
-    'Your instructions collect here, then go to the agent as one round.';
+    'Your instructions collect here, then go to the agent as one round.' +
+    (asks
+      ? ' Or click anywhere in this panel to ask about the whole document.'
+      : '');
   return teach;
 }
+
+// PANEL_BUSY is everything in the right-hand panel's column that is not blank
+// space: the cards, the box itself, the floating surfaces, and every control,
+// link and field. A press on any of these is theirs, not the panel's.
+const PANEL_BUSY =
+  '.gly-card, .gly-capture, .gly-menu, .gly-composer, .gly-bubble, ' +
+  '.gly-bar, .gly-bottombar, .gly-sheet, .gly-strip, ' +
+  'button, a, input, textarea, select, label, [contenteditable]';
 
 // An empty rail with work outstanding needs a reason, or it reads as a
 // broken panel. §11 fixes no copy for this state — it did not exist when
@@ -567,14 +584,14 @@ export const cardMethods = {
     // The rail is the surface this card lives on, and `paintSurfaces` hides the
     // rail below the breakpoint and while History is open. Opening a card into
     // a hidden column would be a control that reports success and shows
-    // nothing; the bar's own button is disabled in the same states (see
-    // paintCaptureVerb) so this is the second half of one rule rather than a
+    // nothing; the panel's blank space is no door in the same states (see
+    // panelDoorAt) so this is the second half of one rule rather than a
     // silent return.
     if (this.rail.root.hidden) {
       return;
     }
-    // AN OPEN BOX KEEPS WHAT IS IN IT. Opening it again (the bar's button,
-    // the menu, or strandEdit handing it words) is not a reason to wipe a
+    // AN OPEN BOX KEEPS WHAT IS IN IT. Opening it again (the panel, the
+    // menu, or strandEdit handing it words) is not a reason to wipe a
     // sentence somebody is still writing.
     if (capture.root.hidden) {
       capture.note.textContent = '';
@@ -593,6 +610,47 @@ export const cardMethods = {
     // in-flow composer lacked, and the reason it had to become an overlay.
     this.scheduleAnchors();
     capture.input.focus();
+  },
+
+  // THE PANEL'S BLANK SPACE IS THE DOOR to the whole-document box, which is
+  // where the bar's `+ Instruction` went. Blank means inside the rail's
+  // column, inside the band the prose is readable in (`chromeFrame`), and on
+  // nothing in PANEL_BUSY or the prose. Read by POSITION and not by the
+  // rail's subtree, because the rail is only as tall as its cards and the
+  // space under them is the same panel to the reviewer. Not a door where the
+  // box has nowhere to land (the rail hidden: narrow, or History open) and not
+  // on a sealed review, which takes no instructions.
+  panelDoorAt(
+    this: AppShell,
+    target: EventTarget | null,
+    x: number,
+    y: number,
+  ): boolean {
+    if (this.sealed || this.rail.root.hidden || !(target instanceof Element)) {
+      return false;
+    }
+    if (target.closest(PANEL_BUSY) || this.editor.view.dom.contains(target)) {
+      return false;
+    }
+    const column = this.rail.root.getBoundingClientRect();
+    const frame = this.chromeFrame();
+    return (
+      x >= column.left &&
+      x <= column.right &&
+      y >= frame.top &&
+      y <= frame.bottom
+    );
+  },
+
+  // openCaptureByHand is the reviewer's own press on a door to the box — the
+  // panel's blank space — and a sealed review answers it
+  // with nothing. openCapture itself stays unguarded for the menu row, which
+  // opens the box read-only on a sealed page as it always has.
+  openCaptureByHand(this: AppShell) {
+    if (this.sealed) {
+      return;
+    }
+    this.openCapture();
   },
 
   closeCapture(this: AppShell) {
@@ -844,7 +902,7 @@ export const cardMethods = {
       // hand (every child of the band is absolutely positioned) and counting it
       // into a height the stacker computes — machinery for a position it
       // already has.
-      notice.appendChild(teachCard());
+      notice.appendChild(teachCard(!this.sealed));
       // Figures are still painted when nothing is pending: the last thread
       // resolved has to take its pin with it.
       this.paintFigures();

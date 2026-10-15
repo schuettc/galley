@@ -47,12 +47,16 @@ func DefaultRuntimePath(pagePath string) string {
 	return pagePath[:len(pagePath)-len(ext)] + ".serve.json"
 }
 
-// Runtime is what a running server advertises about itself.
+// Runtime is what a running server advertises about itself. Owner is the
+// session whose channel started it (`galley edit --owner`), or "" — kept here
+// because an approved review's registry entry is withdrawn while the editor
+// keeps serving, and this file is then the only record of whose it is.
 type Runtime struct {
-	URL  string `json:"url"`
-	Room string `json:"room"`
-	Page string `json:"page"`
-	PID  int    `json:"pid"`
+	URL   string `json:"url"`
+	Room  string `json:"room"`
+	Page  string `json:"page"`
+	PID   int    `json:"pid"`
+	Owner string `json:"owner,omitempty"`
 }
 
 // AlreadyServing is the refusal: a LIVE server already holds this document, and

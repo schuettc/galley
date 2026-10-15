@@ -9,7 +9,7 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 ## Starting a review
 
-**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as channel events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL and opens nothing, unless another session owns it.
+**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as channel events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL and opens the page again, unless another session owns it; if that document's review has ended, it stops the old editor and starts a fresh review. To review an approved document again, call `galley_open` again.
 
 `galley_open` accepts HTML files too. For `page.html` it extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
 
@@ -21,9 +21,9 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 ## What the reviewer does, so you can tell them
 
-**They will ask you this, and the answer is not in the browser.** galley opens onto a document with no instructions, and every gesture below is discoverable only by trying it. The page teaches one sentence in an empty rail — *"Select any words in the document to ask for a change. Your instructions collect here, then go to the agent as one round"* — and that is the whole of the onboarding. Say the rest when they ask, and use these words, because they are the product's own.
+**They will ask you this, and the answer is not in the browser.** galley opens onto a document with no instructions, and every gesture below is discoverable only by trying it. The page teaches two sentences in an empty rail — *"Select any words in the document to ask for a change. Your instructions collect here, then go to the agent as one round. Or click anywhere in this panel to ask about the whole document."* — and that is the whole of the onboarding. Say the rest when they ask, and use these words, because they are the product's own.
 
-**Asking for a change.** Select the words, right-click, add an instruction — it hangs on that passage. Right-click with nothing selected and the instruction is on the whole document. `+ Instruction` in the bar does the same thing without the selection. There is no mode to switch: what is selected when the menu opens decides the scope.
+**Asking for a change.** Select the words and an instruction button appears beside them — the instruction hangs on that passage. For the whole document, click blank space in the right-hand panel, or right-click with nothing selected anywhere below the bar (the text, the margins, the space under the document, the panel) and choose `Instruction on the whole document`. A right-click on selected text is the browser's own menu, with its Copy. There is no mode to switch: a selection means the passage, no selection means the whole document.
 
 **Editing by hand.** Their typing applies directly. There is nothing to accept and nothing to propose — if a word is easier to fix than to explain, they fix it. Each hand edit collects in the rail beside their instructions, with a `revert` on it if they change their mind.
 
