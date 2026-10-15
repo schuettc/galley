@@ -527,3 +527,31 @@ func TestAnAnsweredAckWaitsForASaveStillLanding(t *testing.T) {
 		t.Log("the same ack, sent after the watcher imported the save, was accepted")
 	}
 }
+
+// The wait above is a grace period, not a pardon: an `answered` ack over a
+// file that never changes is still refused, once the grace has run out.
+func TestAnUnchangedAnsweredAckIsRefusedAfterTheGrace(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "doc.md")
+	if err := os.WriteFile(md, []byte("# T\n\nAlpha beta gamma.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	s.openResponseWindow(1, "fp", false)
+
+	start := time.Now()
+	rec := postAckRec(t, s, "answered", "did nothing")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unchanged answered: got %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if waited := time.Since(start); waited < answeredGrace {
+		t.Fatalf("refused after %v, before the %v grace ran out", waited, answeredGrace)
+	}
+	if _, open := s.ReviseWatch(); !open {
+		t.Fatal("a refused ack closed the window")
+	}
+}

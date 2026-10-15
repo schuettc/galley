@@ -2727,7 +2727,24 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 			// reviewer's editor stayed read-only for good. A drifted page is the
 			// work, measurably on disk. Markdown mode has no page and no renderer,
 			// so its gate is unchanged to the byte.
-			if !imported && !s.appliedOpen() && !s.pageDrifted() {
+			changed := func() bool { return imported || s.appliedOpen() || s.pageDrifted() }
+			// A SAVE STILL LANDING IS NOT NOTHING. A harness runs one turn's
+			// tool calls together, so the ack can arrive before the edits it
+			// reports reach the disk. Keep importing for answeredGrace before
+			// calling the round empty; no lock is held while waiting.
+			for deadline := time.Now().Add(answeredGrace); !changed() && time.Now().Before(deadline); {
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(answeredGracePoll):
+				}
+				if imported, ierr = s.importDraft(); ierr != nil {
+					http.Error(w, fmt.Sprintf("the draft in %s cannot be imported: %v — fix the file and ack again",
+						filepath.Base(s.MdPath), ierr), http.StatusConflict)
+					return
+				}
+			}
+			if !changed() {
 				http.Error(w, "nothing has changed since the round was handed over — if the instruction cannot be "+
 					"done, report it with `galley cannot` instead of answering", http.StatusConflict)
 				return
@@ -2782,6 +2799,13 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// answeredGrace is how long a zero-change `answered` ack waits for the
+// agent's save to land, since its harness may send the ack before the edits.
+const answeredGrace = 2 * time.Second
+
+// answeredGracePoll is how often that wait re-reads the draft.
+const answeredGracePoll = 100 * time.Millisecond
 
 // noteSuffix formats an ack's optional note for the log line, so a bare
 // "ack: working" and "ack: working — reading the comment thread" both read
