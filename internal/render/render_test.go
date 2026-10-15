@@ -31,8 +31,11 @@ func TestRenderIsSelfContained(t *testing.T) {
 
 func TestRenderBuildsSidebar(t *testing.T) {
 	out := render(t, "# T\n\n## One\n\n### Two\n\n#### Three\n", BaseTheme())
-	nav := out[strings.Index(out, "<nav"):]
-	nav = nav[:strings.Index(nav, "</nav>")]
+	_, nav, ok := strings.Cut(out, "<nav")
+	nav, _, closed := strings.Cut(nav, "</nav>")
+	if !ok || !closed {
+		t.Fatalf("no sidebar: %s", out)
+	}
 	for _, want := range []string{`href="#one"`, `href="#two"`} {
 		if !strings.Contains(nav, want) {
 			t.Errorf("sidebar lacks %s: %s", want, nav)
