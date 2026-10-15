@@ -1369,16 +1369,15 @@ class App implements AppState {
 
     // --- the right-click, and what it offers ---
     //
-    // ONE GESTURE, TWO SCOPES, NO MODE. The scope is decided by the selection
-    // the reviewer already made: text selected → an instruction on that
-    // passage; nothing selected → an instruction on the whole document. That is
-    // why there is no mode switch anywhere on this page — the answer to "which
-    // scope" is already on screen before the menu opens.
+    // NOTHING SELECTED, OR IT IS THE BROWSER'S. With text selected the
+    // instruction button is already beside the words, and what a right-click
+    // there wants is the browser's own Copy and the rest, so the event is left
+    // alone. Galley's menu opens only on an empty selection, and then holds
+    // the whole-document instruction.
     //
     // ANYWHERE BELOW THE BAR, not only on the prose: the text, the margins,
-    // the space under the document and the right-hand panel all open it, and
-    // the menu's `Copy` row gives back what the browser's menu offered there.
-    // The browser keeps its own menu where galley has nothing better: the bar,
+    // the space under the document and the right-hand panel all open it. The
+    // browser keeps its own menu where galley has nothing better: the bar,
     // galley's open menus and popovers, text fields (paste and spelling live
     // there), and History (see menuAt). `preventDefault` is called ONLY where
     // this menu opens, so nothing is taken away where nothing is given.
@@ -1389,6 +1388,13 @@ class App implements AppState {
     // firing without an error. The menu itself is on `body` and outlives every
     // paint (web/menu.ts), so this pair is bound once.
     document.addEventListener('contextmenu', (event) => {
+      // The DOM selection and not the editor's: words selected in a card are
+      // a selection too, and the editor keeps its last range after focus has
+      // left it, which is no selection the reviewer can see.
+      const picked = window.getSelection();
+      if (picked && !picked.isCollapsed && picked.toString().trim()) {
+        return;
+      }
       if (!this.menuAt(event.target)) {
         return;
       }

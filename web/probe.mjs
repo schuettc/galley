@@ -6778,15 +6778,17 @@ function bindsContentField(src) {
     // §2.2: the whole-document instruction is a card in the rail and nothing
     // else — that part is unchanged. WHERE IT IS ASKED FOR IS NOT: the handle
     // was the rail's own first card, then the bar's `+ Instruction`, and is the
-    // panel's blank space now, named by the empty panel's "click here", for the
+    // panel's blank space now, named in plain words by the empty panel's hint
+    // (no "click here" button: the click is the door, the sentence names it), for the
     // reason spelled where `+ instruction on the whole document` is asserted
     // absent above. The verb carries no count, because the count is on the
     // primary and the cards are directly underneath it.
     check(
       'the built bundle offers the whole-document instruction from the PANEL',
-      src.includes('Or ') &&
-        src.includes('click here') &&
-        src.includes(' to ask about the whole document.') &&
+      src.includes(
+        'Or click anywhere in this panel to ask about the whole document.',
+      ) &&
+        !src.includes('gly-rail-teach-ask') &&
         !src.includes('+ Instruction') &&
         !src.includes('Whole-document instruction · '),
     );
@@ -6936,7 +6938,10 @@ function bindsContentField(src) {
         src.includes('gly-menu-item') &&
         src.includes('gly-menu-detail') &&
         src.includes('Instruction on the whole document') &&
-        src.includes('Instruction on this passage'),
+        // A SELECTION'S RIGHT-CLICK IS THE BROWSER'S, so the passage row and
+        // galley's Copy row are gone; asserted absent so neither grows back.
+        !src.includes('Instruction on this passage') &&
+        !src.includes('not just the selection'),
     );
 
     // THE CENSUS STRIP SURVIVES ITS SWEEP. `✓ all` is deleted — it POSTed

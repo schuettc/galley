@@ -7,7 +7,6 @@ import { chromium } from 'playwright-core';
 // web/layers.mjs already states for SEALED_VERBS. A hand-copied label here goes
 // stale the moment the button is renamed, and the check keeps reporting `ok`
 // about a control it can no longer find.
-import { COPY_LABEL } from './menu.ts';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 const PORT = Number(process.env.PORT || 8258);
@@ -261,9 +260,9 @@ async function openSectionForm(page) {
 }
 
 // What the right-click menu is offering, as the labels a reviewer reads. One
-// reader because the check is made twice — once with nothing selected and once
-// with a passage selected — and the whole claim is that the SAME gesture reads
-// differently, which two spellings of the read could quietly stop being.
+// reader because the check is made wherever the menu opens — the text, the
+// margin, the panel — and the claim is that it offers the same one item in
+// each, which two spellings of the read could quietly stop being.
 async function menuRows(page) {
   return page.evaluate(() =>
     [...document.querySelectorAll('.gly-menu-item')].map((b) =>
@@ -409,11 +408,8 @@ try {
       ? { executablePath: process.env.GALLEY_CHROME }
       : {},
   );
-  // CLIPBOARD PERMISSIONS, so the menu's Copy can be read back off the
-  // clipboard it wrote.
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
-    permissions: ['clipboard-read', 'clipboard-write'],
   });
   let dialogs = 0;
   page.on('dialog', async (dialog) => {
@@ -558,34 +554,27 @@ try {
       teach.teaching === 1,
     JSON.stringify(teach),
   );
-  // AND IT NAMES THE PANEL'S OWN DOOR. "click here" is a real button, so the
-  // keyboard reaches the whole-document box as well as the mouse.
+  // AND IT SAYS WHAT A CLICK ON THE PANEL DOES, in plain words and with no
+  // button: the click on blank panel space is the door, and the sentence only
+  // names it.
   const hint = await page.evaluate(() => {
     const card = document.querySelector('.gly-rail-notice .gly-rail-teach');
-    const b = card && card.querySelector('button');
     return card
       ? {
           body: (card.querySelector('.gly-card-body') || {}).innerText || '',
-          button: b ? b.textContent : null,
+          buttons: card.querySelectorAll('button').length,
         }
       : null;
   });
   check(
-    'the empty panel says the whole document can be asked about, with a real button',
+    'the empty panel says a click anywhere in it asks about the whole document',
     hint !== null &&
-      /Or click here to ask about the whole document\.$/.test(hint.body) &&
-      hint.button === 'click here',
+      /one round\. Or click anywhere in this panel to ask about the whole document\.$/.test(
+        hint.body,
+      ) &&
+      hint.buttons === 0,
     JSON.stringify(hint),
   );
-  await page.locator('.gly-rail-teach button').focus();
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(300);
-  check(
-    'and "click here" opens the whole-document box from the keyboard',
-    await page.locator('.gly-capture').isVisible(),
-  );
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
 
   // --- THE BUTTON SITS BY THE WORDS IN A SHORT WINDOW ---
   //
@@ -1318,49 +1307,32 @@ try {
     JSON.stringify(rowShape),
   );
   await page.keyboard.press('Escape');
-  // AND THE SCOPE IS THE SELECTION'S. Same gesture, different selection,
-  // different offer — no mode, nothing to switch, and the second row still
-  // there because a reviewer with a selection may still mean the whole file.
-  // ON the selection, where a reviewer right-clicks to act on it: a press
-  // elsewhere in the prose moves the caret before the menu opens.
+  // A RIGHT-CLICK ON A SELECTION IS THE BROWSER'S. Selecting text already
+  // offers the instruction button beside it, and what a reviewer wants from a
+  // right-click there is the browser's own Copy, Look Up and the rest. So
+  // galley's menu does not open and the event is left alone: read as
+  // `defaultPrevented` by a listener on window, which runs after galley's own
+  // on document.
+  await page.evaluate(() => {
+    window.__glyCtx = [];
+    window.addEventListener('contextmenu', (e) => {
+      window.__glyCtx.push(e.defaultPrevented);
+    });
+  });
   await selectRetryBudget(page);
   const onSelection = await page.evaluate(() => {
     const r = window.getSelection().getRangeAt(0).getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });
   await page.mouse.click(onSelection.x, onSelection.y, { button: 'right' });
-  await page.waitForSelector('.gly-menu:not([hidden])');
-  const selectedRows = await menuRows(page);
-  check(
-    'with text selected the menu offers Copy, then the passage, then the document',
-    selectedRows.length === 3 &&
-      selectedRows[0] === COPY_LABEL &&
-      /this passage/i.test(selectedRows[1]) &&
-      /whole document/i.test(selectedRows[2]),
-    JSON.stringify(selectedRows),
-  );
-  check(
-    'and Copy is offered only with a selection',
-    !collapsedRows.includes(COPY_LABEL),
-    JSON.stringify(collapsedRows),
-  );
-  // COPY PUTS THE SELECTION ON THE CLIPBOARD, as plain text, the way the
-  // browser's own Copy did before galley took the gesture.
-  const wantCopied = await page.evaluate(() =>
-    window.getSelection().toString(),
-  );
-  await page.evaluate(() => navigator.clipboard.writeText('stale'));
-  await page.locator(`.gly-menu-item:has-text("${COPY_LABEL}")`).click();
   await page.waitForTimeout(200);
-  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  const onSelectionCtx = await page.evaluate(() => window.__glyCtx.slice());
   check(
-    'Copy puts the selected text on the clipboard',
-    wantCopied.length > 0 && copied === wantCopied,
-    JSON.stringify({ wantCopied, copied }),
-  );
-  check(
-    'and the menu goes away after it',
-    !(await page.locator('.gly-menu').isVisible()),
+    'a right-click on selected text opens the browser’s menu, not galley’s',
+    !(await page.locator('.gly-menu').isVisible()) &&
+      onSelectionCtx.length === 1 &&
+      onSelectionCtx[0] === false,
+    JSON.stringify(onSelectionCtx),
   );
   await page.evaluate(() => window.getSelection().removeAllRanges());
   await page.locator('.ProseMirror p').first().click();
@@ -1380,7 +1352,7 @@ try {
     ? await menuRows(page)
     : [];
   check(
-    'a right-click in the margin opens galley’s menu',
+    'a right-click in the margin opens galley’s menu, with the one item',
     marginRows.length === 1 && /whole document/i.test(marginRows[0]),
     JSON.stringify({ margin, marginRows }),
   );
@@ -1389,11 +1361,15 @@ try {
   const panelSpot = await blankPanelPoint(page);
   await page.mouse.click(panelSpot.x, panelSpot.y, { button: 'right' });
   await page.waitForTimeout(200);
+  const panelRows = (await page.locator('.gly-menu').isVisible())
+    ? await menuRows(page)
+    : [];
   check(
-    'a right-click in the right-hand panel opens galley’s menu',
-    (await page.locator('.gly-menu').isVisible()) &&
+    'a right-click in the right-hand panel opens galley’s menu, with the one item',
+    panelRows.length === 1 &&
+      /whole document/i.test(panelRows[0]) &&
       !(await page.locator('.gly-capture').isVisible()),
-    JSON.stringify(panelSpot),
+    JSON.stringify({ panelSpot, panelRows }),
   );
   await page.keyboard.press('Escape');
   await page.waitForTimeout(100);

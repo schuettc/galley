@@ -33,7 +33,7 @@ import { gripOn } from './grips.ts';
 import type { GripTarget } from './grips.ts';
 import { scopeKey } from './scope.ts';
 import type { Region } from './wire';
-import { COPY_LABEL, type MenuItem } from './menu.ts';
+import type { MenuItem } from './menu.ts';
 
 // How long a refused-keystroke note stays put before the caret moving on can
 // dismiss it. See App.dismissRefusal.
@@ -444,10 +444,8 @@ export const composerMethods = {
     });
     document.body.appendChild(root);
 
-    // ONE OPENING, TWO DOORS. `Add instruction` on the popover is one; the
-    // right-click menu's `on this passage` is the other, and both have to leave
-    // the composer in exactly the same state or the two gestures are two
-    // features. See openComposerForm.
+    // ONE OPENING. `Add instruction` on the popover is the door; a right-click
+    // on a selection is the browser's own menu. See openComposerForm.
     button.addEventListener('click', () => this.openComposerForm());
     send.addEventListener('click', () => this.sendComment());
     mark.addEventListener('click', () => this.markRegion());
@@ -479,12 +477,11 @@ export const composerMethods = {
 
   /**
    * openComposerForm swaps the popover's bar for its form and puts the caret in
-   * it. It is the ONE opening, called by the popover's own button and by the
-   * right-click menu's passage item.
+   * it. It is the ONE opening, called by the popover's own button.
    *
    * IT IS A NO-OP ON A COMPOSER THAT IS NOT OFFERING ONE. A selection inside a
    * code fence gets the deny line instead of the button (see
-   * placeComposerButton), and a menu item that opened a form over a refusal
+   * placeComposerButton), and a door that opened a form over a refusal
    * would be offering a write the server will 400 — the deny line's whole job
    * is that the refusal arrives before the typing.
    */
@@ -520,11 +517,11 @@ export const composerMethods = {
   },
 
   /**
-   * menuItems is what the right-click offers, and the SELECTION DECIDES THE
-   * SCOPE — text selected gets an instruction on that passage, nothing selected
-   * gets one on the whole document. One gesture, two scopes, no mode: the
-   * answer to "which scope" is already on screen before the menu opens, so
-   * there is nothing for the reviewer to choose between and nothing to switch.
+   * menuItems is what galley's right-click offers, and it opens only with
+   * NOTHING SELECTED (see the contextmenu listener in web/entry.ts): a
+   * right-click on a selection is the browser's own menu, because selecting
+   * text already offers the instruction button beside it. So the one row is
+   * the whole document.
    *
    * A LIST, NOT A BRANCH THAT RETURNS A POPUP. Court wants more items here
    * later (see the live-review findings, Q4), so this returns rows and
@@ -533,60 +530,15 @@ export const composerMethods = {
    * THE WHOLE-DOCUMENT ROW IS OMITTED WHERE IT CANNOT LAND. Its card lives in
    * the rail, and `paintSurfaces` hides the rail below the breakpoint and while
    * History is open. A row that opened a card into a hidden column would report
-   * success and show nothing; the bar's own control is disabled in the same
-   * states, which is the second half of one rule.
+   * success and show nothing; the panel's blank space is no door in the same
+   * states, which is the second half of one rule. An empty list leaves the
+   * browser's own menu in place.
    */
   menuItems(this: AppShell): MenuItem[] {
     const items: MenuItem[] = [];
-    const { from, to } = this.editor.state.selection;
-    // `textBetween` with a space separator, so a selection spanning blocks
-    // arrives as one line rather than with the block boundaries in it — the
-    // head is chrome and `elide` collapses the rest.
-    const said = this.editor.state.doc.textBetween(from, to, ' ').trim();
-    // COPY FIRST, AND ONLY WITH A SELECTION. Galley's menu covers the
-    // browser's wherever it opens, and Copy is the browser item a reviewer
-    // reaches for first. The DOM selection first, so words selected in a card
-    // copy too, as the plain text the browser's own Copy would have taken;
-    // the editor's own selection when the DOM holds none (a selection made by
-    // a command rather than the mouse). Read now, while the menu opens.
-    const picked =
-      window.getSelection()?.toString() ||
-      this.editor.state.doc.textBetween(from, to, '\n\n');
-    if (picked.trim()) {
-      items.push({
-        label: COPY_LABEL,
-        run: () => {
-          // A refused write leaves the clipboard as it was, and there is no
-          // surface here to say so on; the reviewer still has the shortcut.
-          navigator.clipboard.writeText(picked).catch(() => {});
-        },
-      });
-    }
-    if (said) {
-      items.push({
-        label: 'Instruction on this passage',
-        detail: `on "${elide(said, COMPOSER_QUOTE_CHARS)}"`,
-        // PLACED FIRST, THEN OPENED. Focus moves to the menu when it opens,
-        // and the composer's own blur handler retires a popover that has lost
-        // focus — so by the time this runs the popover may be gone. The
-        // ProseMirror selection is state and survives the DOM blur, so
-        // `placeComposerButton` rebuilds the placement from it; without this
-        // line the item silently opens nothing.
-        //
-        // A box already holding words is let go first: placeComposerButton
-        // keeps one (see holdsWords), and this row is the reviewer asking for
-        // a new one on these words, the way pressing another grip is.
-        run: () => {
-          this.hideComposer();
-          this.placeComposerButton();
-          this.openComposerForm();
-        },
-      });
-    }
     if (!this.rail.root.hidden) {
       items.push({
         label: 'Instruction on the whole document',
-        detail: said ? 'not just the selection' : '',
         run: () => this.openCapture(),
       });
     }
@@ -621,7 +573,7 @@ export const composerMethods = {
 
   // `byReviewer` is false for a selection change the reviewer did not make:
   // a server-side mutation rebuilding the document, or keepPlace putting the
-  // caret back after one. The right-click menu calls this with the default.
+  // caret back after one.
   placeComposerButton(this: AppShell, byReviewer = true) {
     const c = this.composer;
     // A region composer is not driven by the selection — it was opened by a

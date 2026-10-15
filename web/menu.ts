@@ -34,12 +34,6 @@ export interface MenuItem {
   run: () => void;
 }
 
-/** COPY_LABEL is the row that copies the selection, offered first whenever
- * there is one. The menu covers the browser's own wherever it opens, and the
- * browser's Copy is the item a reviewer misses first. Exported so the gates
- * read the app's own label rather than a copy of it. */
-export const COPY_LABEL = 'Copy';
-
 export interface DocMenu {
   root: HTMLElement;
   list: HTMLElement;

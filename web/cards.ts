@@ -128,24 +128,18 @@ export interface CaptureCard {
 //
 // AND IT NAMES THE PANEL'S OWN DOOR. A click on blank panel space opens the
 // whole-document box, and nothing on the page would say so; the second
-// sentence does, with "click here" a real button so the keyboard reaches the
-// box too. `ask` is null on a sealed review, which takes no instructions, so
-// the sentence is not offered there rather than offered dead.
-function teachCard(ask: (() => void) | null): HTMLElement {
+// sentence does, in plain words. The click is the door and the sentence only
+// says where it is, so it carries no button of its own. A sealed review takes
+// no instructions, so the sentence is left out there rather than offered dead.
+function teachCard(asks: boolean): HTMLElement {
   const { el: teach, head: teachHead } = cardShell('gly-rail-teach');
   teachHead.textContent = 'how this works';
-  const body = cardBody(teach);
-  body.textContent =
+  cardBody(teach).textContent =
     'Select any words in the document to ask for a change. ' +
-    'Your instructions collect here, then go to the agent as one round.';
-  if (ask) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'gly-rail-teach-ask';
-    button.textContent = 'click here';
-    button.addEventListener('click', ask);
-    body.append(' Or ', button, ' to ask about the whole document.');
-  }
+    'Your instructions collect here, then go to the agent as one round.' +
+    (asks
+      ? ' Or click anywhere in this panel to ask about the whole document.'
+      : '');
   return teach;
 }
 
@@ -649,7 +643,7 @@ export const cardMethods = {
   },
 
   // openCaptureByHand is the reviewer's own press on a door to the box — the
-  // panel or the empty panel's "click here" — and a sealed review answers it
+  // panel's blank space — and a sealed review answers it
   // with nothing. openCapture itself stays unguarded for the menu row, which
   // opens the box read-only on a sealed page as it always has.
   openCaptureByHand(this: AppShell) {
@@ -908,9 +902,7 @@ export const cardMethods = {
       // hand (every child of the band is absolutely positioned) and counting it
       // into a height the stacker computes — machinery for a position it
       // already has.
-      notice.appendChild(
-        teachCard(this.sealed ? null : () => this.openCaptureByHand()),
-      );
+      notice.appendChild(teachCard(!this.sealed));
       // Figures are still painted when nothing is pending: the last thread
       // resolved has to take its pin with it.
       this.paintFigures();

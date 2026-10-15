@@ -1312,18 +1312,6 @@ body.gly-collapsed:not(.gly-page) > main {
   cursor: default;
   color: var(--gly-muted);
 }
-/* "click here" in the empty panel's hint: a real button, so the keyboard
-   reaches the whole-document box, dressed as the link it reads as. */
-.gly-rail-teach-ask {
-  font: inherit;
-  color: var(--gly-fg);
-  background: none;
-  border: 0;
-  padding: 0;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-}
 /* THE PANEL'S BLANK SPACE IS A DOOR (web/cards.ts panelDoorAt), and the
    pointer says so. Set on the root by the mousemove that reads the same
    predicate the click does, because the space under the rail's last card is
