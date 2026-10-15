@@ -29,6 +29,7 @@ func editEndpoints() []mutatingEndpoint {
 		{"mode", "/_galley/mode", `{"mode":"live"}`, true},
 		{"ack", "/_galley/ack", `{"state":"working"}`, false},
 		{"stop", "/_galley/stop", "", false},
+		{"share", "/_galley/share/html", "", false},
 	}
 }
 

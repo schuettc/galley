@@ -1330,6 +1330,10 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/versions/restore", s.handleVersionRestore)
 	mux.HandleFunc("/_galley/rev", s.handleEditRev)
 	mux.HandleFunc("/_galley/saved", s.handleEditSaved)
+	// The branded page: the preview tab, and Share's Save HTML. Markdown mode
+	// only; see share.go.
+	mux.HandleFunc("/_galley/render", s.handleRender)
+	mux.HandleFunc("/_galley/share/html", s.handleShareHTML)
 	mux.HandleFunc("/", s.handleEditRoot)
 	return mux
 }
@@ -1363,19 +1367,24 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 	_ = s.Project()
 	var buf bytes.Buffer
 	previewURL := ""
+	// The path Share's Copy path copies: the .md, or in page mode the page.
+	docPath, _ := filepath.Abs(s.MdPath)
 	if s.pageMode {
 		previewURL = "/_galley/preview/" + s.previewRel
+		docPath = s.pagePath
 	}
 	if err := editShell.Execute(&buf, struct {
 		Title      string
 		Room       string
 		PageMode   bool
 		PreviewURL string
+		Path       string
 	}{
 		Title:      filepath.Base(s.MdPath),
 		Room:       s.Room,
 		PageMode:   s.pageMode,
 		PreviewURL: previewURL,
+		Path:       docPath,
 	}); err != nil {
 		http.Error(w, "edit shell: "+err.Error(), http.StatusInternalServerError)
 		return
