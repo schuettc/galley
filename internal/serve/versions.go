@@ -355,6 +355,41 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 	}
 }
 
+// cutOutside commits a load of the file changed outside the editor, with mu
+// held and with the bytes the projection that loaded it returned — the cut
+// site every other version uses, so it takes no lock of its own.
+//
+// IT IS NOBODY'S ROUND. It names no author and leaves the movement flags and
+// lastCutN alone: the next send still carries who moved what since the last
+// round, and an agent's return does not read this as the ask it answers.
+func (s *EditServer) cutOutside(out []byte) {
+	if !s.loadedOutside {
+		return
+	}
+	s.loadedOutside = false
+	store := s.Versions()
+	latest, ok, err := store.Latest()
+	if err != nil {
+		s.logVersionFailure(err)
+		return
+	}
+	if ok && latest.Digest == digestOf(out) {
+		return
+	}
+	r, err := store.Commit(string(out), versions.Round{
+		At:     time.Now().UTC(),
+		Reason: versions.ReasonOutside,
+	})
+	if err != nil {
+		s.logVersionFailure(err)
+		return
+	}
+	s.debugVersionCut(r)
+	if s.Log != nil {
+		s.Log(fmt.Sprintf("v%d · %s", r.N, r.Reason))
+	}
+}
+
 // roundAuthors names who moved the document since the last cut.
 //
 // ALTERNATION IS A PROPERTY OF BATCHING, NOT A LAW. In live mode the CRDT

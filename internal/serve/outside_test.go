@@ -12,6 +12,7 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/schuettc/galley/internal/versions"
 	"github.com/schuettc/galley/internal/ydoc"
 )
 
@@ -484,5 +485,86 @@ func TestAMissingPageIsNotRecreated(t *testing.T) {
 	}
 	if _, err := os.Stat(page); !os.IsNotExist(err) {
 		t.Fatalf("a missing page was recreated: %v", err)
+	}
+}
+
+// AN EDIT MADE OUTSIDE THE EDITOR IS A VERSION. Loaded and not cut, it was
+// diffed against the last version as the reviewer's own hand edit, so the rail
+// listed it and the verdict offered Revise for work nobody had to send.
+func TestAnOutsideEditIsAVersion(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "o.md", "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n")
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, s.MdPath, "# Title\n\nFirst paragraph, edited by the agent.\n\nSecond paragraph.\n")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(liveText(t, s), "edited by the agent") {
+		t.Fatal("the outside edit was not loaded")
+	}
+	latest, ok, err := s.Versions().Latest()
+	if err != nil || !ok {
+		t.Fatalf("no version: ok=%v err=%v", ok, err)
+	}
+	if latest.Reason != versions.ReasonOutside {
+		t.Errorf("the latest version's reason is %q, want %q", latest.Reason, versions.ReasonOutside)
+	}
+	model, err := s.readLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.liveChanges(model); len(got) != 0 {
+		t.Errorf("the outside edit is reported as the reviewer's: %+v", got)
+	}
+	if got := getPending(t, s).Changes; len(got) != 0 {
+		t.Errorf("/_galley/pending lists the outside edit as a change: %+v", got)
+	}
+	// And the round the reviewer sends next names their hand, not the load.
+	reviewerTypes(t, s, "Second paragraph.", "Second paragraph, by the reviewer.")
+	s.requestCut(versions.ReasonRevise, "", 0)
+	sent, _ := ReviewerChanges(s.Versions())
+	if len(sent) != 1 || !strings.Contains(sent[0].After, "by the reviewer") {
+		t.Errorf("the reviewer's round does not carry exactly their own edit: %+v", sent)
+	}
+}
+
+// AN UNSENT HAND EDIT IS NOT SWALLOWED BY AN OUTSIDE ONE. The reviewer's typing
+// already reached the file, so the outside save takes the load branch; cutting
+// a version there would take the reviewer's edit off the rail and out of the
+// round it belongs to.
+func TestAnOutsideEditDoesNotCutOverUnsentReviewerEdits(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "u.md", "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n")
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	reviewerTypes(t, s, "Second paragraph.", "Second paragraph, by the reviewer.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, s.MdPath, "# Title\n\nFirst paragraph, edited outside.\n\nSecond paragraph, by the reviewer.\n")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(liveText(t, s), "edited outside") {
+		t.Fatal("the outside edit was not loaded")
+	}
+	latest, _, err := s.Versions().Latest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Reason == versions.ReasonOutside {
+		t.Error("an outside version was cut over the reviewer's unsent edit")
+	}
+	found := false
+	for _, c := range getPending(t, s).Changes {
+		if strings.Contains(c.After, "by the reviewer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the reviewer's unsent edit is no longer on the rail")
 	}
 }

@@ -119,6 +119,12 @@ const (
 	// reason to skip the cut. The spec: an exception *"is not a turn in a
 	// conversation, it is a report"*.
 	ReasonCouldNot = "could-not"
+	// ReasonOutside is the file changed outside the editor while the reviewer
+	// had nothing unsent, loaded into the review. It is a version so the edit
+	// is not read as the reviewer's own hand: an agent that edits the file
+	// directly, outside a round, has done work the reviewer can approve
+	// without sending it anywhere.
+	ReasonOutside = "outside"
 )
 
 // Version is the schema generation of a `rounds.jsonl` line, written as `v` on

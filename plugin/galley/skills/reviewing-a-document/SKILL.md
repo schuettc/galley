@@ -76,9 +76,11 @@ galley cannot path/to/doc.md --why "what stopped you"
 
 That records an unchanged exception round. It is a **report, not an argument** — do not use it to push back on an instruction you simply disagree with, and do not retry into it. Answering seven of eight instructions and stating the eighth as an open question in the document is usually better than refusing the round.
 
-### An instruction is not a conversation
+### Answering an instruction
 
-A comment is discharged **by the revision itself**. Do not reply to instructions, explain your reasoning at length, or ask the reviewer to approve your approach. If a revision misses, the reviewer answers with a different instruction in the next round. That is the design — "try again" is not a useful signal, so galley does not have one.
+Most instructions are discharged **by the revision itself**. Do not reply to them, explain your reasoning at length, or ask the reviewer to approve your approach. If a revision misses, the reviewer answers with a different instruction in the next round.
+
+**Some instructions are bigger than an edit:** a section to restructure, a direction to choose, a question only the reviewer can answer. For those, do not guess. Raise it in the conversation, agree the change with the reviewer, then edit the file directly. You don't need another round for it: galley records your direct edits as a version, and the reviewer can approve without pressing Revise. Answer the rest of the round as usual, and name the instructions you are discussing in your ack's note.
 
 ## The other events
 
