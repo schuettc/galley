@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/versions"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // galley#44: a change made to the file outside the editor is loaded, kept or

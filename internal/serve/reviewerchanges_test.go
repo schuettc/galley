@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // THE AGENT MUST BE TOLD WHAT THE REVIEWER REMOVED, or it writes it back.

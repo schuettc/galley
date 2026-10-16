@@ -80,9 +80,9 @@ import (
 	"strings"
 	"time"
 
-	tools "github.com/schuettc/tools-common"
+	tools "github.com/subaud-tools/tools-common"
 
-	"github.com/schuettc/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/ondisk"
 )
 
 // Author names a party that moved the document in a round. A round may carry

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/ondisk"
 )
 
 // oldManifest is `rounds.jsonl` AS IT WAS WRITTEN BEFORE `v` EXISTED — the

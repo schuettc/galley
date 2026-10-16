@@ -24,12 +24,12 @@ import (
 	"sync"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/htmlpage"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/htmlpage"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // pageStderr is the always-on channel for the page renderer's safety messages

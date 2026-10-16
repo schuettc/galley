@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // A range comment's words lived only in the running editor, so

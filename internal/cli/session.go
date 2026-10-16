@@ -1,6 +1,6 @@
 package cli
 
-import "github.com/schuettc/tools-common/harness"
+import "github.com/subaud-tools/tools-common/harness"
 
 // sessionID is the id of the session THIS PROCESS SERVES, and only `galley
 // channel` reads it. The channel is spawned by a harness that names the

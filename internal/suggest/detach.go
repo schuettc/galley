@@ -1,8 +1,8 @@
 package suggest
 
 import (
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // detach.go is the document half of DELETING a thread — the verb that removes

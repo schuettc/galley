@@ -13,7 +13,7 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // TestReadLive_ExhaustsRetriesOnPerpetualInterference is the retry

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/schuettc/tools-common/sqlitedb"
+	"github.com/subaud-tools/tools-common/sqlitedb"
 )
 
 // The index opens through tools-common/sqlitedb. These pin what that must not

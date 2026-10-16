@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // A COMMENT WITH A BLANK LINE IN IT IS READ BACK LINE BY LINE: every line in

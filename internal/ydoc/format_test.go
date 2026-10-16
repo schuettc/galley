@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 func fmtTx(doc *crdt.Doc) review.Tx {

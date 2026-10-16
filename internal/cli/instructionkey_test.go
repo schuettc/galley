@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/unsent"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/unsent"
 )
 
 // THE ROUND HANDS OVER ITS KEYS, AND FOR THE WHOLE OF PHASE 3 IT DID NOT.

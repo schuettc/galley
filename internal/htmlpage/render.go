@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/suggest"
 	"golang.org/x/net/html"
 )
 

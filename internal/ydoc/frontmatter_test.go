@@ -5,9 +5,9 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // FRONT MATTER IS RAW TEXT, AND THE THREE PLACES THAT KNOW THAT HAVE TO AGREE.

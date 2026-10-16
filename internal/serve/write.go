@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/schuettc/tools-common"
+	"github.com/subaud-tools/tools-common"
 )
 
 // exportDebounce is short: the disk projection should trail the document

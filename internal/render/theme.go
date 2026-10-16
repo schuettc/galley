@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	tools "github.com/schuettc/tools-common"
+	tools "github.com/subaud-tools/tools-common"
 )
 
 // Theme is the look of a rendered page. Every theme shares galley's one

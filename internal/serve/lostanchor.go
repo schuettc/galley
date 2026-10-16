@@ -3,9 +3,9 @@ package serve
 import (
 	"maps"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/suggest"
 )
 
 // DELETE THE SENTENCE, DELETE THE INSTRUCTION ABOUT IT.

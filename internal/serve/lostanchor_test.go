@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // keysOf reads THE PENDING VIEW, which is what every surface renders from.

@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/htmlpage"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/versions"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/htmlpage"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // fixturePage is a small page with prose (an eyebrow paragraph and two body

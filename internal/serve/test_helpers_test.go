@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 func post(t *testing.T, h http.Handler, path string, body any) *httptest.ResponseRecorder {

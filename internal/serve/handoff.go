@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/ondisk"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.

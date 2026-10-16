@@ -8,7 +8,7 @@
     "url": "https://galley.tools"
   },
   "homepage": "https://galley.tools",
-  "repository": "https://github.com/schuettc/galley",
+  "repository": "https://github.com/subaud-tools/galley",
   "license": "BUSL-1.1",
   "keywords": [
     "review",

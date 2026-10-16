@@ -3,8 +3,8 @@ package htmlpage
 import (
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // findLinkHref searches a parsed Doc for the first Link-marked inline and

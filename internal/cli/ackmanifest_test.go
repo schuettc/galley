@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // ONE PROTOCOL, TWO CARRIERS, ONE TEST. The CLI's --changes and the MCP

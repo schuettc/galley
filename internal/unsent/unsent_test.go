@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/ondisk"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // ONE RULE FOR WHERE THE ROUNDS LIVE. The unsent round sits beside them, and a

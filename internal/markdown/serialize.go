@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // Serialize renders d as canonical markdown. For every fixture under

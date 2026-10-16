@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 const beforeDoc = "# Title\n\nAlpha one here.\n\nBeta two here.\n\nGamma three here.\n"

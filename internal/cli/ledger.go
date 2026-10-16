@@ -39,7 +39,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/schuettc/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/ledger"
 )
 
 const ledgerUsage = `Usage: galley ledger <sync|rebuild|stats> [flags]

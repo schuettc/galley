@@ -43,12 +43,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/schuettc/galley/internal/debug"
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/version"
-	tools "github.com/schuettc/tools-common"
-	"github.com/schuettc/tools-common/channelmcp"
+	"github.com/subaud-tools/galley/internal/debug"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/version"
+	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/channelmcp"
 )
 
 // channelInstructions reaches the session's system prompt through the MCP
