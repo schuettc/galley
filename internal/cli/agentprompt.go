@@ -99,9 +99,14 @@ Your tools will try to stop you. A write rejected with "file has been modified
 since read" is that guard firing correctly — it means the reviewer changed the
 document under you. Re-reading one line to satisfy the tool and then writing
 the whole file anyway defeats the guard rather than answering it. Re-read what
-you are about to change, and change only that. A comment is an instruction discharged by the
-revision itself, not a question to answer and not a proposal the reviewer must
-accept. When the whole revision is in the file, send one terminal
+you are about to change, and change only that. An instruction is the reviewer's
+guidance, not text to paste. Work out what they are asking for and write the
+change in the document's own voice. Do not copy their words into the prose,
+unless the instruction is itself the replacement wording (for example "declared
+not pinned"). A reviewer who wanted their exact words in the document would
+have typed them there. The revision itself is the answer: not a reply, and not
+a proposal the reviewer must accept.
+When the whole revision is in the file, send one terminal
 acknowledgement:
 
   galley ack <doc> --state answered --note "one sentence for the reviewer"

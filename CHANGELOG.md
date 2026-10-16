@@ -2,6 +2,11 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
 
+## 0.13.2
+
+- **An edit made to the document outside the editor is saved as a version.** History lists it as "changed outside the editor", and it no longer counts as your own edit, so you can approve the document without pressing Revise first. (#82)
+- Agents treat an instruction as guidance and write the change in the document's own voice, instead of copying your words into the text. (#82)
+
 ## 0.13.1
 
 - **The + Instruction button is gone from the bar.** Click anywhere on empty space in the right-hand panel to write an instruction about the whole document, or right-click anywhere below the bar with nothing selected. Selecting words still shows the instruction button beside them, and right-clicking a selection now shows your browser's own menu. (#78)

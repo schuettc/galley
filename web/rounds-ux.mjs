@@ -3508,6 +3508,59 @@ try {
     )),
   );
 
+  // AN EDIT MADE OUTSIDE THE EDITOR IS A VERSION. With nothing pending, the
+  // file changed by hand outside any round — an agent editing it directly —
+  // is not the reviewer's own edit, so the primary stays Approve and History
+  // names where the version came from. Outside a handoff window nothing
+  // watches the file; the page load looks at it, so the reviewer's reload is
+  // what brings it in.
+  const outsideLine = 'A paragraph written outside the editor.';
+  writeFileSync(
+    doc,
+    `${readFileSync(doc, 'utf8').trimEnd()}\n\n${outsideLine}\n`,
+  );
+  await page.reload();
+  await page.waitForFunction(
+    (t) => document.querySelector('.ProseMirror').innerText.includes(t),
+    outsideLine,
+    { timeout: 15000 },
+  );
+  await page.waitForTimeout(1200);
+  const outsidePrimary = await page.evaluate(() =>
+    document.getElementById('gly-revise').innerText.trim(),
+  );
+  check(
+    'an edit made outside the editor leaves the primary at Approve',
+    outsidePrimary.includes('Approve'),
+    outsidePrimary,
+  );
+  await page.click('.gly-versions-open');
+  await page.waitForSelector('.gly-versions:not([hidden])');
+  const outsideCard = await page
+    .waitForFunction(
+      () => {
+        const el = document.querySelector(
+          '.gly-versions-round[data-reason="outside"]',
+        );
+        return el ? el.innerText : null;
+      },
+      null,
+      { timeout: 8000 },
+    )
+    .then(
+      (h) => h.jsonValue(),
+      () => null,
+    );
+  check(
+    'and History lists it as changed outside the editor',
+    !!outsideCard && outsideCard.includes('changed outside the editor'),
+    JSON.stringify(outsideCard),
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(
+    () => document.querySelector('.gly-versions')?.hidden === true,
+  );
+
   await addOverallInstruction(page, 'Final trusted pass.', 1);
   await openVerdictMenu(page);
   const beforeTrust = await windowMark(page);
