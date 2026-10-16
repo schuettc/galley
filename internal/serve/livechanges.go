@@ -4,10 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 
-	"github.com/schuettc/galley/internal/diff"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/diff"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/suggest"
 )
 
 // WHAT THE REVIEWER HAS CHANGED BY HAND SINCE THE LAST ROUND, computed live.

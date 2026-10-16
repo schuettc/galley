@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/schuettc/galley/internal/render"
+	"github.com/subaud-tools/galley/internal/render"
 )
 
 // editassets.go serves the files that live BESIDE the document, so an

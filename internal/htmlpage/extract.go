@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/markdown"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )

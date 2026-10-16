@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // ackFlags is galley ack's flag set, built by newAckFlags so the app registry

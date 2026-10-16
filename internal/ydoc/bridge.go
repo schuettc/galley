@@ -54,8 +54,8 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // FragmentName is the root XML fragment the editor binds to. y-prosemirror's

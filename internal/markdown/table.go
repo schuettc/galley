@@ -3,7 +3,7 @@ package markdown
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // renderTable writes a GFM table in ONE canonical spelling, which is a pure

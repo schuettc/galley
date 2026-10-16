@@ -21,9 +21,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // pendingPayload mirrors the JSON shape of serve.EditServer's internal

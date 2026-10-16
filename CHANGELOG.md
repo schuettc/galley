@@ -1,6 +1,10 @@
 # Changelog
 
-Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/schuettc/galley/releases
+Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
+
+## 0.14.0
+
+- Module path is now github.com/subaud-tools/galley; the source lives at github.com/subaud-tools/galley.
 
 ## 0.13.2
 

@@ -3,7 +3,7 @@ package markdown
 import (
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // ONE SPAN IN THE FILE IS ONE SPAN IN THE DOCUMENT, however many inlines it

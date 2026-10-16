@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // critic.go is the CriticMarkup reader: the post-pass that runs over an

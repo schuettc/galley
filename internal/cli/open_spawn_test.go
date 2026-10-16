@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // buildGalley compiles the real binary once per test that needs it. The

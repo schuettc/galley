@@ -3,7 +3,7 @@ package markdown
 import (
 	"bytes"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // FRONT MATTER IS SCANNED HERE RATHER THAN PARSED BY GOLDMARK, and the choice

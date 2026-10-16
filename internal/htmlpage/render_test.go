@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // task3Fixture is the shell-first page from extract_test.go: nav (recovered

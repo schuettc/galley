@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // align.go matches the blocks a reviewer poured back to the wrappers they came

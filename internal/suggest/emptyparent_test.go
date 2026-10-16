@@ -3,10 +3,10 @@ package suggest_test
 import (
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/suggest"
 )
 
 // emptyparent_test.go is about the note that is the WHOLE of its parent.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 const restartDoc = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n"

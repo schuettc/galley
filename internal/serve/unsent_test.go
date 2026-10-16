@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/unsent"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/unsent"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // unsentDoc is a document with a paragraph to highlight and a figure to pin a

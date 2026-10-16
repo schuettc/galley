@@ -5,8 +5,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // WRITE APPLIES A MODEL WITHOUT DESTROYING THE DOCUMENT WHEN IT DOES NOT HAVE

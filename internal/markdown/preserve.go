@@ -3,7 +3,7 @@ package markdown
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
 )

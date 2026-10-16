@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // repo builds a throwaway repository: a directory with a `.git` in it and a

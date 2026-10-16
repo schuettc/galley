@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // noteline.go implements the half of note.go's grammar the reader was missing.

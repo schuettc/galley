@@ -15,8 +15,8 @@
 package serve
 
 import (
-	"github.com/schuettc/galley/internal/debug"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/debug"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // debugWhere names this process in the log. Two processes write into one file

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/ledger"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // A COMMENT'S LINE BREAKS ARE ITS WORDS. Every stage a comment passes through

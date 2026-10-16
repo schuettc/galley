@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 func TestDeletingAnUnsentInstructionRemovesItsCardAndTrace(t *testing.T) {

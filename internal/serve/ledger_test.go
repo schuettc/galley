@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/ledger"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 type capture struct {

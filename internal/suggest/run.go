@@ -1,7 +1,7 @@
 package suggest
 
 import (
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // MintRuns gives every suggestion mark in d an identity, returning the result.

@@ -3,7 +3,7 @@
 // build report the same thing.
 package version
 
-import tools "github.com/schuettc/tools-common"
+import tools "github.com/subaud-tools/tools-common"
 
 var (
 	version = "dev"

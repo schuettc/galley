@@ -20,7 +20,7 @@ gate:
     set -euo pipefail
     v="$(grep -oE 'go-ci@v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/ci.yml | head -1 | cut -d@ -f2)"
     f="${XDG_CACHE_HOME:-$HOME/.cache}/tools-actions/$v/go-ci/local.sh"
-    [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; curl -fsSL "https://raw.githubusercontent.com/schuettc/tools-actions/$v/go-ci/local.sh" -o "$f"; }
+    [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; curl -fsSL "https://raw.githubusercontent.com/subaud-tools/tools-actions/$v/go-ci/local.sh" -o "$f"; }
     bash "$f"
 
 fmt:
@@ -71,7 +71,7 @@ verify-slow: gates
 version := `cat VERSION`
 commit := `git rev-parse --short HEAD 2>/dev/null || echo none`
 date := `date -u +%Y-%m-%d`
-ldflags := "-X github.com/schuettc/galley/internal/version.version=" + version + " -X github.com/schuettc/galley/internal/version.commit=" + commit + " -X github.com/schuettc/galley/internal/version.date=" + date
+ldflags := "-X github.com/subaud-tools/galley/internal/version.version=" + version + " -X github.com/subaud-tools/galley/internal/version.commit=" + commit + " -X github.com/subaud-tools/galley/internal/version.date=" + date
 
 # Worktrees live INSIDE the repo at galley/.worktrees/<name>, which puts the
 # BARE repo directory on their ancestor path. Go's VCS stamping walks up past

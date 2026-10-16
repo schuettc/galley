@@ -1,6 +1,6 @@
 package suggest
 
-import "github.com/schuettc/galley/internal/docmodel"
+import "github.com/subaud-tools/galley/internal/docmodel"
 
 // ClearInstructions returns the clean document committed when the reviewer
 // sends a round. Instruction text has already moved to the ledger; highlights

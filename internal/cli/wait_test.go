@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // These are the three cases for the blocking read, and they are deliberately

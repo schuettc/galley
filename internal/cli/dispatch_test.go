@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/version"
-	tools "github.com/schuettc/tools-common"
+	"github.com/subaud-tools/galley/internal/version"
+	tools "github.com/subaud-tools/tools-common"
 )
 
 // galley's help, version and unknown-command handling are tools.App's (the

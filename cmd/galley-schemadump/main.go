@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // node mirrors docmodel.Block in the three fields the bridge reads: raw Text

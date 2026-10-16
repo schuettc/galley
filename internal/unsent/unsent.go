@@ -36,11 +36,11 @@ import (
 	"strings"
 	"time"
 
-	tools "github.com/schuettc/tools-common"
+	tools "github.com/subaud-tools/tools-common"
 
-	"github.com/schuettc/galley/internal/ondisk"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // Version is the schema generation this build writes and the newest it reads.

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // newRenderFlags is galley render's flag set and the -o destination.

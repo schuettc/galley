@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/tools-common/channelmcp"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/tools-common/channelmcp"
 )
 
 // The whole loop, in one process: an editor advertises, the channel attaches,

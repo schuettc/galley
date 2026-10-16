@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/ledger"
 )
 
 // ledgerRepo builds a throwaway repository with a document and n decisions

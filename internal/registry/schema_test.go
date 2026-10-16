@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/ondisk"
 )
 
 // AN ADVERT AS AN OLDER GALLEY WROTE IT — literal bytes, no `v`. One

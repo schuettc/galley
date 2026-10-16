@@ -29,9 +29,9 @@ import (
 	"syscall"
 	"time"
 
-	tools "github.com/schuettc/tools-common"
+	tools "github.com/subaud-tools/tools-common"
 
-	"github.com/schuettc/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/ondisk"
 )
 
 // Version is the schema generation of an advert and of a session presence
