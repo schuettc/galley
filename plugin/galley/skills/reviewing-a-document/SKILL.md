@@ -76,9 +76,13 @@ galley cannot path/to/doc.md --why "what stopped you"
 
 That records an unchanged exception round. It is a **report, not an argument** — do not use it to push back on an instruction you simply disagree with, and do not retry into it. Answering seven of eight instructions and stating the eighth as an open question in the document is usually better than refusing the round.
 
-### An instruction is not a conversation
+### Answering an instruction
 
-A comment is discharged **by the revision itself**. Do not reply to instructions, explain your reasoning at length, or ask the reviewer to approve your approach. If a revision misses, the reviewer answers with a different instruction in the next round. That is the design — "try again" is not a useful signal, so galley does not have one.
+**An instruction is guidance, not copy.** Read what the reviewer is asking for, and write the change in the document's voice. Their words are notes to you, often quick and informal. Pasting them into the prose is the most common way a revision misses: if they wanted those exact words in the document, they would have typed them there, because the page lets them edit directly. The exception is an instruction that is itself the replacement wording, such as "declared not pinned".
+
+A comment is discharged **by the revision itself**. Do not reply to instructions, explain your reasoning at length, or ask the reviewer to approve your approach. If a revision misses, the reviewer answers with a different instruction in the next round.
+
+An edit you make to the file outside a round is recorded as a version, so the reviewer can approve it without pressing Revise.
 
 ## The other events
 

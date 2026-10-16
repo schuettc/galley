@@ -194,6 +194,10 @@ type EditServer struct {
 	// order — the agent's return reads that number back to point at the
 	// instruction, and the alternative was mu and reviseMu held together.
 	lastCutN int
+	// loadedOutside is a load of the file, changed outside the editor, waiting
+	// for the projection that made it to cut its version. Set and cleared under
+	// mu; see saveOnce and cutOutside.
+	loadedOutside bool
 
 	// mu serializes every SERVER-side mutation of the document — the
 	// suggest/accept/reject endpoints, Project, and Flush — so no two of them
@@ -815,6 +819,7 @@ func (s *EditServer) projectAs(overwrite string) error {
 	// document to make a version: doing so would be a second answer to "what
 	// does this document say right now", and the CRDT is live while a round is
 	// open. See versions.go.
+	s.cutOutside(out)
 	s.cutIfSending(out, false, 0)
 
 	// The notification rides on the projection, and this is the one place in
@@ -992,6 +997,13 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 		// window is. Nothing is written; the file already says it. A comment
 		// whose marker the file lacks stays, unplaced, and one the reviewer
 		// took back stays taken back (keepCommentsAcrossLocked).
+		//
+		// AND IT IS A VERSION when the reviewer has nothing unsent, so the
+		// rail does not read it as their own hand and the verdict can be
+		// Approve. Their projected but unsent edits are in the file the load
+		// came from, so cutting over them would take them off the rail and out
+		// of the round that sends them: that load stays as it was.
+		unsent, _ := s.liveChanges(model)
 		before := s.keepCommentsAcrossLocked(model, theirs)
 		live, err := s.loadLocked(theirs)
 		if err != nil {
@@ -1006,6 +1018,7 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 			return docmodel.Doc{}, nil, false, err
 		}
 		s.clearNotice()
+		s.loadedOutside = len(unsent) == 0
 		if s.Log != nil {
 			s.Log(fmt.Sprintf("%s changed outside the editor and was loaded into the review", name))
 		}

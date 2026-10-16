@@ -107,6 +107,13 @@ export const DEFAULT_VIEW = 'inplace';
 // unchanged, which is exactly what is being recorded.
 export const COULD_NOT = 'could-not';
 
+// OUTSIDE is the reason word of a version galley cut because the file changed
+// outside the editor while the reviewer had nothing unsent — an agent editing
+// the file directly, outside a round. Nobody asked for it and nobody answered,
+// so its card says where it came from instead of naming an instruction.
+const OUTSIDE = 'outside';
+const OUTSIDE_SAID = 'changed outside the editor';
+
 // The two stages, named so a caller can ask which one is on screen without
 // knowing how it is spelled in a class.
 export const STAGE_ROUNDS = 'rounds';
@@ -1039,7 +1046,14 @@ export class VersionsPanel {
       head.textContent = roundHead(i + 1, round, now);
 
       const body = cardBody(el);
-      body.append(...askLines(askOn(this.rounds, round)));
+      if (round.reason === OUTSIDE) {
+        const said = document.createElement('p');
+        said.className = 'gly-versions-ask';
+        said.textContent = OUTSIDE_SAID;
+        body.appendChild(said);
+      } else {
+        body.append(...askLines(askOn(this.rounds, round)));
+      }
 
       const answered = answerOn(round);
       if (answered) {
@@ -1052,7 +1066,7 @@ export class VersionsPanel {
       const foot = document.createElement('span');
       foot.className = 'gly-versions-foot';
       foot.textContent = roundFoot(round);
-      if (!round.answers) {
+      if (!round.answers && round.reason !== OUTSIDE) {
         // AN ASK NOBODY HAS ANSWERED YET IS THE ONE THE REVIEWER MOST WANTS TO
         // SEE, and it has no version of the agent's to name — the cut it points
         // at is the reviewer's own draft. So the foot says where it IS rather
