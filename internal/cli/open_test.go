@@ -116,7 +116,6 @@ func TestOpenWaitsOutAnEditorThatDoesNotAnswer(t *testing.T) {
 
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
-	noBrowser(t)
 	recordOpens(c)
 	c.openPoll = 20 * time.Millisecond
 	go func() {

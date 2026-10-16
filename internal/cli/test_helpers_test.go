@@ -10,7 +10,7 @@ import (
 )
 
 // TestMain isolates the whole package's test run from the operator's real
-// config dir. Tests that need a specific dir still set their own
+// config dir and browser. Tests that need a specific dir still set their own
 // GALLEY_CONFIG_DIR with t.Setenv, which shadows this baseline.
 func TestMain(m *testing.M) {
 	code := func() int {
@@ -20,6 +20,26 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 		defer func() { _ = os.RemoveAll(dir) }()
+
+		// A do-nothing `open` and `xdg-open` first on PATH: galley_open opens
+		// the review page, in this process or in the editor it spawns (which
+		// inherits PATH), and a test must not open tabs on the machine running it.
+		bin, err := os.MkdirTemp("", "galley-cmd-test-bin")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "TestMain: mkdtemp:", err)
+			return 1
+		}
+		defer func() { _ = os.RemoveAll(bin) }()
+		for _, name := range []string{"open", "xdg-open"} {
+			if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				fmt.Fprintln(os.Stderr, "TestMain: write", name+":", err)
+				return 1
+			}
+		}
+		if err := os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+			fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
+			return 1
+		}
 
 		oldDir, hadDir := os.LookupEnv("GALLEY_CONFIG_DIR")
 		if err := os.Setenv("GALLEY_CONFIG_DIR", dir); err != nil {
