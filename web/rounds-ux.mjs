@@ -3509,11 +3509,11 @@ try {
   );
 
   // AN EDIT MADE OUTSIDE THE EDITOR IS A VERSION. With nothing pending, the
-  // file changed by hand outside any round — an agent editing it directly
-  // after discussing a change — is not the reviewer's own edit, so the primary
-  // stays Approve and History names where the version came from. Outside a
-  // handoff window nothing watches the file; the page load looks at it, so
-  // the reviewer's reload is what brings it in.
+  // file changed by hand outside any round — an agent editing it directly —
+  // is not the reviewer's own edit, so the primary stays Approve and History
+  // names where the version came from. Outside a handoff window nothing
+  // watches the file; the page load looks at it, so the reviewer's reload is
+  // what brings it in.
   const outsideLine = 'A paragraph written outside the editor.';
   writeFileSync(
     doc,

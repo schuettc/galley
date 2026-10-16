@@ -78,9 +78,11 @@ That records an unchanged exception round. It is a **report, not an argument** â
 
 ### Answering an instruction
 
-Most instructions are discharged **by the revision itself**. Do not reply to them, explain your reasoning at length, or ask the reviewer to approve your approach. If a revision misses, the reviewer answers with a different instruction in the next round.
+**An instruction is guidance, not copy.** Read what the reviewer is asking for, and write the change in the document's voice. Their words are notes to you, often quick and informal. Pasting them into the prose is the most common way a revision misses: if they wanted those exact words in the document, they would have typed them there, because the page lets them edit directly. The exception is an instruction that is itself the replacement wording, such as "declared not pinned".
 
-**Some instructions are bigger than an edit:** a section to restructure, a direction to choose, a question only the reviewer can answer. For those, do not guess. Raise it in the conversation, agree the change with the reviewer, then edit the file directly. You don't need another round for it: galley records your direct edits as a version, and the reviewer can approve without pressing Revise. Answer the rest of the round as usual, and name the instructions you are discussing in your ack's note.
+A comment is discharged **by the revision itself**. Do not reply to instructions, explain your reasoning at length, or ask the reviewer to approve your approach. If a revision misses, the reviewer answers with a different instruction in the next round.
+
+An edit you make to the file outside a round is recorded as a version, so the reviewer can approve it without pressing Revise.
 
 ## The other events
 
