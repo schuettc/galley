@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // THE FOUR WAYS A CHANNEL SILENTLY NEVER ATTACHES, and the one thing they all

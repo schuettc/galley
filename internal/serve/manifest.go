@@ -35,8 +35,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/schuettc/galley/internal/diff"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/diff"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // ackChange is one entry of the manifest as it arrives on the wire, on both

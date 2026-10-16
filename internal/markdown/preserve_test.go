@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // TestOpeningADocumentChangesNothing is the incident this file exists for.

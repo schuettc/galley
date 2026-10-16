@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // TestExtractSpanIsTransparent checks that a paragraph whose prose is wrapped

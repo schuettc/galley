@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/versions"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // applied_test.go drives PHASE 2's WHOLE LOOP through the real endpoints: the

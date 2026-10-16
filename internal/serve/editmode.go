@@ -39,15 +39,15 @@ import (
 	"github.com/reearth/ygo/crdt"
 	ws "github.com/reearth/ygo/provider/websocket"
 
-	"github.com/schuettc/galley/internal/debug"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/ledger"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/unsent"
-	"github.com/schuettc/galley/internal/versions"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/debug"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/unsent"
+	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // EditServer serves one markdown document, live as a ygo XML fragment, and

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/ondisk"
-	"github.com/schuettc/tools-common/sqlitedb"
+	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/tools-common/sqlitedb"
 )
 
 // THE INDEX IS DERIVED, AND `galley ledger rebuild` IS THE PROOF.

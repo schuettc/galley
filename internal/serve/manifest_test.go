@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // THE SERVER OWNS THE CHANGE LIST AND THE AGENT MAY ONLY ANNOTATE IT. These

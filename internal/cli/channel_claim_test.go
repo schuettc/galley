@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 func advertOwner(t *testing.T, room string) string {

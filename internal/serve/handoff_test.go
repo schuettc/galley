@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/versions"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // cancelHandoff is the reviewer taking the document back mid-window — the

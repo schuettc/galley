@@ -30,8 +30,8 @@ package serve
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/ledger"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // recorder is the ledger this server writes through — the process-wide default

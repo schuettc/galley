@@ -79,9 +79,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/debug"
-	"github.com/schuettc/galley/internal/serve"
-	tools "github.com/schuettc/tools-common"
+	"github.com/subaud-tools/galley/internal/debug"
+	"github.com/subaud-tools/galley/internal/serve"
+	tools "github.com/subaud-tools/tools-common"
 )
 
 // The eight things a poll can report. Mirrors the endpoint's vocabulary in

@@ -9,9 +9,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/schuettc/galley/internal/version"
-	tools "github.com/schuettc/tools-common"
-	"github.com/schuettc/tools-common/localweb"
+	"github.com/subaud-tools/galley/internal/version"
+	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/localweb"
 )
 
 // about is galley's overview, shown by `galley help` above the generated

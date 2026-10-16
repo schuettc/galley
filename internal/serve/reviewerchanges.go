@@ -3,8 +3,8 @@ package serve
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/diff"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/diff"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // ReviewerChange is one thing the reviewer changed in the document BY HAND,

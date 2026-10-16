@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/diff"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/diff"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // REVERTING ONE EDIT IS NOT UNDO, AND THAT IS WHY IT EXISTS.

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // FRONT MATTER IS THE ONE CONSTRUCT GALLEY NEITHER MODELLED NOR REFUSED.

@@ -3,7 +3,7 @@ package suggest
 import (
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 func TestClearInstructionsLeavesCleanProse(t *testing.T) {

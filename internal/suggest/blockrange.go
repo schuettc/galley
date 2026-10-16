@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 )
 
 // A SELECTION THAT CROSSES A BLOCK BOUNDARY CAN BE COMMENTED ON.

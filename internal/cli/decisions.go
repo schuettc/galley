@@ -17,8 +17,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/schuettc/galley/internal/debug"
-	"github.com/schuettc/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/debug"
+	"github.com/subaud-tools/galley/internal/ledger"
 )
 
 // decisions is where this process remembers what it decided. A variable rather

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // galley_approve IS THE PAGE'S APPROVE BUTTON, CALLED FROM THE CONVERSATION.

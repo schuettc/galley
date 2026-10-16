@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 func roundStore(t *testing.T, rs ...versions.Round) string {

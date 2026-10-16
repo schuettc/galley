@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // The exception has an offline form now: with no server there is still a

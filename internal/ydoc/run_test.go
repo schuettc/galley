@@ -3,8 +3,8 @@ package ydoc_test
 import (
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // RUNS MUST SURVIVE THE CRDT, and this is the only thing that says so.

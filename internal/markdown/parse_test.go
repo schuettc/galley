@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 func mustRead(t *testing.T, path string) []byte {

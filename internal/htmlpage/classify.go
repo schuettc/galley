@@ -3,7 +3,7 @@ package htmlpage
 import (
 	"strings"
 
-	"github.com/schuettc/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/docmodel"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )

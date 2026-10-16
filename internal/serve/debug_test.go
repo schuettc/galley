@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/debug"
+	"github.com/subaud-tools/galley/internal/debug"
 )
 
 // recording is a debug sink that keeps what it was given, so a check can read

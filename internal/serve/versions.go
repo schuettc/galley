@@ -46,13 +46,13 @@ import (
 	"time"
 
 	"github.com/reearth/ygo/crdt"
-	"github.com/schuettc/galley/internal/diff"
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/ledger"
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/diff"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/ledger"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // cutIntent is a send waiting for the next projection to write it down.

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/schuettc/galley/internal/render"
+	"github.com/subaud-tools/galley/internal/render"
 )
 
 // The branded page Share hands over and the preview tab shows. One renderer

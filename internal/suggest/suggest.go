@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // Kind identifies what a Pending suggestion would do if accepted.

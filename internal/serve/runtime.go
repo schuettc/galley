@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/registry"
 )
 
 // The one-editor-per-document advert: <doc>.serve.json beside the document,

@@ -5,9 +5,9 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // The claim the whole phase rests on: a run survives the CRDT, so the browser

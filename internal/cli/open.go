@@ -23,8 +23,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/schuettc/galley/internal/registry"
-	"github.com/schuettc/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // openResult is what galley_open returns, as JSON text: enough for the agent

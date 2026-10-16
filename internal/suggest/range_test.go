@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // The reported bug, as a test. Commenting on "age" in a document that also

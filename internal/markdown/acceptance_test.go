@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/schuettc/galley/internal/docmodel"
-	"github.com/schuettc/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/markdown"
 )
 
 // The failure this phase exists to remove, as a test.

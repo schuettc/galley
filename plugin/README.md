@@ -9,7 +9,7 @@ The plugin carries three things: the `.mcp.json` entry pointing at `galley chann
 This repository is its own marketplace — `.claude-plugin/marketplace.json` at the root lists the plugin at `./plugin/galley`.
 
 ```sh
-claude plugin marketplace add schuettc/galley
+claude plugin marketplace add subaud-tools/galley
 claude plugin install galley@galley
 ```
 

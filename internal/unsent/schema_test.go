@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/ondisk"
-	"github.com/schuettc/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/review"
 )
 
 // THE KEY SET IS THE CONTRACT. The decoder is strict, so a rename is refused

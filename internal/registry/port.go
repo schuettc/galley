@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	tools "github.com/schuettc/tools-common"
+	tools "github.com/subaud-tools/tools-common"
 )
 
 // Port reuse — galley-edits friction #5. `galley edit` binds a fresh random

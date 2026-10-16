@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/schuettc/galley/internal/review"
-	"github.com/schuettc/galley/internal/unsent"
-	"github.com/schuettc/galley/internal/ydoc"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/unsent"
+	"github.com/subaud-tools/galley/internal/ydoc"
 )
 
 // BLOCK AND DOCUMENT COMMENTS ARE LINKED TO THEIR PLACE BY ID ALONE. A block

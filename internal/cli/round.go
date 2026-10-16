@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // A ROUND IS DELIVERED ONCE, AND UNTIL NOW THERE WAS NO WAY TO READ IT AGAIN.

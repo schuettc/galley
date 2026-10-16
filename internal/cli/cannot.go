@@ -25,10 +25,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/schuettc/galley/internal/markdown"
-	"github.com/schuettc/galley/internal/serve"
-	"github.com/schuettc/galley/internal/suggest"
-	"github.com/schuettc/galley/internal/versions"
+	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // cannotFlags is galley cannot's flag set, built by newCannotFlags so the app
