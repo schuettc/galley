@@ -39,20 +39,6 @@ func script(t *testing.T, body string) string {
 	return p
 }
 
-// noBrowser puts a do-nothing `open` and `xdg-open` first on PATH, which the
-// spawned editor inherits: galley_open's editor opens the browser itself, and
-// a test that runs the real binary must not open tabs on the machine running it.
-func noBrowser(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	for _, name := range []string{"open", "xdg-open"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-}
-
 func killEditor(t *testing.T, room string) {
 	t.Helper()
 	entries, _ := registry.List()
@@ -81,7 +67,6 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	}
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
-	noBrowser(t)
 	opened := recordOpens(c)
 	c.openPoll = 20 * time.Millisecond
 
@@ -145,7 +130,6 @@ func TestOpenStartsAFreshReviewWhenTheLastOneEnded(t *testing.T) {
 	}
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
-	noBrowser(t)
 	recordOpens(c)
 	c.openPoll = 20 * time.Millisecond
 
@@ -293,7 +277,6 @@ func TestOpenAnHTMLPageResolvesTheAdvertisedContentFile(t *testing.T) {
 	}
 	c := newChannel(dir, "session-me")
 	c.exe = buildGalley(t)
-	noBrowser(t)
 	c.openPoll = 20 * time.Millisecond
 
 	r, err := openDoc(t, c, page)
