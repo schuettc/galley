@@ -73,6 +73,6 @@ jobs:
           apple-notary-key-id: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           apple-notary-issuer-id: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
           dl-tool: galley
-          dl-role-arn: ${{ secrets.GALLEY_RELEASE_ROLE_ARN }}
-          dl-bucket: ${{ secrets.GALLEY_DOWNLOADS_BUCKET }}
+          dl-role-arn: ${{ vars.GALLEY_RELEASE_ROLE_ARN }}
+          dl-bucket: ${{ vars.GALLEY_DOWNLOADS_BUCKET }}
           dl-distribution-id: E1SZ7R2DDWHDSZ
